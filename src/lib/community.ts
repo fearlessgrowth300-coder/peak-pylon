@@ -12,6 +12,7 @@ export type Member = {
   bio: string;
   avatar: string;
   banner: string;
+  joined?: number | undefined;
 };
 
 export type Post = {
@@ -19,7 +20,19 @@ export type Post = {
   authorId: string;
   text: string;
   image: string;
+  video?: string | undefined;
+  sticker?: string | undefined;
+  replyToId?: string | undefined;
   time: number;
+};
+
+export type PostInput = {
+  authorId: string;
+  text: string;
+  image?: string | undefined;
+  video?: string | undefined;
+  sticker?: string | undefined;
+  replyToId?: string | undefined;
 };
 
 export type Stats = { members: string; online: string; rank: string };
@@ -50,6 +63,7 @@ export function defaultState(): State {
         bio: "Competitive streamer, late-night energy, and community-first vibes.",
         avatar: "",
         banner: "",
+        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
       },
       {
         id: m2,
@@ -61,6 +75,7 @@ export function defaultState(): State {
         bio: "Variety creator sharing challenges, reactions, and creator tips.",
         avatar: "",
         banner: "",
+        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
       },
       {
         id: m3,
@@ -72,6 +87,7 @@ export function defaultState(): State {
         bio: "FPS, ranked grinds, clips, and creator collaborations.",
         avatar: "",
         banner: "",
+        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
       },
     ],
     posts: [
@@ -117,7 +133,10 @@ export function useCommunity() {
   }, [state, hydrated]);
 
   const addMember = useCallback((member: Omit<Member, "id">) => {
-    setState((s) => ({ ...s, members: [{ ...member, id: uid() }, ...s.members] }));
+    setState((s) => ({
+      ...s,
+      members: [{ joined: Date.now(), ...member, id: uid() }, ...s.members],
+    }));
   }, []);
 
   const removeMember = useCallback((id: string) => {
@@ -132,10 +151,18 @@ export function useCommunity() {
     );
   }, []);
 
-  const addPost = useCallback((authorId: string, text: string, image: string) => {
+  const addPost = useCallback((input: PostInput) => {
     setState((s) => ({
       ...s,
-      posts: [{ id: uid(), authorId, text, image, time: Date.now() }, ...s.posts],
+      posts: [
+        {
+          ...input,
+          id: uid(),
+          image: input.image ?? "",
+          time: Date.now(),
+        },
+        ...s.posts,
+      ],
     }));
   }, []);
 
@@ -172,5 +199,16 @@ export function readFileAsDataUrl(file: File | undefined | null): Promise<string
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => resolve("");
     reader.readAsDataURL(file);
+  });
+}
+
+export const STICKERS = ["🔥", "😂", "🎉", "👑", "🎮", "💜", "🚀", "👀", "🏆", "🤝", "⚡", "😎"];
+
+export function formatDate(ts: number | undefined) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }

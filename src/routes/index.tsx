@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { timeAgo, useCommunity, type Member } from "@/lib/community";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { timeAgo, useCommunity, type Member, type PostInput } from "@/lib/community";
+import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
 import { AdminView } from "@/components/community/Admin";
@@ -52,12 +53,21 @@ function Index() {
   const [profile, setProfile] = useState<Member | null>(null);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
+  const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
+  const [chatAuthor, setChatAuthor] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 1800);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (view !== "general") return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [view, state.posts.length]);
 
   const memberById = useMemo(
     () => new Map(state.members.map((m) => [m.id, m])),
@@ -178,7 +188,8 @@ function Index() {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 overflow-y-auto">
+          <div className="flex min-w-0 flex-1 flex-col">
+          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
             {view === "general" && (
               <div className="space-y-4 px-4 py-5">
                 <section className="rounded-xl bg-popover p-5">
@@ -217,51 +228,90 @@ function Index() {
                   they were published by the community owner.
                 </p>
 
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {[...state.posts]
-                    .sort((a, b) => b.time - a.time)
+                    .sort((a, b) => a.time - b.time)
                     .map((p) => {
                       const m = memberById.get(p.authorId);
+                      const parent = p.replyToId
+                        ? state.posts.find((x) => x.id === p.replyToId)
+                        : undefined;
+                      const parentAuthor = parent
+                        ? memberById.get(parent.authorId)
+                        : undefined;
                       return (
                         <article
                           key={p.id}
-                          className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md px-1 py-2 hover:bg-accent/25"
+                          className="group rounded-md px-1 py-2 hover:bg-accent/25"
                         >
-                          <button onClick={() => m && setProfile(m)}>
-                            <Avatar
-                              member={
-                                m ?? { name: "Community", avatar: "", status: "offline" }
-                              }
-                              size={40}
-                              showStatus={false}
-                            />
-                          </button>
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <button
-                                onClick={() => m && setProfile(m)}
-                                className="font-semibold hover:underline"
-                              >
-                                {m?.name ?? "Community"}
-                              </button>
-                              <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
-                                COMMUNITY-MANAGED POST
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {timeAgo(p.time)}
+                          {parent && (
+                            <div className="mb-1 flex min-w-0 items-center gap-2 pl-12 text-xs text-muted-foreground">
+                              <span>↰</span>
+                              <span className="truncate">
+                                <strong className="text-primary">
+                                  {parentAuthor?.name ?? "Community"}
+                                </strong>{" "}
+                                {parent.text || parent.sticker || "attachment"}
                               </span>
                             </div>
-                            <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">
-                              {p.text}
-                            </p>
-                            {p.image && (
-                              <img
-                                src={p.image}
-                                alt="Community post attachment"
-                                loading="lazy"
-                                className="mt-2 max-h-80 rounded-lg object-cover"
+                          )}
+                          <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
+                            <button onClick={() => m && setProfile(m)}>
+                              <Avatar
+                                member={
+                                  m ?? { name: "Community", avatar: "", status: "offline" }
+                                }
+                                size={40}
+                                showStatus={false}
                               />
-                            )}
+                            </button>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <button
+                                  onClick={() => m && setProfile(m)}
+                                  className="font-semibold hover:underline"
+                                >
+                                  {m?.name ?? "Community"}
+                                </button>
+                                <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+                                  COMMUNITY-MANAGED POST
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {timeAgo(p.time)}
+                                </span>
+                                <button
+                                  onClick={() =>
+                                    setReplyTo({ id: p.id, name: m?.name ?? "Community" })
+                                  }
+                                  className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+                                >
+                                  Reply
+                                </button>
+                              </div>
+                              {p.text && (
+                                <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">
+                                  {p.text}
+                                </p>
+                              )}
+                              {p.sticker && (
+                                <p className="mt-1 text-5xl leading-none">{p.sticker}</p>
+                              )}
+                              {p.image && (
+                                <img
+                                  src={p.image}
+                                  alt="Community post attachment"
+                                  loading="lazy"
+                                  className="mt-2 max-h-80 rounded-lg object-cover"
+                                />
+                              )}
+                              {p.video && (
+                                <video
+                                  src={p.video}
+                                  controls
+                                  className="mt-2 max-h-80 w-full rounded-lg"
+                                />
+                              )}
+                            </div>
                           </div>
                         </article>
                       );
@@ -335,11 +385,48 @@ function Index() {
               />
             )}
           </div>
+          {view === "general" && (
+            <Composer
+              authors={state.members}
+              authorId={chatAuthor || state.members[0]?.id || ""}
+              setAuthorId={setChatAuthor}
+              replyTo={replyTo}
+              clearReply={() => setReplyTo(null)}
+              onSend={(post: PostInput) => addPost(post)}
+            />
+          )}
+          </div>
 
           {/* Member list */}
           <aside
             className={`${membersOpen ? "block" : "hidden"} w-60 shrink-0 overflow-y-auto bg-sidebar p-3 max-md:fixed max-md:inset-y-12 max-md:right-0 max-md:z-40 max-md:w-64 max-md:shadow-elevated`}
           >
+            <button
+              onClick={() => setToast("Approval request sent to the owner")}
+              className="mb-3 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
+            >
+              Get your channel approved
+            </button>
+            <button
+              onClick={() => setToast("Invite link copied")}
+              className="mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold hover:bg-accent/70"
+            >
+              + Invite members
+            </button>
+
+            <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+              Admin — 1
+            </p>
+            <div className="mb-4 flex items-center gap-2 rounded-md px-2 py-1.5">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                OW
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                Community Owner
+              </span>
+              <span className="shrink-0 text-xs">👑</span>
+            </div>
+
             <MemberGroup title={`Online — ${online.length}`} list={online} onPick={setProfile} />
             <MemberGroup
               title={`Offline — ${offline.length}`}

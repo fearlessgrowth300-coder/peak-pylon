@@ -3,6 +3,7 @@ import {
   readFileAsDataUrl,
   type Member,
   type State,
+  type PostInput,
   type Stats,
   type Status,
 } from "@/lib/community";
@@ -19,7 +20,7 @@ export function AdminView({
   state: State;
   addMember: (m: Omit<Member, "id">) => void;
   removeMember: (id: string) => void;
-  addPost: (authorId: string, text: string, image: string) => void;
+  addPost: (post: PostInput) => void;
   setStats: (s: Stats) => void;
   notify: (msg: string) => void;
 }) {
@@ -58,7 +59,7 @@ export function AdminView({
     const image = await readFileAsDataUrl(postImage);
     const author = postAuthor || state.members[0]?.id;
     if (!author) return;
-    addPost(author, postText, image);
+    addPost({ authorId: author, text: postText, image });
     setPostText("");
     setPostImage(null);
     notify("Post published");
