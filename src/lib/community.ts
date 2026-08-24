@@ -12,6 +12,7 @@ export type Member = {
   bio: string;
   avatar: string;
   banner: string;
+  joined?: number;
 };
 
 export type Post = {
@@ -19,7 +20,19 @@ export type Post = {
   authorId: string;
   text: string;
   image: string;
+  video?: string;
+  sticker?: string;
+  replyToId?: string;
   time: number;
+};
+
+export type PostInput = {
+  authorId: string;
+  text: string;
+  image?: string;
+  video?: string;
+  sticker?: string;
+  replyToId?: string;
 };
 
 export type Stats = { members: string; online: string; rank: string };
@@ -117,7 +130,10 @@ export function useCommunity() {
   }, [state, hydrated]);
 
   const addMember = useCallback((member: Omit<Member, "id">) => {
-    setState((s) => ({ ...s, members: [{ ...member, id: uid() }, ...s.members] }));
+    setState((s) => ({
+      ...s,
+      members: [{ joined: Date.now(), ...member, id: uid() }, ...s.members],
+    }));
   }, []);
 
   const removeMember = useCallback((id: string) => {
@@ -132,10 +148,18 @@ export function useCommunity() {
     );
   }, []);
 
-  const addPost = useCallback((authorId: string, text: string, image: string) => {
+  const addPost = useCallback((input: PostInput) => {
     setState((s) => ({
       ...s,
-      posts: [{ id: uid(), authorId, text, image, time: Date.now() }, ...s.posts],
+      posts: [
+        {
+          id: uid(),
+          image: "",
+          ...input,
+          time: Date.now(),
+        },
+        ...s.posts,
+      ],
     }));
   }, []);
 
@@ -172,5 +196,16 @@ export function readFileAsDataUrl(file: File | undefined | null): Promise<string
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => resolve("");
     reader.readAsDataURL(file);
+  });
+}
+
+export const STICKERS = ["🔥", "😂", "🎉", "👑", "🎮", "💜", "🚀", "👀", "🏆", "🤝", "⚡", "😎"];
+
+export function formatDate(ts: number | undefined) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
