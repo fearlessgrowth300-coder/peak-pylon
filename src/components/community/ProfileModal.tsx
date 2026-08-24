@@ -1,18 +1,39 @@
+import type { ComponentType } from "react";
+import {
+  BadgeCheck,
+  ExternalLink,
+  Link2,
+  MessageSquare,
+  Music2,
+  PhoneCall,
+  Twitch,
+  UserPlus,
+  Video,
+  Youtube,
+} from "lucide-react";
 import { formatDate, type Member } from "@/lib/community";
 import { Avatar } from "./Bits";
 
-const PLATFORM_ICON: Record<string, string> = {
-  Twitch: "🟣",
-  YouTube: "▶️",
-  TikTok: "🎵",
-  Kick: "🟩",
-  Other: "🔗",
+const PLATFORM_ICON: Record<string, ComponentType<{ className?: string }>> = {
+  Twitch,
+  YouTube: Youtube,
+  TikTok: Music2,
+  Kick: Link2,
+  Other: Link2,
 };
 
-function Action({ icon, label, accent }: { icon: string; label: string; accent?: boolean }) {
+function Action({
+  icon: Icon,
+  label,
+  accent,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  accent?: boolean;
+}) {
   return (
     <div className="flex flex-col items-center gap-1.5 py-3">
-      <span className="text-xl leading-none">{icon}</span>
+      <Icon className={`h-5 w-5 ${accent ? "text-online" : "text-foreground"}`} />
       <span
         className={`text-[11px] font-semibold ${accent ? "text-online" : "text-muted-foreground"}`}
       >
@@ -30,6 +51,7 @@ export function ProfileModal({
   onClose: () => void;
 }) {
   if (!member) return null;
+  const PlatformIcon = PLATFORM_ICON[member.platform] ?? Link2;
   const statusLabel =
     member.status === "live"
       ? "LIVE NOW"
@@ -86,10 +108,10 @@ export function ProfileModal({
             </div>
 
             <div className="grid grid-cols-4 border-t border-border">
-              <Action icon="💬" label="Message" />
-              <Action icon="📞" label="Voice Call" />
-              <Action icon="🎥" label="Video Call" />
-              <Action icon="➕" label="Add Friend" accent />
+              <Action icon={MessageSquare} label="Message" />
+              <Action icon={PhoneCall} label="Voice Call" />
+              <Action icon={Video} label="Video Call" />
+              <Action icon={UserPlus} label="Add Friend" accent />
             </div>
           </div>
 
@@ -121,16 +143,12 @@ export function ProfileModal({
                 rel="noopener noreferrer"
                 className="mt-2 flex items-center gap-3 rounded-lg border border-border bg-popover px-3 py-3 transition-colors hover:bg-accent/40"
               >
-                <span className="text-lg leading-none">
-                  {PLATFORM_ICON[member.platform] ?? "🔗"}
-                </span>
+                <PlatformIcon className="h-5 w-5 shrink-0 text-primary" />
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold">
                   {member.handle.replace(/^@/, "")}
-                  <span className="ml-1.5 text-primary" title="Verified connection">
-                    ✔
-                  </span>
+                  <BadgeCheck className="ml-1.5 inline h-4 w-4 align-text-bottom text-primary" />
                 </span>
-                <span className="shrink-0 text-muted-foreground">↗</span>
+                <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
               </a>
             ) : (
               <p className="mt-2 text-sm text-muted-foreground">No channel linked yet.</p>

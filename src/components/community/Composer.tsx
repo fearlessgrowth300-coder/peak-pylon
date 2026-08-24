@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
+import { Plus, Send, Smile, Video as VideoIcon, X } from "lucide-react";
 import { readFileAsDataUrl, STICKERS, type Member, type PostInput } from "@/lib/community";
 
 export function Composer({
@@ -67,9 +68,9 @@ export function Composer({
               <img src={image} alt="Attachment preview" className="h-20 rounded-md" />
               <button
                 onClick={() => setImage("")}
-                className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-xs text-foreground"
+                className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-foreground"
               >
-                ×
+                <X className="h-3 w-3" />
               </button>
             </div>
           )}
@@ -78,9 +79,9 @@ export function Composer({
               <video src={video} className="h-20 rounded-md" />
               <button
                 onClick={() => setVideo("")}
-                className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-xs text-foreground"
+                className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-foreground"
               >
-                ×
+                <X className="h-3 w-3" />
               </button>
             </div>
           )}
@@ -123,17 +124,17 @@ export function Composer({
           type="button"
           aria-label="Upload image"
           onClick={() => imageRef.current?.click()}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-lg"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent"
         >
-          +
+          <Plus className="h-4 w-4" />
         </button>
         <button
           type="button"
           aria-label="Upload video"
           onClick={() => videoRef.current?.click()}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-sm"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent"
         >
-          🎥
+          <VideoIcon className="h-4 w-4" />
         </button>
         <input
           value={text}
@@ -146,16 +147,16 @@ export function Composer({
             type="button"
             aria-label="Stickers"
             onClick={() => setStickers((v) => !v)}
-            className="grid h-8 w-8 place-items-center rounded-full bg-accent text-sm"
+            className="grid h-8 w-8 place-items-center rounded-full bg-accent"
           >
-            😀
+            <Smile className="h-4 w-4" />
           </button>
           <button
             type="submit"
             aria-label="Send message"
-            className="grid h-8 w-8 place-items-center rounded-full bg-primary text-sm text-primary-foreground"
+            className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground"
           >
-            ➤
+            <Send className="h-4 w-4" />
           </button>
         </div>
       </form>
