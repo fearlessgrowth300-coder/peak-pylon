@@ -156,9 +156,9 @@ export function useCommunity() {
       ...s,
       posts: [
         {
-          id: uid(),
-          image: "",
           ...input,
+          id: uid(),
+          image: input.image ?? "",
           time: Date.now(),
         },
         ...s.posts,
