@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { timeAgo, useCommunity, type Member, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
@@ -55,12 +55,19 @@ function Index() {
   const [toast, setToast] = useState("");
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
   const [chatAuthor, setChatAuthor] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 1800);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (view !== "general") return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [view, state.posts.length]);
 
   const memberById = useMemo(
     () => new Map(state.members.map((m) => [m.id, m])),
@@ -182,7 +189,7 @@ function Index() {
 
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
-          <div className="min-w-0 flex-1 overflow-y-auto">
+          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
             {view === "general" && (
               <div className="space-y-4 px-4 py-5">
                 <section className="rounded-xl bg-popover p-5">
