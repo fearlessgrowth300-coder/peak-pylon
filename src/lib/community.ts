@@ -12,7 +12,7 @@ export type Member = {
   bio: string;
   avatar: string;
   banner: string;
-  joined?: number;
+  joined?: number | undefined;
 };
 
 export type Post = {
@@ -20,19 +20,19 @@ export type Post = {
   authorId: string;
   text: string;
   image: string;
-  video?: string;
-  sticker?: string;
-  replyToId?: string;
+  video?: string | undefined;
+  sticker?: string | undefined;
+  replyToId?: string | undefined;
   time: number;
 };
 
 export type PostInput = {
   authorId: string;
   text: string;
-  image?: string;
-  video?: string;
-  sticker?: string;
-  replyToId?: string;
+  image?: string | undefined;
+  video?: string | undefined;
+  sticker?: string | undefined;
+  replyToId?: string | undefined;
 };
 
 export type Stats = { members: string; online: string; rank: string };
@@ -63,6 +63,7 @@ export function defaultState(): State {
         bio: "Competitive streamer, late-night energy, and community-first vibes.",
         avatar: "",
         banner: "",
+        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
       },
       {
         id: m2,
@@ -74,6 +75,7 @@ export function defaultState(): State {
         bio: "Variety creator sharing challenges, reactions, and creator tips.",
         avatar: "",
         banner: "",
+        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
       },
       {
         id: m3,
@@ -85,6 +87,7 @@ export function defaultState(): State {
         bio: "FPS, ranked grinds, clips, and creator collaborations.",
         avatar: "",
         banner: "",
+        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
       },
     ],
     posts: [
