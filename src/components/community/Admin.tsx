@@ -56,7 +56,9 @@ export function AdminView({
   async function submitPost(e: FormEvent) {
     e.preventDefault();
     const image = await readFileAsDataUrl(postImage);
-    addPost(postAuthor || state.members[0].id, postText, image);
+    const author = postAuthor || state.members[0]?.id;
+    if (!author) return;
+    addPost(author, postText, image);
     setPostText("");
     setPostImage(null);
     notify("Post published");
