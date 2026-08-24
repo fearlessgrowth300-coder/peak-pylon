@@ -1,0 +1,179 @@
+import { useRef, useState, type FormEvent } from "react";
+import { readFileAsDataUrl, STICKERS, type Member, type PostInput } from "@/lib/community";
+
+export function Composer({
+  authors,
+  authorId,
+  setAuthorId,
+  replyTo,
+  clearReply,
+  onSend,
+}: {
+  authors: Member[];
+  authorId: string;
+  setAuthorId: (id: string) => void;
+  replyTo: { id: string; name: string } | null;
+  clearReply: () => void;
+  onSend: (post: PostInput) => void;
+}) {
+  const [text, setText] = useState("");
+  const [image, setImage] = useState("");
+  const [video, setVideo] = useState("");
+  const [stickers, setStickers] = useState(false);
+  const imageRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
+
+  function send(extra?: Partial<PostInput>) {
+    if (!authorId) return;
+    const payload: PostInput = {
+      authorId,
+      text: text.trim(),
+      image,
+      video,
+      replyToId: replyTo?.id,
+      ...extra,
+    };
+    if (!payload.text && !payload.image && !payload.video && !payload.sticker) return;
+    onSend(payload);
+    setText("");
+    setImage("");
+    setVideo("");
+    setStickers(false);
+    clearReply();
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    send();
+  }
+
+  return (
+    <div className="shrink-0 border-t border-rail bg-background px-3 pb-3 pt-2">
+      {replyTo && (
+        <div className="mb-2 flex items-center justify-between gap-3 rounded-t-md bg-accent/50 px-3 py-1.5 text-xs">
+          <span className="min-w-0 truncate text-muted-foreground">
+            Replying to <strong className="text-foreground">{replyTo.name}</strong>
+          </span>
+          <button onClick={clearReply} className="shrink-0 text-muted-foreground">
+            ×
+          </button>
+        </div>
+      )}
+
+      {(image || video) && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {image && (
+            <div className="relative">
+              <img src={image} alt="Attachment preview" className="h-20 rounded-md" />
+              <button
+                onClick={() => setImage("")}
+                className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-xs text-foreground"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {video && (
+            <div className="relative">
+              <video src={video} className="h-20 rounded-md" />
+              <button
+                onClick={() => setVideo("")}
+                className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-xs text-foreground"
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {stickers && (
+        <div className="mb-2 grid grid-cols-6 gap-1 rounded-md bg-popover p-2">
+          {STICKERS.map((s) => (
+            <button
+              key={s}
+              onClick={() => send({ sticker: s })}
+              className="rounded-md py-1.5 text-2xl hover:bg-accent/60"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {authors.length > 1 && (
+        <select
+          value={authorId}
+          onChange={(e) => setAuthorId(e.target.value)}
+          className="mb-2 w-full rounded-md bg-input px-2 py-1.5 text-xs text-muted-foreground outline-none"
+        >
+          {authors.map((m) => (
+            <option key={m.id} value={m.id}>
+              Post as {m.name} · {m.handle}
+            </option>
+          ))}
+        </select>
+      )}
+
+      <form
+        onSubmit={submit}
+        className="grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-2 rounded-full bg-input px-2 py-1.5"
+      >
+        <button
+          type="button"
+          aria-label="Upload image"
+          onClick={() => imageRef.current?.click()}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-lg"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          aria-label="Upload video"
+          onClick={() => videoRef.current?.click()}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-sm"
+        >
+          🎥
+        </button>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Message #general"
+          className="min-w-0 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
+        />
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            aria-label="Stickers"
+            onClick={() => setStickers((v) => !v)}
+            className="grid h-8 w-8 place-items-center rounded-full bg-accent text-sm"
+          >
+            😀
+          </button>
+          <button
+            type="submit"
+            aria-label="Send message"
+            className="grid h-8 w-8 place-items-center rounded-full bg-primary text-sm text-primary-foreground"
+          >
+            ➤
+          </button>
+        </div>
+      </form>
+
+      <input
+        ref={imageRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={async (e) => setImage(await readFileAsDataUrl(e.target.files?.[0]))}
+      />
+      <input
+        ref={videoRef}
+        type="file"
+        accept="video/*"
+        hidden
+        onChange={async (e) => setVideo(await readFileAsDataUrl(e.target.files?.[0]))}
+      />
+    </div>
+  );
+}
