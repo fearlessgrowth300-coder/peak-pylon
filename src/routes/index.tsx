@@ -1,10 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { timeAgo, useCommunity, type Member, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
 import { AdminView } from "@/components/community/Admin";
+import { MembersCRM } from "@/components/community/MembersCRM";
+import { ProfileEditor } from "@/components/community/ProfileEditor";
+import { accountToMember, useAccounts, useSession, ROLE_META, type Role } from "@/lib/account";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
