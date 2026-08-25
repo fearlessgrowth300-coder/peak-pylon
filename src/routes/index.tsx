@@ -7,7 +7,7 @@ import { ProfileModal } from "@/components/community/ProfileModal";
 import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
-import { accountToMember, useAccounts, useSession, ROLE_META, type Role } from "@/lib/account";
+import { accountToMember, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
@@ -186,7 +186,7 @@ function Index() {
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{myAccount.display_name}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {ROLE_META[(myAccount.roles[0] as Role) ?? "member"].label}
+                {ROLE_META[topRole(myAccount.roles)].label}
               </p>
             </div>
           </button>
