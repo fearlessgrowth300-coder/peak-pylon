@@ -1,10 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { timeAgo, useCommunity, type Member, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
 import { AdminView } from "@/components/community/Admin";
+import { MembersCRM } from "@/components/community/MembersCRM";
+import { ProfileEditor } from "@/components/community/ProfileEditor";
+import { accountToMember, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -28,25 +32,13 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type View = "general" | "creators" | "live-now" | "admin";
-
-const CHANNELS: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
-  {
-    group: "Community",
-    items: [
-      { id: "general", label: "general", icon: "#" },
-      { id: "creators", label: "creators", icon: "#" },
-      { id: "live-now", label: "live-now", icon: "#" },
-    ],
-  },
-  {
-    group: "Owner",
-    items: [{ id: "admin", label: "control-center", icon: "⚙" }],
-  },
-];
+type View = "general" | "creators" | "live-now" | "admin" | "me";
 
 function Index() {
   const { state, addMember, removeMember, addPost, setStats } = useCommunity();
+  const navigate = useNavigate();
+  const { session } = useSession();
+  const { accounts, refresh } = useAccounts();
   const [view, setView] = useState<View>("general");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -56,6 +48,30 @@ function Index() {
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
   const [chatAuthor, setChatAuthor] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const userId = session?.user.id;
+  const myAccount = useMemo(
+    () => (userId ? (accounts.find((a) => a.id === userId) ?? null) : null),
+    [userId, accounts],
+  );
+  const isAdmin = !!myAccount?.roles.includes("admin");
+
+  const channels = useMemo(() => {
+    const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
+      {
+        group: "Community",
+        items: [
+          { id: "general", label: "general", icon: "#" },
+          { id: "creators", label: "creators", icon: "#" },
+          { id: "live-now", label: "live-now", icon: "#" },
+        ],
+      },
+    ];
+    if (myAccount)
+      groups.push({ group: "You", items: [{ id: "me", label: "my-profile", icon: "@" }] });
+    groups.push({ group: "Owner", items: [{ id: "admin", label: "control-center", icon: "⚙" }] });
+    return groups;
+  }, [myAccount]);
 
   useEffect(() => {
     if (!toast) return;
@@ -69,17 +85,29 @@ function Index() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [view, state.posts.length]);
 
-  const memberById = useMemo(
-    () => new Map(state.members.map((m) => [m.id, m])),
-    [state.members],
+  const realMembers = useMemo(
+    () => accounts.filter((a) => !a.is_banned).map(accountToMember),
+    [accounts],
+  );
+  const allMembers = useMemo(
+    () => [...realMembers, ...state.members],
+    [realMembers, state.members],
   );
 
-  const filtered = state.members.filter((m) =>
+  const memberById = useMemo(() => new Map(allMembers.map((m) => [m.id, m])), [allMembers]);
+
+  const filtered = allMembers.filter((m) =>
     `${m.name} ${m.handle} ${m.platform} ${m.bio}`.toLowerCase().includes(query.toLowerCase()),
   );
-  const liveMembers = state.members.filter((m) => m.status !== "offline");
-  const online = state.members.filter((m) => m.status !== "offline");
-  const offline = state.members.filter((m) => m.status === "offline");
+  const liveMembers = allMembers.filter((m) => m.status !== "offline");
+  const online = allMembers.filter((m) => m.status !== "offline");
+  const offline = allMembers.filter((m) => m.status === "offline");
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setView("general");
+    setToast("Signed out");
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
@@ -120,7 +148,7 @@ function Index() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 pb-4">
-          {CHANNELS.map((group) => (
+          {channels.map((group) => (
             <div key={group.group} className="mb-3">
               <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                 {group.group}
@@ -146,15 +174,30 @@ function Index() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2 bg-rail px-3 py-2">
-          <div className="grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-            OW
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">Community Owner</p>
-            <p className="truncate text-xs text-muted-foreground">Full control</p>
-          </div>
-        </div>
+        {myAccount ? (
+          <button
+            onClick={() => {
+              setView("me");
+              setSidebarOpen(false);
+            }}
+            className="flex w-full items-center gap-2 bg-rail px-3 py-2 text-left hover:bg-rail/70"
+          >
+            <Avatar member={accountToMember(myAccount)} size={32} />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{myAccount.display_name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {ROLE_META[topRole(myAccount.roles)].label}
+              </p>
+            </div>
+          </button>
+        ) : (
+          <button
+            onClick={() => void navigate({ to: "/auth" })}
+            className="m-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
+          >
+            Sign in / Join community
+          </button>
+        )}
       </aside>
 
       {sidebarOpen && (
@@ -176,7 +219,9 @@ function Index() {
           </button>
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="text-xl text-muted-foreground">#</span>
-            <strong className="truncate">{view === "admin" ? "control-center" : view}</strong>
+            <strong className="truncate">
+              {view === "admin" ? "control-center" : view === "me" ? "my-profile" : view}
+            </strong>
           </div>
           <button
             className="text-lg text-muted-foreground"
@@ -209,6 +254,12 @@ function Index() {
                     <Stat value={state.stats.online} label="Online" dot />
                     <Stat value={state.stats.rank} label="Rank by size" />
                   </div>
+                  <p className="mt-2 text-center text-xs text-muted-foreground">
+                    <strong className="text-foreground">
+                      {realMembers.length.toLocaleString()}
+                    </strong>{" "}
+                    verified streamer accounts have joined with a real login.
+                  </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       onClick={() => setView("creators")}
@@ -374,6 +425,15 @@ function Index() {
               </div>
             )}
 
+            {view === "me" && myAccount && (
+              <ProfileEditor
+                account={myAccount}
+                refresh={refresh}
+                notify={setToast}
+                onSignOut={() => void signOut()}
+              />
+            )}
+
             {view === "admin" && (
               <AdminView
                 state={state}
@@ -382,6 +442,14 @@ function Index() {
                 addPost={addPost}
                 setStats={setStats}
                 notify={setToast}
+                crm={
+                  <MembersCRM
+                    accounts={accounts}
+                    isAdmin={isAdmin}
+                    refresh={refresh}
+                    notify={setToast}
+                  />
+                }
               />
             )}
           </div>
@@ -402,10 +470,12 @@ function Index() {
             className={`${membersOpen ? "block" : "hidden"} w-60 shrink-0 overflow-y-auto bg-sidebar p-3 max-md:fixed max-md:inset-y-12 max-md:right-0 max-md:z-40 max-md:w-64 max-md:shadow-elevated`}
           >
             <button
-              onClick={() => setToast("Approval request sent to the owner")}
+              onClick={() =>
+                myAccount ? setView("me") : void navigate({ to: "/auth" })
+              }
               className="mb-3 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
             >
-              Get your channel approved
+              {myAccount ? "Manage your channel" : "Get your channel approved"}
             </button>
             <button
               onClick={() => setToast("Invite link copied")}
