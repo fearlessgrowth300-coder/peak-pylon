@@ -13,6 +13,8 @@ export type Member = {
   avatar: string;
   banner: string;
   joined?: number | undefined;
+  real?: boolean | undefined;
+  role?: string | undefined;
 };
 
 export type Post = {
