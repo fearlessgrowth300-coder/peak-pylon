@@ -423,6 +423,15 @@ function Index() {
               </div>
             )}
 
+            {view === "me" && myAccount && (
+              <ProfileEditor
+                account={myAccount}
+                refresh={refresh}
+                notify={setToast}
+                onSignOut={() => void signOut()}
+              />
+            )}
+
             {view === "admin" && (
               <AdminView
                 state={state}
@@ -431,6 +440,14 @@ function Index() {
                 addPost={addPost}
                 setStats={setStats}
                 notify={setToast}
+                crm={
+                  <MembersCRM
+                    accounts={accounts}
+                    isAdmin={isAdmin}
+                    refresh={refresh}
+                    notify={setToast}
+                  />
+                }
               />
             )}
           </div>
@@ -451,10 +468,12 @@ function Index() {
             className={`${membersOpen ? "block" : "hidden"} w-60 shrink-0 overflow-y-auto bg-sidebar p-3 max-md:fixed max-md:inset-y-12 max-md:right-0 max-md:z-40 max-md:w-64 max-md:shadow-elevated`}
           >
             <button
-              onClick={() => setToast("Approval request sent to the owner")}
+              onClick={() =>
+                myAccount ? setView("me") : void navigate({ to: "/auth" })
+              }
               className="mb-3 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
             >
-              Get your channel approved
+              {myAccount ? "Manage your channel" : "Get your channel approved"}
             </button>
             <button
               onClick={() => setToast("Invite link copied")}
