@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type ReactNode, type FormEvent } from "react";
 import {
   readFileAsDataUrl,
   type Member,
@@ -16,6 +16,7 @@ export function AdminView({
   addPost,
   setStats,
   notify,
+  crm,
 }: {
   state: State;
   addMember: (m: Omit<Member, "id">) => void;
@@ -23,6 +24,7 @@ export function AdminView({
   addPost: (post: PostInput) => void;
   setStats: (s: Stats) => void;
   notify: (msg: string) => void;
+  crm?: ReactNode;
 }) {
   const [form, setForm] = useState({
     name: "",
