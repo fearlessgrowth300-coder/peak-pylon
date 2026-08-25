@@ -219,7 +219,9 @@ function Index() {
           </button>
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="text-xl text-muted-foreground">#</span>
-            <strong className="truncate">{view === "admin" ? "control-center" : view}</strong>
+            <strong className="truncate">
+              {view === "admin" ? "control-center" : view === "me" ? "my-profile" : view}
+            </strong>
           </div>
           <button
             className="text-lg text-muted-foreground"
