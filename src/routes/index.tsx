@@ -252,6 +252,12 @@ function Index() {
                     <Stat value={state.stats.online} label="Online" dot />
                     <Stat value={state.stats.rank} label="Rank by size" />
                   </div>
+                  <p className="mt-2 text-center text-xs text-muted-foreground">
+                    <strong className="text-foreground">
+                      {realMembers.length.toLocaleString()}
+                    </strong>{" "}
+                    verified streamer accounts have joined with a real login.
+                  </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       onClick={() => setView("creators")}
