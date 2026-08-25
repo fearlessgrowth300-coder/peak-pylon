@@ -274,6 +274,8 @@ export function AdminView({
           ))}
         </div>
       </div>
+
+      {crm}
     </div>
   );
 }
