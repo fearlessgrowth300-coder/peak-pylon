@@ -148,7 +148,7 @@ function Index() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 pb-4">
-          {CHANNELS.map((group) => (
+          {channels.map((group) => (
             <div key={group.group} className="mb-3">
               <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                 {group.group}
