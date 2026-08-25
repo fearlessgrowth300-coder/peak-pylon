@@ -174,15 +174,30 @@ function Index() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2 bg-rail px-3 py-2">
-          <div className="grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-            OW
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">Community Owner</p>
-            <p className="truncate text-xs text-muted-foreground">Full control</p>
-          </div>
-        </div>
+        {myAccount ? (
+          <button
+            onClick={() => {
+              setView("me");
+              setSidebarOpen(false);
+            }}
+            className="flex w-full items-center gap-2 bg-rail px-3 py-2 text-left hover:bg-rail/70"
+          >
+            <Avatar member={accountToMember(myAccount)} size={32} />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{myAccount.display_name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {ROLE_META[(myAccount.roles[0] as Role) ?? "member"].label}
+              </p>
+            </div>
+          </button>
+        ) : (
+          <button
+            onClick={() => void navigate({ to: "/auth" })}
+            className="m-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
+          >
+            Sign in / Join community
+          </button>
+        )}
       </aside>
 
       {sidebarOpen && (
