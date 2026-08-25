@@ -32,25 +32,13 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type View = "general" | "creators" | "live-now" | "admin";
-
-const CHANNELS: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
-  {
-    group: "Community",
-    items: [
-      { id: "general", label: "general", icon: "#" },
-      { id: "creators", label: "creators", icon: "#" },
-      { id: "live-now", label: "live-now", icon: "#" },
-    ],
-  },
-  {
-    group: "Owner",
-    items: [{ id: "admin", label: "control-center", icon: "⚙" }],
-  },
-];
+type View = "general" | "creators" | "live-now" | "admin" | "me";
 
 function Index() {
   const { state, addMember, removeMember, addPost, setStats } = useCommunity();
+  const navigate = useNavigate();
+  const { session } = useSession();
+  const { accounts, refresh } = useAccounts();
   const [view, setView] = useState<View>("general");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -60,6 +48,30 @@ function Index() {
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
   const [chatAuthor, setChatAuthor] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const userId = session?.user.id;
+  const myAccount = useMemo(
+    () => (userId ? (accounts.find((a) => a.id === userId) ?? null) : null),
+    [userId, accounts],
+  );
+  const isAdmin = !!myAccount?.roles.includes("admin");
+
+  const channels = useMemo(() => {
+    const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
+      {
+        group: "Community",
+        items: [
+          { id: "general", label: "general", icon: "#" },
+          { id: "creators", label: "creators", icon: "#" },
+          { id: "live-now", label: "live-now", icon: "#" },
+        ],
+      },
+    ];
+    if (myAccount)
+      groups.push({ group: "You", items: [{ id: "me", label: "my-profile", icon: "@" }] });
+    groups.push({ group: "Owner", items: [{ id: "admin", label: "control-center", icon: "⚙" }] });
+    return groups;
+  }, [myAccount]);
 
   useEffect(() => {
     if (!toast) return;
@@ -73,17 +85,29 @@ function Index() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [view, state.posts.length]);
 
-  const memberById = useMemo(
-    () => new Map(state.members.map((m) => [m.id, m])),
-    [state.members],
+  const realMembers = useMemo(
+    () => accounts.filter((a) => !a.is_banned).map(accountToMember),
+    [accounts],
+  );
+  const allMembers = useMemo(
+    () => [...realMembers, ...state.members],
+    [realMembers, state.members],
   );
 
-  const filtered = state.members.filter((m) =>
+  const memberById = useMemo(() => new Map(allMembers.map((m) => [m.id, m])), [allMembers]);
+
+  const filtered = allMembers.filter((m) =>
     `${m.name} ${m.handle} ${m.platform} ${m.bio}`.toLowerCase().includes(query.toLowerCase()),
   );
-  const liveMembers = state.members.filter((m) => m.status !== "offline");
-  const online = state.members.filter((m) => m.status !== "offline");
-  const offline = state.members.filter((m) => m.status === "offline");
+  const liveMembers = allMembers.filter((m) => m.status !== "offline");
+  const online = allMembers.filter((m) => m.status !== "offline");
+  const offline = allMembers.filter((m) => m.status === "offline");
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setView("general");
+    setToast("Signed out");
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
