@@ -237,7 +237,11 @@ function Index() {
           <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
             {view === "general" && (
               <div className="space-y-4 px-4 py-5">
-                <section className="rounded-xl bg-popover p-5">
+                <section
+                  className="relative overflow-hidden rounded-xl bg-popover bg-cover bg-center p-5"
+                  style={state.community.banner ? { backgroundImage: `linear-gradient(rgba(24,25,28,.72), rgba(24,25,28,.88)), url(${state.community.banner})` } : undefined}
+                >
+                  <div className="relative z-10">
                   <p className="inline-block rounded-full bg-primary/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-primary">
                     {state.community.tagline}
                   </p>
@@ -270,6 +274,7 @@ function Index() {
                     <button onClick={() => setView("admin")} className={ghostButtonClass}>
                       Owner controls
                     </button>
+                  </div>
                   </div>
                 </section>
 

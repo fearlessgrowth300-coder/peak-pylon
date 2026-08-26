@@ -10,6 +10,7 @@ import {
   type Status,
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
+import { getChannelMetadata } from "@/lib/channel-metadata";
 
 export function AdminView({
   state,
@@ -39,6 +40,7 @@ export function AdminView({
     bio: "",
     status: "online" as Status,
     platform: "Twitch",
+    joined: new Date().toISOString().slice(0, 10),
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
@@ -50,6 +52,9 @@ export function AdminView({
   const [community, setLocalCommunity] = useState<Community>(state.community);
   const [communityLogoFile, setCommunityLogoFile] = useState<File | null>(null);
   const [communityBannerFile, setCommunityBannerFile] = useState<File | null>(null);
+  const [autoFilling, setAutoFilling] = useState(false);
+  const [autoAvatar, setAutoAvatar] = useState("");
+  const [autoBanner, setAutoBanner] = useState("");
 
   const [postAuthor, setPostAuthor] = useState(state.members[0]?.id ?? "");
   const [postText, setPostText] = useState("");
@@ -74,9 +79,10 @@ export function AdminView({
       : undefined;
     const saved = {
       ...form,
-      avatar: avatar || editingMember?.avatar || "",
-      banner: banner || editingMember?.banner || "",
+      avatar: avatar || autoAvatar || editingMember?.avatar || "",
+      banner: banner || autoBanner || editingMember?.banner || "",
       connections: [...(primary ? [primary] : []), ...connections],
+      joined: new Date(`${form.joined}T12:00:00`).getTime() || Date.now(),
     };
     if (editingMember) {
       updateMember(editingMember.id, saved);
@@ -85,9 +91,11 @@ export function AdminView({
       addMember(saved);
       notify("Member added");
     }
-    setForm({ name: "", handle: "", link: "", bio: "", status: "online", platform: "Twitch" });
+    setForm({ name: "", handle: "", link: "", bio: "", status: "online", platform: "Twitch", joined: new Date().toISOString().slice(0, 10) });
     setAvatarFile(null);
     setBannerFile(null);
+    setAutoAvatar("");
+    setAutoBanner("");
     setConnections([]);
     setEditingMember(null);
   }
@@ -117,8 +125,33 @@ export function AdminView({
       bio: member.bio,
       status: member.status,
       platform: member.platform,
+      joined: member.joined ? new Date(member.joined).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
     });
     setConnections((member.connections ?? []).filter((c) => c.id !== "primary"));
+    setAutoAvatar(member.avatar);
+    setAutoBanner(member.banner);
+  }
+
+  async function autoFillChannel() {
+    if (!form.link.trim()) return notify("Paste a channel link first");
+    setAutoFilling(true);
+    try {
+      const metadata = await getChannelMetadata(form.link);
+      setForm((current) => ({
+        ...current,
+        name: metadata.name || current.name,
+        handle: metadata.handle || current.handle,
+        bio: metadata.bio || current.bio,
+        platform: metadata.platform,
+      }));
+      if (metadata.avatar && !avatarFile) setAutoAvatar(metadata.avatar);
+      if (metadata.banner && !bannerFile) setAutoBanner(metadata.banner);
+      notify("Public channel details filled. Review before saving.");
+    } catch {
+      notify("Could not read that channel. Fill in the details manually.");
+    } finally {
+      setAutoFilling(false);
+    }
   }
 
   function addConnection() {
@@ -202,14 +235,9 @@ export function AdminView({
           />
         </Field>
         <Field label="Channel link">
-          <input
-            type="url"
-            className={inputClass}
-            value={form.link}
-            onChange={(e) => setForm({ ...form, link: e.target.value })}
-            placeholder="https://twitch.tv/..."
-          />
+          <div className="flex gap-2"><input type="url" className={inputClass} value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="https://twitch.tv/..." /><button type="button" disabled={autoFilling} onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0 disabled:opacity-50`}>{autoFilling ? "Checking…" : "Auto-fill"}</button></div>
         </Field>
+        <p className="-mt-1 text-xs text-muted-foreground">Auto-fill uses public channel metadata. Set live status manually unless you connect the official platform API.</p>
         <Field label="Bio">
           <textarea
             rows={3}
@@ -261,6 +289,9 @@ export function AdminView({
             />
           </Field>
         </div>
+        <Field label="Member since">
+          <input type="date" className={inputClass} value={form.joined} onChange={(e) => setForm({ ...form, joined: e.target.value })} />
+        </Field>
         <div className="space-y-2 rounded-lg bg-background p-3">
           <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Additional connections</p>
           <div className="grid grid-cols-2 gap-2">
