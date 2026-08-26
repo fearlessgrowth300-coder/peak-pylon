@@ -504,18 +504,23 @@ function Index() {
               + Invite members
             </button>
 
-            <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-              Admin — 1
-            </p>
-            <div className="mb-4 flex items-center gap-2 rounded-md px-2 py-1.5">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                OW
-              </span>
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                Community Owner
-              </span>
-              <span className="shrink-0 text-xs">👑</span>
-            </div>
+            {myAccount && isAdmin && (
+              <>
+                <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Admin — 1
+                </p>
+                <button
+                  onClick={() => setProfile(accountToMember(myAccount))}
+                  className="mb-4 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/50"
+                >
+                  <Avatar member={accountToMember(myAccount)} size={32} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                    {myAccount.display_name}
+                  </span>
+                  <span className="shrink-0 text-xs" title="Community admin">👑</span>
+                </button>
+              </>
+            )}
 
             <MemberGroup title={`Online — ${online.length}`} list={online} onPick={setProfile} />
             <MemberGroup
