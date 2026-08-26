@@ -3,6 +3,11 @@ import { z } from "zod";
 
 const input = z.object({ channelUrl: z.string().url() });
 const refreshInput = z.object({ channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url() })).max(50) });
+const codeInput = z.object({ code: z.string().min(1) });
+
+function twitchRedirectUri() {
+  return process.env["TWITCH_REDIRECT_URI"] || "https://peak-pylon.vercel.app/twitch/callback";
+}
 
 function twitchLogin(channelUrl: string) {
   const url = new URL(channelUrl);
@@ -26,6 +31,34 @@ async function getAppToken() {
   if (!token.access_token) throw new Error("Twitch did not return an access token");
   return { clientId, token: token.access_token };
 }
+
+export const beginTwitchAuthorization = createServerFn({ method: "GET" }).handler(async () => {
+  const clientId = process.env["TWITCH_CLIENT_ID"];
+  if (!clientId) throw new Error("Twitch credentials are not configured");
+  const params = new URLSearchParams({ client_id: clientId, redirect_uri: twitchRedirectUri(), response_type: "code", scope: "user:read:email" });
+  return { url: `https://id.twitch.tv/oauth2/authorize?${params}` };
+});
+
+export const completeTwitchAuthorization = createServerFn({ method: "POST" })
+  .validator(codeInput)
+  .handler(async ({ data }) => {
+    const clientId = process.env["TWITCH_CLIENT_ID"];
+    const clientSecret = process.env["TWITCH_CLIENT_SECRET"];
+    if (!clientId || !clientSecret) throw new Error("Twitch credentials are not configured");
+    const tokenResponse = await fetch("https://id.twitch.tv/oauth2/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code: data.code, grant_type: "authorization_code", redirect_uri: twitchRedirectUri() }) });
+    if (!tokenResponse.ok) throw new Error("Twitch authorization could not be completed");
+    const token = (await tokenResponse.json()) as { access_token?: string };
+    if (!token.access_token) throw new Error("Twitch did not return an access token");
+    const headers = { "Client-Id": clientId, Authorization: `Bearer ${token.access_token}` };
+    const [userResponse, streamResponse] = await Promise.all([fetch("https://api.twitch.tv/helix/users", { headers }), fetch("https://api.twitch.tv/helix/streams?first=1", { headers })]);
+    if (!userResponse.ok) throw new Error("Twitch profile lookup failed");
+    const users = (await userResponse.json()) as { data?: Array<{ display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
+    const user = users.data?.[0];
+    if (!user) throw new Error("Twitch did not return a profile");
+    const streams = streamResponse.ok ? (await streamResponse.json()) as { data?: Array<{ thumbnail_url?: string }> } : { data: [] };
+    const thumbnail = streams.data?.[0]?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720") ?? "";
+    return { display_name: user.display_name, handle: `@${user.login}`, bio: user.description || "", avatar_url: user.profile_image_url || "", banner_url: thumbnail || user.offline_image_url || "", platform: "Twitch", channel_url: `https://www.twitch.tv/${user.login}`, status: thumbnail ? "live" : "offline" };
+  });
 
 export const getTwitchChannel = createServerFn({ method: "POST" })
   .validator(input)

@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ROLE_META, isRestricted, topRole, type Account } from "@/lib/account";
+import { ROLE_META, isRestricted, topRole, type Account, type SocialLink } from "@/lib/account";
 import { formatDate } from "@/lib/community";
 import { Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
-import { getTwitchChannel } from "@/lib/twitch.functions";
+import { beginTwitchAuthorization, getTwitchChannel } from "@/lib/twitch.functions";
 
 export function ProfileEditor({
   account,
@@ -25,7 +25,7 @@ export function ProfileEditor({
     status: account.status,
     avatar_url: account.avatar_url,
     banner_url: account.banner_url,
-    created_at: account.created_at,
+    social_links: account.social_links ?? [],
   });
   const [busy, setBusy] = useState(false);
 
@@ -39,7 +39,7 @@ export function ProfileEditor({
       status: account.status,
       avatar_url: account.avatar_url,
       banner_url: account.banner_url,
-      created_at: account.created_at,
+      social_links: account.social_links ?? [],
     });
   }, [account]);
 
@@ -52,6 +52,19 @@ export function ProfileEditor({
       setForm((current) => ({ ...current, display_name: metadata.name || current.display_name, handle: metadata.handle || current.handle, bio: metadata.bio || current.bio, platform: metadata.platform, status: metadata.status, avatar_url: metadata.avatar || current.avatar_url, banner_url: metadata.banner || current.banner_url }));
       notify("Twitch profile, banner, bio, and live status filled");
     } catch { notify("Could not read that Twitch channel. Check the URL and try again."); }
+  }
+
+  async function connectTwitch() {
+    try {
+      const { url } = await beginTwitchAuthorization();
+      const state = crypto.randomUUID();
+      localStorage.setItem("streamcore:twitch-oauth-state", state);
+      window.location.assign(`${url}&state=${encodeURIComponent(state)}`);
+    } catch { notify("Twitch connection is not configured yet."); }
+  }
+
+  function addSocialLink() {
+    setForm((current) => ({ ...current, social_links: [...current.social_links, { platform: "Instagram", url: "", label: "" }] }));
   }
 
   async function save(e: FormEvent) {
@@ -78,7 +91,7 @@ export function ProfileEditor({
       </header>
 
       <div className="rounded-xl bg-popover p-4 text-xs text-muted-foreground">
-        Member since {formatDate(new Date(form.created_at).getTime())}.{" "}
+        Member since {formatDate(new Date(account.created_at).getTime())}.{" "}
         {account.is_banned
           ? "Your account is banned — contact the owner."
           : isRestricted(account)
@@ -142,9 +155,10 @@ export function ProfileEditor({
             value={form.channel_url}
             onChange={(e) => setForm({ ...form, channel_url: e.target.value })}
             placeholder="https://twitch.tv/yourchannel"
-          /><button type="button" onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0`}>Auto-fill</button></div>
+          /><button type="button" onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0`}>Preview</button></div>
         </Field>
-        <Field label="Member since"><input type="date" className={inputClass} value={form.created_at.slice(0, 10)} onChange={(e) => setForm({ ...form, created_at: new Date(`${e.target.value}T12:00:00`).toISOString() })} /></Field>
+        <button type="button" onClick={() => void connectTwitch()} className={`${buttonClass} w-full`}>{account.twitch_verified ? "✓ Twitch account verified" : "Connect and verify Twitch account"}</button>
+        <div className="space-y-2 rounded-lg bg-background p-3"><div className="flex items-center justify-between"><p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Social links</p><button type="button" onClick={addSocialLink} className="text-xs font-semibold text-primary">+ Add social</button></div>{form.social_links.map((link: SocialLink, index: number) => <div key={index} className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2"><select className={inputClass} value={link.platform} onChange={(e) => setForm({ ...form, social_links: form.social_links.map((item, i) => i === index ? { ...item, platform: e.target.value } : item) })}>{["Instagram", "YouTube", "TikTok", "Kick", "X", "Discord", "Other"].map((name) => <option key={name}>{name}</option>)}</select><input type="url" className={inputClass} placeholder="https://..." value={link.url} onChange={(e) => setForm({ ...form, social_links: form.social_links.map((item, i) => i === index ? { ...item, url: e.target.value } : item) })} /><button type="button" className="text-xs text-destructive" onClick={() => setForm({ ...form, social_links: form.social_links.filter((_, i) => i !== index) })}>Remove</button></div>)}</div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Avatar image URL">
             <input

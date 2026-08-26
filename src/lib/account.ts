@@ -3,6 +3,8 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Member, Status } from "@/lib/community";
 
+export type SocialLink = { platform: string; url: string; label: string };
+
 export const ROLES = [
   "member",
   "streamer",
@@ -38,6 +40,8 @@ export type ProfileRow = {
   is_banned: boolean;
   restricted_until: string | null;
   created_at: string;
+  twitch_verified: boolean;
+  social_links: SocialLink[];
 };
 
 export type Account = ProfileRow & { roles: Role[] };
@@ -105,6 +109,10 @@ export function accountToMember(a: Account): Member & { real: true; role: Role }
     joined: new Date(a.created_at).getTime(),
     real: true,
     role: topRole(a.roles),
+    connections: [
+      ...(a.channel_url ? [{ id: "primary", platform: a.platform, label: a.handle?.replace(/^@/, "") || a.display_name, url: a.channel_url, verified: a.platform === "Twitch" ? a.twitch_verified : true }] : []),
+      ...(a.social_links ?? []).map((link, index) => ({ id: `social-${index}`, platform: link.platform, label: link.label || link.platform, url: link.url, verified: false })),
+    ],
   };
 }
 
