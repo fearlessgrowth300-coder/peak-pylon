@@ -28,6 +28,8 @@ export function ProfileEditor({
     social_links: account.social_links ?? [],
   });
   const [busy, setBusy] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
 
   useEffect(() => {
     setForm({
@@ -44,6 +46,8 @@ export function ProfileEditor({
   }, [account]);
 
   const role = topRole(account.roles);
+  const isAdmin = role === "admin";
+  const providers = ["Twitch", "Instagram", "YouTube", "TikTok", "Kick", "X", "Discord", "Spotify", "Steam", "Reddit", "GitHub", "Facebook"];
 
   async function autoFillChannel() {
     if (!form.channel_url.trim()) return notify("Paste your Twitch channel URL first");
@@ -65,6 +69,12 @@ export function ProfileEditor({
 
   function addSocialLink() {
     setForm((current) => ({ ...current, social_links: [...current.social_links, { platform: "Instagram", url: "", label: "" }] }));
+  }
+
+  function chooseProvider(provider: string) {
+    if (provider === "Twitch") return void connectTwitch();
+    setSelectedProvider(provider);
+    setConnectionsOpen(false);
   }
 
   async function save(e: FormEvent) {
@@ -124,7 +134,7 @@ export function ProfileEditor({
             onChange={(e) => setForm({ ...form, bio: e.target.value })}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        {isAdmin && <><div className="grid grid-cols-2 gap-3">
           <Field label="Platform">
             <select
               className={inputClass}
@@ -157,9 +167,9 @@ export function ProfileEditor({
             placeholder="https://twitch.tv/yourchannel"
           /><button type="button" onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0`}>Preview</button></div>
         </Field>
-        <button type="button" onClick={() => void connectTwitch()} className={`${buttonClass} w-full`}>{account.twitch_verified ? "✓ Twitch account verified" : "Connect and verify Twitch account"}</button>
-        <div className="space-y-2 rounded-lg bg-background p-3"><div className="flex items-center justify-between"><p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Social links</p><button type="button" onClick={addSocialLink} className="text-xs font-semibold text-primary">+ Add social</button></div>{form.social_links.map((link: SocialLink, index: number) => <div key={index} className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2"><select className={inputClass} value={link.platform} onChange={(e) => setForm({ ...form, social_links: form.social_links.map((item, i) => i === index ? { ...item, platform: e.target.value } : item) })}>{["Instagram", "YouTube", "TikTok", "Kick", "X", "Discord", "Other"].map((name) => <option key={name}>{name}</option>)}</select><input type="url" className={inputClass} placeholder="https://..." value={link.url} onChange={(e) => setForm({ ...form, social_links: form.social_links.map((item, i) => i === index ? { ...item, url: e.target.value } : item) })} /><button type="button" className="text-xs text-destructive" onClick={() => setForm({ ...form, social_links: form.social_links.filter((_, i) => i !== index) })}>Remove</button></div>)}</div>
-        <div className="grid grid-cols-2 gap-3">
+        </>}
+        {!isAdmin && <div className="space-y-3 rounded-xl bg-background p-4"><div className="flex items-center justify-between"><div><p className="font-bold">Connections</p><p className="text-xs text-muted-foreground">Connect accounts to verify and show them on your profile.</p></div><button type="button" onClick={() => setConnectionsOpen(true)} className={ghostButtonClass}>Add</button></div>{account.twitch_verified && <p className="rounded-md bg-primary/15 px-3 py-2 text-sm font-semibold text-primary">✓ Twitch connected and verified</p>}{form.social_links.map((link: SocialLink, index: number) => <div key={index} className="grid grid-cols-[110px_minmax(0,1fr)_auto] gap-2"><span className="self-center text-sm font-semibold">{link.platform}</span><input type="url" className={inputClass} placeholder="Profile URL" value={link.url} onChange={(e) => setForm({ ...form, social_links: form.social_links.map((item, i) => i === index ? { ...item, url: e.target.value, label: e.target.value } : item) })} /><button type="button" className="text-xs text-destructive" onClick={() => setForm({ ...form, social_links: form.social_links.filter((_, i) => i !== index) })}>Remove</button></div>)}{selectedProvider && <div className="grid grid-cols-[110px_minmax(0,1fr)_auto] gap-2"><span className="self-center text-sm font-semibold">{selectedProvider}</span><input autoFocus type="url" className={inputClass} placeholder={`${selectedProvider} profile URL`} onBlur={(e) => { if (e.target.value.trim()) setForm({ ...form, social_links: [...form.social_links, { platform: selectedProvider, url: e.target.value.trim(), label: e.target.value.trim() }] }); setSelectedProvider(null); }} /><button type="button" className="text-xs text-muted-foreground" onClick={() => setSelectedProvider(null)}>Cancel</button></div>}</div>}
+        {isAdmin && <div className="grid grid-cols-2 gap-3">
           <Field label="Avatar image URL">
             <input
               className={inputClass}
@@ -174,11 +184,13 @@ export function ProfileEditor({
               onChange={(e) => setForm({ ...form, banner_url: e.target.value })}
             />
           </Field>
-        </div>
+        </div>}
         <button disabled={busy} type="submit" className={`${buttonClass} w-full`}>
           {busy ? "Saving…" : "Save profile"}
         </button>
       </form>
+
+      {connectionsOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setConnectionsOpen(false)}><div className="w-full max-w-md rounded-t-2xl bg-popover p-4 shadow-elevated sm:rounded-2xl" onClick={(e) => e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Add new connection</h2><button onClick={() => setConnectionsOpen(false)} className="text-muted-foreground">×</button></div><div className="grid grid-cols-2 gap-2">{providers.map((provider) => <button key={provider} type="button" onClick={() => chooseProvider(provider)} className="rounded-lg bg-accent px-3 py-3 text-left text-sm font-semibold hover:bg-accent/70">{provider}{provider === "Twitch" && <span className="mt-1 block text-[10px] font-normal text-primary">Authorize account</span>}</button>)}</div><p className="mt-3 text-xs text-muted-foreground">Twitch uses secure account authorization. Other providers are shown as verified profile links until their own OAuth apps are configured.</p></div></div>}
 
       <button onClick={onSignOut} className={`${ghostButtonClass} w-full`}>
         Sign out
