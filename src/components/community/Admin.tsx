@@ -278,20 +278,10 @@ export function AdminView({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label={avatarFile ? "Avatar ✓" : "Avatar"}>
-            <input
-              type="file"
-              accept="image/*"
-              className={`${inputClass} file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 file:text-xs file:text-foreground`}
-              onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)}
-            />
+            <div className="space-y-2"><input type="file" accept="image/*" className={`${inputClass} file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 file:text-xs file:text-foreground`} onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)} />{autoAvatar && !avatarFile && <div className="flex items-center gap-2 rounded-md bg-background p-2 text-xs text-muted-foreground"><img src={autoAvatar} alt="Auto-detected creator avatar" className="h-9 w-9 rounded-full object-cover" /><span>Auto-detected avatar — saved when you add the member.</span></div>}</div>
           </Field>
           <Field label={bannerFile ? "Banner ✓" : "Banner"}>
-            <input
-              type="file"
-              accept="image/*"
-              className={`${inputClass} file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 file:text-xs file:text-foreground`}
-              onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)}
-            />
+            <div className="space-y-2"><input type="file" accept="image/*" className={`${inputClass} file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 file:text-xs file:text-foreground`} onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)} />{autoBanner && !bannerFile && <div className="overflow-hidden rounded-md bg-background text-xs text-muted-foreground"><img src={autoBanner} alt="Auto-detected creator banner" className="h-12 w-full object-cover" /><p className="p-2">Auto-detected banner — saved when you add the member.</p></div>}{!autoBanner && !bannerFile && <p className="text-xs text-muted-foreground">Twitch did not provide a banner for this channel. Upload one manually if needed.</p>}</div>
           </Field>
         </div>
         <Field label="Member since">
