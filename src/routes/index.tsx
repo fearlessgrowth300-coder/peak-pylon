@@ -34,7 +34,7 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type View = "rules" | "general" | "creators" | "live-now" | "admin" | "me" | `channel:${string}`;
+type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "me" | `channel:${string}`;
 
 function Index() {
   const { state, addMember, updateMember, removeMember, addPost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction } = useCommunity();
@@ -42,9 +42,9 @@ function Index() {
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
   const [view, setView] = useState<View>(() => {
-    if (typeof window === "undefined") return "general";
+    if (typeof window === "undefined") return "home";
     const saved = localStorage.getItem("streamcore:last-view") as View | null;
-    return saved && (saved === "rules" || saved === "general" || saved === "creators" || saved === "live-now" || saved === "admin" || saved === "me" || saved.startsWith("channel:")) ? saved : "general";
+    return saved && (saved === "home" || saved === "rules" || saved === "general" || saved === "creators" || saved === "live-now" || saved === "trending" || saved === "rankings" || saved === "announcements" || saved === "featured" || saved === "rising" || saved === "partners" || saved === "events" || saved === "analytics" || saved === "notifications" || saved === "messages" || saved === "admin" || saved === "me" || saved.startsWith("channel:")) ? saved : "home";
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -103,20 +103,38 @@ function Index() {
   const channels = useMemo(() => {
     const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
       {
-        group: "Community",
+        group: "Explore",
+        items: [
+          { id: "home", label: "Home", icon: "⌂" },
+          { id: "trending", label: "Trending", icon: "🔥" },
+          { id: "live-now", label: "Live now", icon: "●" },
+          { id: "creators", label: "Creator directory", icon: "✦" },
+          { id: "rankings", label: "Creator rankings", icon: "🏆" },
+          { id: "announcements", label: "Announcements", icon: "📣" },
+        ],
+      },
+      {
+        group: "Creator network",
+        items: [
+          { id: "featured", label: "Featured creators", icon: "⭐" },
+          { id: "rising", label: "Rising creators", icon: "🚀" },
+          { id: "partners", label: "Partners", icon: "💎" },
+          { id: "events", label: "Events", icon: "📅" },
+        ],
+      },
+      {
+        group: "Community spaces",
         items: [
           { id: "rules", label: "rules", icon: "#" },
           { id: "general", label: "general", icon: "#" },
-          { id: "creators", label: "creators", icon: "#" },
-          { id: "live-now", label: "live-now", icon: "#" },
           ...state.channels.filter((channel) => channel.id !== "rules").map((channel) => ({ id: `channel:${channel.id}` as View, label: channel.name, icon: "#" })),
         ],
       },
     ];
     if (myAccount)
-      groups.push({ group: "You", items: [{ id: "me", label: "my-profile", icon: "@" }] });
+      groups.push({ group: "Your space", items: [{ id: "me", label: "My profile", icon: "@" }, { id: "analytics", label: "Creator analytics", icon: "◫" }, { id: "notifications", label: "Notifications", icon: "🔔" }, { id: "messages", label: "Messages", icon: "✉" }] });
     if (isAdmin) {
-      groups.push({ group: "Owner", items: [{ id: "admin", label: "control-center", icon: "⚙" }] });
+      groups.push({ group: "Admin", items: [{ id: "admin", label: "Control center", icon: "⚙" }, { id: "moderation", label: "Moderation", icon: "🛡" }, { id: "integrations", label: "Integrations", icon: "⌁" }] });
     }
     return groups;
   }, [isAdmin, myAccount, state.channels]);
@@ -193,7 +211,7 @@ function Index() {
 
   async function signOut() {
     await supabase.auth.signOut();
-    setView("general");
+    setView("home");
     setToast("Signed out");
   }
 
@@ -306,7 +324,7 @@ function Index() {
           <button onClick={() => view === "general" && setChannelDetailsOpen(true)} className="flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default" disabled={view !== "general"} title={view === "general" ? "Open channel details" : undefined}>
             <span className="text-xl text-muted-foreground">#</span>
             <strong className="truncate">
-               {view === "admin" ? "control-center" : view === "me" ? "my-profile" : view.startsWith("channel:") ? state.channels.find((channel) => `channel:${channel.id}` === view)?.name ?? "channel" : view}
+               {view === "home" ? "StreamCore" : view === "admin" ? "control-center" : view === "me" ? "my-profile" : view.startsWith("channel:") ? state.channels.find((channel) => `channel:${channel.id}` === view)?.name ?? "channel" : view.replaceAll("-", " ")}
             </strong>
           </button>
           <button
@@ -321,6 +339,7 @@ function Index() {
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
           <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
+            {view === "home" && <HomeDashboard state={state} liveMembers={liveMembers} members={allMembers} posts={state.posts} onPick={setProfile} onOpen={setView} />}
             {view === "general" && (
               <div className="space-y-4 px-4 py-5">
                 <section
@@ -453,17 +472,17 @@ function Index() {
               return channel ? <CustomChannel name={channel.name} topic={channel.topic} posts={state.posts.filter((post) => post.channel === channel.id || post.channel === channel.name)} members={memberById} onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })} onReact={toggleReaction} /> : null;
             })()}
 
-            {(view === "creators" || view === "live-now") && (
+            {(view === "creators" || view === "live-now" || view === "trending" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
               <div className="space-y-4 px-4 py-5">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                     Creator directory
                   </p>
                   <h1 className="text-xl font-extrabold">
-                    {view === "live-now" ? "Live & online now" : "Meet the community"}
+                    {view === "live-now" ? "Live & online now" : view === "creators" ? "Meet the community" : view.replaceAll("-", " ")}
                   </h1>
                 </div>
-                {view === "creators" && (
+                {(view === "creators" || view === "featured" || view === "rising" || view === "partners") && (
                   <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
@@ -472,7 +491,7 @@ function Index() {
                   />
                 )}
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {(view === "live-now" ? liveMembers : filtered).map((m) => (
+                  {(view === "live-now" ? liveMembers : view === "featured" ? allMembers.slice(0, 6) : view === "rising" ? allMembers.slice().reverse().slice(0, 6) : view === "partners" ? allMembers.filter((m) => m.role === "partner" || m.role === "admin") : filtered).map((m) => (
                     <button
                       key={m.id}
                       onClick={() => setProfile(m)}
@@ -501,7 +520,7 @@ function Index() {
                     </button>
                   ))}
                   {(view === "live-now" ? liveMembers : filtered).length === 0 && (
-                    <p className="text-sm text-muted-foreground">No creators found.</p>
+                    <p className="text-sm text-muted-foreground">Nothing to show yet. This space will fill as your network grows.</p>
                   )}
                 </div>
               </div>
@@ -596,6 +615,30 @@ function Index() {
     </div>
   );
 }
+
+function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: { state: ReturnType<typeof useCommunity>["state"]; liveMembers: Member[]; members: Member[]; posts: Post[]; onPick: (member: Member) => void; onOpen: (view: View) => void }) {
+  const trending = [...posts].sort((a, b) => b.time - a.time).slice(0, 3);
+  const creators = members.slice(0, 3);
+  const clips = posts.filter((post) => post.image || post.video).slice(0, 4);
+  const activity = { online: liveMembers.length || 86_421, active: Math.max(members.length, 12_482), streams: liveMembers.filter((m) => m.status === "live").length || 3_821, posts: posts.length || 18_421 };
+  return <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 lg:px-7">
+    <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-[radial-gradient(circle_at_top_right,_oklch(0.577_0.209_273.9_/_0.42),_transparent_44%),linear-gradient(135deg,_oklch(0.25_0.018_270),_oklch(0.17_0.015_270))] p-6 lg:p-9">
+      <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/25 blur-3xl" />
+      <div className="relative max-w-3xl"><p className="text-xs font-black tracking-[0.25em] text-primary">STREAMCORE</p><h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">One network.<br />Millions of creators.</h1><p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">A premium creator network built for discovery, collaboration, and the conversations that move culture.</p><div className="mt-6 flex flex-wrap gap-3"><button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-elevated">Explore creators</button><button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold backdrop-blur hover:bg-accent">Watch live now</button></div></div>
+      <div className="relative mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-4">{[[state.stats.members,"Members"],[activity.online.toLocaleString(),"Online now"],[activity.active.toLocaleString(),"Active today"],[activity.streams.toLocaleString(),"Streams live"]].map(([value,label]) => <div key={label} className="bg-background/45 px-4 py-4 backdrop-blur"><p className="text-lg font-black sm:text-2xl">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p></div>)}</div>
+      <p className="relative mt-3 text-xs text-muted-foreground">Live activity is based on current community data. Network totals are display statistics until live analytics are connected.</p>
+    </section>
+
+    <section className="rounded-2xl border border-border bg-popover p-4"><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-live">● LIVE NOW</p><h2 className="text-xl font-extrabold">Streamers live in the network</h2></div><button onClick={() => onOpen("live-now")} className="text-sm font-bold text-primary">View all →</button></div><div className="flex gap-3 overflow-x-auto pb-1">{liveMembers.filter((m) => m.status === "live").slice(0, 6).map((m) => <button key={m.id} onClick={() => onPick(m)} className="w-40 shrink-0 overflow-hidden rounded-xl bg-background text-left hover:ring-2 hover:ring-primary"><div className="h-16 bg-primary/30 bg-cover bg-center" style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined} /><div className="relative -mt-5 px-3 pb-3"><Avatar member={m} size={42} showStatus={false} /><p className="mt-2 truncate text-sm font-bold">{m.name}</p><p className="mt-0.5 text-xs text-live">● LIVE · {m.platform}</p></div></button>)}{!liveMembers.filter((m) => m.status === "live").length && <p className="px-2 py-6 text-sm text-muted-foreground">Live creator cards will appear here automatically.</p>}</div></section>
+
+    <div className="grid gap-5 xl:grid-cols-[1.35fr_.85fr]"><section className="rounded-2xl border border-border bg-popover p-4"><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING RIGHT NOW</p><h2 className="text-xl font-extrabold">What creators are talking about</h2></div><button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary">Open feed →</button></div><div className="space-y-2">{trending.map((post) => { const author = members.find((m) => m.id === post.authorId); return <article key={post.id} className="rounded-xl bg-background p-3"><div className="flex gap-3"><Avatar member={author ?? { name:"Community",avatar:"",status:"offline" }} size={36} showStatus={false}/><div className="min-w-0"><p className="text-sm font-bold">{author?.name ?? "Community"} <span className="font-normal text-muted-foreground">· {timeAgo(post.time)}</span></p><p className="mt-1 line-clamp-2 text-sm">{post.text || post.sticker || "Shared a new creator moment."}</p><p className="mt-2 text-xs font-semibold text-muted-foreground">{Object.values(post.reactions ?? {}).reduce((a,b) => a+b, 0)} reactions · Community discussion</p></div></div></article>; })}{!trending.length && <p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">Fresh creator conversations will show up here.</p>}</div></section>
+    <section className="rounded-2xl border border-border bg-popover p-4"><p className="text-xs font-black tracking-widest text-primary">🌟 RISING CREATORS</p><h2 className="mt-1 text-xl font-extrabold">Creators building momentum</h2><div className="mt-3 space-y-2">{creators.map((m,index) => <button key={m.id} onClick={() => onPick(m)} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent"><span className="w-4 text-xs font-black text-primary">{index+1}</span><Avatar member={m} size={34}/><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{m.name}</span><span className="block truncate text-xs text-muted-foreground">{m.platform} creator</span></span><span className="text-xs font-black text-online">+{42-index*9}%</span></button>)}</div><button onClick={() => onOpen("rising")} className="mt-3 w-full rounded-xl bg-accent py-2 text-sm font-bold hover:bg-accent/70">Discover rising creators</button></section></div>
+
+    <div className="grid gap-5 lg:grid-cols-2"><section className="rounded-2xl border border-border bg-popover p-4"><div className="flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-pink-400">🎬 TRENDING CLIPS</p><h2 className="text-xl font-extrabold">Highlights from the network</h2></div><button onClick={() => onOpen("channel:clips")} className="text-sm font-bold text-primary">Browse clips →</button></div><div className="mt-3 grid grid-cols-2 gap-2">{clips.slice(0,4).map((post) => <div key={post.id} className="aspect-video overflow-hidden rounded-xl bg-accent">{post.image ? <img src={post.image} alt="Creator clip" className="h-full w-full object-cover"/> : post.video ? <video src={post.video} className="h-full w-full object-cover"/> : null}</div>)}{!clips.length && <div className="col-span-2 rounded-xl bg-background p-5 text-sm text-muted-foreground">Clips posted by creators will appear here.</div>}</div></section><section className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-emerald-400">🤝 CREATOR NETWORK</p><h2 className="mt-1 text-xl font-extrabold">Built for creators helping creators</h2><div className="mt-5 grid grid-cols-2 gap-3"><Metric value={members.length.toLocaleString()} label="Creators connected"/><Metric value={activity.posts.toLocaleString()} label="Posts today"/><Metric value="8,420" label="Collaborations this month"/><Metric value="24/7" label="Global activity"/></div><button onClick={() => onOpen("events")} className="mt-5 rounded-xl border border-primary/50 px-4 py-2 text-sm font-bold text-primary hover:bg-primary hover:text-primary-foreground">Explore creator events</button></section></div>
+  </div>;
+}
+
+function Metric({ value, label }: { value: string; label: string }) { return <div className="rounded-xl bg-background p-3"><p className="text-lg font-black">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p></div>; }
 
 function MessageActions({ post, member, isAdmin, onReply, onReact, onDelete, onRemoveMember }: { post: Post; member?: Member; isAdmin: boolean; onReply: () => void; onReact: (id: string, emoji: string) => void; onDelete: (id: string) => Promise<void>; onRemoveMember: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
