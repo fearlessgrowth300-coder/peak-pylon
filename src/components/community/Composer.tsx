@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Plus, Send, Smile, Video as VideoIcon, X } from "lucide-react";
-import { EMOJI_LIBRARY, readFileAsDataUrl, STICKERS, type Member, type PostInput } from "@/lib/community";
+import { EMOJI_LIBRARY, readFileAsDataUrl, STICKERS, type Member, type PostInput, uploadCommunityMedia } from "@/lib/community";
 
 export function Composer({
   authors,
@@ -24,6 +24,9 @@ export function Composer({
   const [text, setText] = useState("");
   const [image, setImage] = useState("");
   const [video, setVideo] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [sending, setSending] = useState(false);
   const [stickers, setStickers] = useState(false);
   const [stickerSearch, setStickerSearch] = useState("");
   const [sendError, setSendError] = useState("");
@@ -32,26 +35,31 @@ export function Composer({
 
   async function send(extra?: Partial<PostInput>) {
     if (!authorId) return;
-    const payload: PostInput = {
-      authorId,
-      text: text.trim(),
-      image,
-      video,
-      replyToId: replyTo?.id,
-      channel,
-      ...extra,
-    };
-    if (!payload.text && !payload.image && !payload.video && !payload.sticker) return;
+    if (!text.trim() && !image && !video && !extra?.sticker) return;
     try {
+      setSending(true);
+      const payload: PostInput = {
+        authorId,
+        text: text.trim(),
+        image: imageFile ? await uploadCommunityMedia(imageFile) : image,
+        video: videoFile ? await uploadCommunityMedia(videoFile) : video,
+        replyToId: replyTo?.id,
+        channel,
+        ...extra,
+      };
       await onSend(payload);
       setText("");
       setImage("");
       setVideo("");
+      setImageFile(null);
+      setVideoFile(null);
       setStickers(false);
       setSendError("");
       clearReply();
-    } catch {
-      setSendError("Message was not saved. Please try again.");
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Message was not saved. Please try again.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -79,7 +87,7 @@ export function Composer({
             <div className="relative">
               <img src={image} alt="Attachment preview" className="h-20 rounded-md" />
               <button
-                onClick={() => setImage("")}
+                onClick={() => { setImage(""); setImageFile(null); }}
                 className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-foreground"
               >
                 <X className="h-3 w-3" />
@@ -90,7 +98,7 @@ export function Composer({
             <div className="relative">
               <video src={video} className="h-20 rounded-md" />
               <button
-                onClick={() => setVideo("")}
+                onClick={() => { setVideo(""); setVideoFile(null); }}
                 className="absolute -right-2 -top-2 grid h-5 w-5 place-items-center rounded-full bg-destructive text-foreground"
               >
                 <X className="h-3 w-3" />
@@ -168,12 +176,14 @@ export function Composer({
           <button
             type="submit"
             aria-label="Send message"
+            disabled={sending}
             className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground"
           >
             <Send className="h-4 w-4" />
           </button>
         </div>
       </form>
+      {sending && <p className="mt-1 px-2 text-xs text-muted-foreground">Uploading media…</p>}
       {sendError && <p className="mt-1 px-2 text-xs font-semibold text-destructive">{sendError}</p>}
 
       <input
@@ -181,14 +191,14 @@ export function Composer({
         type="file"
         accept="image/*"
         hidden
-        onChange={async (e) => setImage(await readFileAsDataUrl(e.target.files?.[0]))}
+        onChange={async (e) => { const file = e.target.files?.[0] ?? null; setImageFile(file); setImage(await readFileAsDataUrl(file)); }}
       />
       <input
         ref={videoRef}
         type="file"
         accept="video/*"
         hidden
-        onChange={async (e) => setVideo(await readFileAsDataUrl(e.target.files?.[0]))}
+        onChange={async (e) => { const file = e.target.files?.[0] ?? null; setVideoFile(file); setVideo(await readFileAsDataUrl(file)); }}
       />
     </div>
   );

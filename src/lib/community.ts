@@ -334,6 +334,21 @@ export function readFileAsDataUrl(file: File | undefined | null): Promise<string
   });
 }
 
+export async function uploadCommunityMedia(file: File): Promise<string> {
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  if (authError || !auth.user) throw new Error("Sign in before uploading media");
+
+  const extension = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "") || "bin";
+  const path = `${auth.user.id}/${uid()}.${extension}`;
+  const { error } = await supabase.storage.from("community-media").upload(path, file, {
+    cacheControl: "31536000",
+    contentType: file.type || undefined,
+    upsert: false,
+  });
+  if (error) throw error;
+  return supabase.storage.from("community-media").getPublicUrl(path).data.publicUrl;
+}
+
 export const STICKERS = ["🔥", "😂", "🎉", "👑", "🎮", "💜", "🚀", "👀", "🏆", "🤝", "⚡", "😎"];
 export const EMOJI_LIBRARY = [
   ["😀", "grinning happy"], ["😂", "laughing tears"], ["😍", "love heart eyes"], ["🥳", "party celebration"],
