@@ -9,6 +9,7 @@ export function Composer({
   replyTo,
   clearReply,
   onSend,
+  onTyping,
   channel = "general",
 }: {
   authors: Member[];
@@ -17,6 +18,7 @@ export function Composer({
   replyTo: { id: string; name: string } | null;
   clearReply: () => void;
   onSend: (post: PostInput) => Promise<void>;
+  onTyping?: (typing: boolean) => void;
   channel?: string;
 }) {
   const [text, setText] = useState("");
@@ -150,7 +152,7 @@ export function Composer({
         </button>
         <input
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { const value = e.target.value; setText(value); onTyping?.(value.trim().length > 0); }}
           placeholder={`Message #${channel}`}
           className="min-w-0 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
         />

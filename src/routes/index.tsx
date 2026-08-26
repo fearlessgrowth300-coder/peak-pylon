@@ -50,6 +50,8 @@ function Index() {
   const [toast, setToast] = useState("");
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
   const [chatAuthor, setChatAuthor] = useState("");
+  const [typingName, setTypingName] = useState<string | null>(null);
+  const typingTimer = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const userId = session?.user.id;
@@ -69,6 +71,22 @@ function Index() {
   const selectedChatAuthor = postingAuthors.some((member) => member.id === chatAuthor)
     ? chatAuthor
     : (postingAuthors[0]?.id ?? "");
+
+  useEffect(() => {
+    const channel = supabase.channel("streamcore-typing");
+    channel.on("broadcast", { event: "typing" }, ({ payload }) => {
+      if (payload?.userId !== userId) setTypingName(payload?.typing ? payload.name : null);
+    }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [userId]);
+
+  function broadcastTyping(typing: boolean) {
+    const author = postingAuthors.find((member) => member.id === selectedChatAuthor);
+    if (!author || !userId) return;
+    void supabase.channel("streamcore-typing").send({ type: "broadcast", event: "typing", payload: { userId, name: author.name, typing } });
+    if (typingTimer.current) window.clearTimeout(typingTimer.current);
+    if (typing) typingTimer.current = window.setTimeout(() => broadcastTyping(false), 2500);
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -375,7 +393,7 @@ function Index() {
                                   {m?.name ?? "Community"}
                                 </button>
                                 <span className="text-xs text-muted-foreground">
-                                  {timeAgo(p.time)}
+                                  {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>
                                 <button
                                   onClick={() =>
@@ -409,7 +427,7 @@ function Index() {
                                   className="mt-2 max-h-80 w-full rounded-lg"
                                 />
                               )}
-                              <div className="mt-2 flex gap-2 text-xs"><button onClick={() => toggleReaction(p.id, "👍")} className="rounded bg-accent px-2 py-1 hover:bg-accent/70">👍 {p.reactions?.["👍"] ?? ""}</button><button onClick={() => toggleReaction(p.id, "❤️")} className="rounded bg-accent px-2 py-1 hover:bg-accent/70">❤️ {p.reactions?.["❤️"] ?? ""}</button></div>
+                              <MessageActions post={p} onReply={() => setReplyTo({ id: p.id, name: m?.name ?? "Community" })} onReact={toggleReaction} />
                             </div>
                           </div>
                         </article>
@@ -520,9 +538,11 @@ function Index() {
               replyTo={replyTo}
               clearReply={() => setReplyTo(null)}
               onSend={(post: PostInput) => addPost(post)}
+              onTyping={broadcastTyping}
             />
           )}
-          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.id })} channel={channel.name} /> : null; })()}
+          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.id })} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
+          {typingName && <div className="pointer-events-none absolute bottom-16 left-4 text-xs text-muted-foreground"><strong>{typingName}</strong> is typing…</div>}
           </div>
 
           {/* Member list */}
@@ -568,6 +588,20 @@ function Index() {
   );
 }
 
+function MessageActions({ post, onReply, onReact }: { post: Post; onReply: () => void; onReact: (id: string, emoji: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const hold = useRef<number | null>(null);
+  const start = () => { hold.current = window.setTimeout(() => setOpen(true), 550); };
+  const cancel = () => { if (hold.current) window.clearTimeout(hold.current); };
+  return <div className="relative mt-2" onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onContextMenu={(event) => { event.preventDefault(); setOpen(true); }}>
+    {open && <div className="absolute bottom-7 left-0 z-20 flex items-center gap-1 rounded-lg bg-popover p-1 shadow-elevated">
+      {[["👍", "Like"], ["❤️", "Love"], ["😂", "Laugh"], ["😮", "Wow"], ["😢", "Sad"], ["😡", "Angry"]].map(([emoji, label]) => <button key={emoji} title={label} onClick={() => { onReact(post.id, emoji); setOpen(false); }} className="rounded px-2 py-1 text-lg hover:bg-accent">{emoji}</button>)}
+      <button onClick={() => { onReply(); setOpen(false); }} className="rounded px-2 py-1 text-xs font-semibold hover:bg-accent">Reply</button>
+    </div>}
+    {Object.entries(post.reactions ?? {}).filter(([, count]) => count > 0).map(([emoji, count]) => <span key={emoji} className="mr-1 rounded bg-accent px-2 py-1 text-xs">{emoji} {count}</span>)}
+  </div>;
+}
+
 function CommunityMark({ community, size }: { community: { name: string; logo: string }; size: number }) {
   return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
 }
@@ -577,7 +611,7 @@ function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => 
 }
 
 function CustomChannel({ name, topic, posts, members, onReply, onReact }: { name: string; topic: string; posts: Post[]; members: Map<string, Member>; onReply: (post: { id: string; authorId: string }) => void; onReact: (id: string, emoji: string) => void }) {
-  return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleString() : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{post.text}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<div className="mt-2 flex gap-2 text-xs"><button onClick={() => post.id && onReact(post.id, "👍")} className="rounded bg-accent px-2 py-1">👍 {post.reactions?.["👍"] ?? ""}</button><button onClick={() => post.id && onReply({ id: post.id, authorId: post.authorId })} className="rounded bg-accent px-2 py-1">Reply</button></div></div></div></article>; })}</div>;
+  return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{post.text}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<MessageActions post={post} onReact={onReact} onReply={() => onReply({ id: post.id, authorId: post.authorId })} /></div></div></article>; })}</div>;
 }
 
 function LiveStories({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
