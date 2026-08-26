@@ -256,6 +256,14 @@ export function readFileAsDataUrl(file: File | undefined | null): Promise<string
 }
 
 export const STICKERS = ["🔥", "😂", "🎉", "👑", "🎮", "💜", "🚀", "👀", "🏆", "🤝", "⚡", "😎"];
+export const EMOJI_LIBRARY = [
+  ["😀", "grinning happy"], ["😂", "laughing tears"], ["😍", "love heart eyes"], ["🥳", "party celebration"],
+  ["🔥", "fire hype"], ["💜", "purple heart"], ["🎮", "gaming controller"], ["🎉", "party popper"],
+  ["🚀", "rocket launch"], ["👀", "eyes look"], ["🏆", "trophy winner"], ["🤝", "handshake"],
+  ["⚡", "lightning energy"], ["😎", "cool sunglasses"], ["😭", "crying sad"], ["😡", "angry"],
+  ["👍", "thumbs up like"], ["👎", "thumbs down"], ["🙏", "thanks pray"], ["🎵", "music note"],
+  ["📸", "camera photo"], ["💯", "hundred perfect"], ["✨", "sparkles"], ["🫡", "salute"],
+] as const;
 
 export function formatDate(ts: number | undefined) {
   if (!ts) return "—";

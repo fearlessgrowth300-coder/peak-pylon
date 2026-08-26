@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Plus, Send, Smile, Video as VideoIcon, X } from "lucide-react";
-import { readFileAsDataUrl, STICKERS, type Member, type PostInput } from "@/lib/community";
+import { EMOJI_LIBRARY, readFileAsDataUrl, STICKERS, type Member, type PostInput } from "@/lib/community";
 
 export function Composer({
   authors,
@@ -21,6 +21,7 @@ export function Composer({
   const [image, setImage] = useState("");
   const [video, setVideo] = useState("");
   const [stickers, setStickers] = useState(false);
+  const [stickerSearch, setStickerSearch] = useState("");
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
 
@@ -89,8 +90,9 @@ export function Composer({
       )}
 
       {stickers && (
-        <div className="mb-2 grid grid-cols-6 gap-1 rounded-md bg-popover p-2">
-          {STICKERS.map((s) => (
+        <div className="mb-2 rounded-md bg-popover p-2">
+          <input value={stickerSearch} onChange={(e) => setStickerSearch(e.target.value)} placeholder="Search emoji (e.g. fire, party, gaming)" className="mb-2 w-full rounded-md bg-input px-3 py-2 text-sm outline-none" />
+          <div className="grid grid-cols-6 gap-1">{[...STICKERS, ...EMOJI_LIBRARY.filter(([, name]) => name.includes(stickerSearch.toLowerCase())).map(([emoji]) => emoji)].filter((emoji, index, list) => list.indexOf(emoji) === index).map((s) => (
             <button
               key={s}
               onClick={() => send({ sticker: s })}
@@ -98,7 +100,8 @@ export function Composer({
             >
               {s}
             </button>
-          ))}
+          ))}</div>
+          <p className="mt-2 text-[11px] text-muted-foreground">Use standard emoji here. Upload a sticker image with the + button; third-party packs remain on their source sites unless you have permission to add them.</p>
         </div>
       )}
 

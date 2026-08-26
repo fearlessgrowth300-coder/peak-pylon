@@ -10,6 +10,7 @@ import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
 import { accountToMember, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
+import { refreshTwitchStatuses } from "@/lib/twitch.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -104,6 +105,25 @@ function Index() {
   const liveMembers = allMembers.filter((m) => m.status !== "offline");
   const online = allMembers.filter((m) => m.status !== "offline");
   const offline = allMembers.filter((m) => m.status === "offline");
+
+  useEffect(() => {
+    const twitchMembers = state.members.filter((member) => member.platform === "Twitch" && member.link);
+    if (!twitchMembers.length) return;
+    let active = true;
+    const refreshTwitch = async () => {
+      try {
+        const updates = await refreshTwitchStatuses({ data: { channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link })) } });
+        if (!active) return;
+        updates.forEach((update) => {
+          const member = twitchMembers.find((item) => item.id === update.id);
+          if (member && member.status !== update.status) updateMember(member.id, { status: update.status });
+        });
+      } catch { /* Keep the last known status if Twitch is temporarily unavailable. */ }
+    };
+    void refreshTwitch();
+    const timer = window.setInterval(() => void refreshTwitch(), 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [state.members, updateMember]);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -277,6 +297,8 @@ function Index() {
                   </div>
                   </div>
                 </section>
+
+                <LiveStories members={liveMembers.filter((member) => member.status === "live")} onPick={setProfile} />
 
                 <div className="space-y-0.5">
                   {[...state.posts]
@@ -520,6 +542,11 @@ function Index() {
 
 function CommunityMark({ community, size }: { community: { name: string; logo: string }; size: number }) {
   return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
+}
+
+function LiveStories({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
+  if (!members.length) return null;
+  return <section className="rounded-xl bg-popover p-3"><p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-live">Live now</p><div className="flex gap-3 overflow-x-auto pb-1">{members.map((member) => <button key={member.id} onClick={() => onPick(member)} className="group flex w-16 shrink-0 flex-col items-center gap-1"><span className="relative rounded-full border-2 border-live p-0.5"><Avatar member={member} size={50} showStatus={false} /><span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded bg-live px-1 text-[8px] font-extrabold text-white">LIVE</span></span><span className="w-full truncate pt-1 text-xs font-semibold group-hover:underline">{member.name}</span></button>)}</div></section>;
 }
 
 function Stat({ value, label, dot, logo }: { value: string; label: string; dot?: boolean; logo?: string }) {
