@@ -72,9 +72,11 @@ function Index() {
     ];
     if (myAccount)
       groups.push({ group: "You", items: [{ id: "me", label: "my-profile", icon: "@" }] });
-    groups.push({ group: "Owner", items: [{ id: "admin", label: "control-center", icon: "⚙" }] });
+    if (isAdmin) {
+      groups.push({ group: "Owner", items: [{ id: "admin", label: "control-center", icon: "⚙" }] });
+    }
     return groups;
-  }, [myAccount]);
+  }, [isAdmin, myAccount]);
 
   useEffect(() => {
     if (!toast) return;
@@ -291,9 +293,11 @@ function Index() {
                     >
                       Explore creators
                     </button>
-                    <button onClick={() => setView("admin")} className={ghostButtonClass}>
-                      Owner controls
-                    </button>
+                    {isAdmin && (
+                      <button onClick={() => setView("admin")} className={ghostButtonClass}>
+                        Owner controls
+                      </button>
+                    )}
                   </div>
                   </div>
                 </section>
@@ -452,7 +456,7 @@ function Index() {
               />
             )}
 
-            {view === "admin" && (
+            {view === "admin" && isAdmin && (
               <AdminView
                 state={state}
                 addMember={addMember}
