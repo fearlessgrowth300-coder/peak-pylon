@@ -11,6 +11,7 @@ import {
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { getChannelMetadata } from "@/lib/channel-metadata";
+import { getTwitchChannel } from "@/lib/twitch.functions";
 
 export function AdminView({
   state,
@@ -136,17 +137,21 @@ export function AdminView({
     if (!form.link.trim()) return notify("Paste a channel link first");
     setAutoFilling(true);
     try {
-      const metadata = await getChannelMetadata(form.link);
+      const isTwitch = /(^|\.)twitch\.tv\//i.test(new URL(form.link).hostname + "/");
+      const metadata = isTwitch
+        ? await getTwitchChannel({ data: { channelUrl: form.link } })
+        : await getChannelMetadata(form.link);
       setForm((current) => ({
         ...current,
         name: metadata.name || current.name,
         handle: metadata.handle || current.handle,
         bio: metadata.bio || current.bio,
         platform: metadata.platform,
+        status: "status" in metadata ? metadata.status : current.status,
       }));
       if (metadata.avatar && !avatarFile) setAutoAvatar(metadata.avatar);
       if (metadata.banner && !bannerFile) setAutoBanner(metadata.banner);
-      notify("Public channel details filled. Review before saving.");
+      notify(isTwitch ? "Twitch profile and live status filled. Review before saving." : "Public channel details filled. Review before saving.");
     } catch {
       notify("Could not read that channel. Fill in the details manually.");
     } finally {
@@ -237,7 +242,7 @@ export function AdminView({
         <Field label="Channel link">
           <div className="flex gap-2"><input type="url" className={inputClass} value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="https://twitch.tv/..." /><button type="button" disabled={autoFilling} onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0 disabled:opacity-50`}>{autoFilling ? "Checking…" : "Auto-fill"}</button></div>
         </Field>
-        <p className="-mt-1 text-xs text-muted-foreground">Auto-fill uses public channel metadata. Set live status manually unless you connect the official platform API.</p>
+        <p className="-mt-1 text-xs text-muted-foreground">Twitch links fill the public profile and live status automatically. Other platforms use available public metadata.</p>
         <Field label="Bio">
           <textarea
             rows={3}
