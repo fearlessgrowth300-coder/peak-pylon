@@ -8,7 +8,7 @@ import { ChannelDetails } from "@/components/community/ChannelDetails";
 import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
-import { accountToMember, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
+import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { refreshTwitchStatuses } from "@/lib/twitch.functions";
 
@@ -37,7 +37,7 @@ export const Route = createFileRoute("/")({
 type View = "rules" | "general" | "creators" | "live-now" | "admin" | "me" | `channel:${string}`;
 
 function Index() {
-  const { state, addMember, updateMember, removeMember, addPost, setStats, setCommunity, addChannel, removeChannel, toggleReaction } = useCommunity();
+  const { state, addMember, updateMember, removeMember, addPost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
@@ -392,6 +392,7 @@ function Index() {
                                 >
                                   {m?.name ?? "Community"}
                                 </button>
+                                {m?.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
                                 <span className="text-xs text-muted-foreground">
                                   {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>
@@ -427,7 +428,7 @@ function Index() {
                                   className="mt-2 max-h-80 w-full rounded-lg"
                                 />
                               )}
-                              <MessageActions post={p} onReply={() => setReplyTo({ id: p.id, name: m?.name ?? "Community" })} onReact={toggleReaction} />
+                              <MessageActions post={p} member={m} isAdmin={isAdmin} onReply={() => setReplyTo({ id: p.id, name: m?.name ?? "Community" })} onReact={toggleReaction} onDelete={removePost} onRemoveMember={async () => { if (m?.real) await removeFromCommunity(m.id); else if (m) await removeMember(m.id); }} />
                             </div>
                           </div>
                         </article>
@@ -588,7 +589,7 @@ function Index() {
   );
 }
 
-function MessageActions({ post, onReply, onReact }: { post: Post; onReply: () => void; onReact: (id: string, emoji: string) => void }) {
+function MessageActions({ post, member, isAdmin, onReply, onReact, onDelete, onRemoveMember }: { post: Post; member?: Member; isAdmin: boolean; onReply: () => void; onReact: (id: string, emoji: string) => void; onDelete: (id: string) => Promise<void>; onRemoveMember: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const hold = useRef<number | null>(null);
   const start = () => { hold.current = window.setTimeout(() => setOpen(true), 550); };
@@ -597,6 +598,7 @@ function MessageActions({ post, onReply, onReact }: { post: Post; onReply: () =>
     {open && <div className="absolute bottom-7 left-0 z-20 flex items-center gap-1 rounded-lg bg-popover p-1 shadow-elevated">
       {[["👍", "Like"], ["❤️", "Love"], ["😂", "Laugh"], ["😮", "Wow"], ["😢", "Sad"], ["😡", "Angry"]].map(([emoji, label]) => <button key={emoji} title={label} onClick={() => { onReact(post.id, emoji); setOpen(false); }} className="rounded px-2 py-1 text-lg hover:bg-accent">{emoji}</button>)}
       <button onClick={() => { onReply(); setOpen(false); }} className="rounded px-2 py-1 text-xs font-semibold hover:bg-accent">Reply</button>
+      {isAdmin && <><button onClick={() => void onDelete(post.id).then(() => setOpen(false))} className="rounded px-2 py-1 text-xs font-semibold text-destructive hover:bg-accent">Delete</button>{member?.role !== "admin" && <button onClick={() => void onRemoveMember().then(() => setOpen(false))} className="rounded px-2 py-1 text-xs font-semibold text-destructive hover:bg-accent">Remove member</button>}</>}
     </div>}
     {Object.entries(post.reactions ?? {}).filter(([, count]) => count > 0).map(([emoji, count]) => <span key={emoji} className="mr-1 rounded bg-accent px-2 py-1 text-xs">{emoji} {count}</span>)}
   </div>;
@@ -611,7 +613,7 @@ function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => 
 }
 
 function CustomChannel({ name, topic, posts, members, onReply, onReact }: { name: string; topic: string; posts: Post[]; members: Map<string, Member>; onReply: (post: { id: string; authorId: string }) => void; onReact: (id: string, emoji: string) => void }) {
-  return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{post.text}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<MessageActions post={post} onReact={onReact} onReply={() => onReply({ id: post.id, authorId: post.authorId })} /></div></div></article>; })}</div>;
+  return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{post.text}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<MessageActions post={post} member={member} isAdmin={false} onReact={onReact} onReply={() => onReply({ id: post.id, authorId: post.authorId })} onDelete={async () => {}} onRemoveMember={async () => {}} /></div></div></article>; })}</div>;
 }
 
 function LiveStories({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {

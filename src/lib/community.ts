@@ -252,6 +252,13 @@ export function useCommunity() {
     }));
   }, []);
 
+  const removePost = useCallback(async (id: string) => {
+    mutationVersion.current += 1;
+    const { error } = await (supabase as any).from("community_posts").delete().eq("id", id);
+    if (error) throw error;
+    setState((s) => ({ ...s, posts: s.posts.filter((post) => post.id !== id) }));
+  }, []);
+
   const setStats = useCallback((stats: Stats) => {
     setState((s) => ({ ...s, stats }));
   }, []);
@@ -280,6 +287,7 @@ export function useCommunity() {
     updateMember,
     removeMember,
     addPost,
+    removePost,
     setStats,
     setCommunity,
     addChannel,
