@@ -59,6 +59,17 @@ function Index() {
   );
   const isAdmin = !!myAccount?.roles.includes("admin");
 
+  // A real signed-in account always posts as itself. Only the owner may select
+  // one of the community-managed showcase profiles for an editorial post.
+  const postingAuthors = useMemo(() => {
+    if (!myAccount) return [];
+    const ownerProfile = accountToMember(myAccount);
+    return isAdmin ? [ownerProfile, ...state.members] : [ownerProfile];
+  }, [isAdmin, myAccount, state.members]);
+  const selectedChatAuthor = postingAuthors.some((member) => member.id === chatAuthor)
+    ? chatAuthor
+    : (postingAuthors[0]?.id ?? "");
+
   useEffect(() => {
     if (!userId) return;
     const heartbeat = () => void supabase.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", userId).then(() => void refresh());
@@ -503,15 +514,15 @@ function Index() {
           </div>
           {view === "general" && (
             <Composer
-              authors={state.members}
-              authorId={chatAuthor || state.members[0]?.id || ""}
+              authors={postingAuthors}
+              authorId={selectedChatAuthor}
               setAuthorId={setChatAuthor}
               replyTo={replyTo}
               clearReply={() => setReplyTo(null)}
               onSend={(post: PostInput) => addPost(post)}
             />
           )}
-          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat ? <Composer authors={state.members} authorId={chatAuthor || state.members[0]?.id || ""} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.id })} channel={channel.name} /> : null; })()}
+          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.id })} channel={channel.name} /> : null; })()}
           </div>
 
           {/* Member list */}
