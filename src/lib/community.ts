@@ -142,7 +142,14 @@ export function useCommunity() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) setState(JSON.parse(raw) as State);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<State>;
+        setState((s) => ({
+          ...s,
+          ...parsed,
+          community: { ...defaultCommunity, ...(parsed.community ?? {}) },
+        }));
+      }
     } catch {
       /* ignore */
     }
@@ -162,6 +169,13 @@ export function useCommunity() {
     setState((s) => ({
       ...s,
       members: [{ joined: Date.now(), ...member, id: uid() }, ...s.members],
+    }));
+  }, []);
+
+  const updateMember = useCallback((id: string, patch: Partial<Member>) => {
+    setState((s) => ({
+      ...s,
+      members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     }));
   }, []);
 
@@ -196,7 +210,20 @@ export function useCommunity() {
     setState((s) => ({ ...s, stats }));
   }, []);
 
-  return { state, hydrated, addMember, removeMember, addPost, setStats };
+  const setCommunity = useCallback((community: Community) => {
+    setState((s) => ({ ...s, community }));
+  }, []);
+
+  return {
+    state,
+    hydrated,
+    addMember,
+    updateMember,
+    removeMember,
+    addPost,
+    setStats,
+    setCommunity,
+  };
 }
 
 export function initials(name: string) {
