@@ -92,7 +92,8 @@ export function AdminView({
       avatar: avatar || autoAvatar || editingMember?.avatar || "",
       banner: banner || autoBanner || editingMember?.banner || "",
       connections: [...(primary ? [primary] : []), ...connections],
-      joined: new Date(`${form.joined}T12:00:00`).getTime() || Date.now(),
+       joined: new Date(`${form.joined}T12:00:00`).getTime() || Date.now(),
+       manualStatus: form.status === "offline" ? "offline" : "online",
     };
     if (editingMember) {
       updateMember(editingMember.id, saved);
@@ -432,7 +433,8 @@ export function AdminView({
                   {m.handle} · {m.status}
                 </p>
               </div>
-              <div className="flex gap-2">
+               <div className="flex gap-2">
+               <button type="button" onClick={() => { const next = m.manualStatus === "online" || m.status === "online" ? "offline" : "online"; updateMember(m.id, { manualStatus: next, status: next }); notify(`${m.name} set ${next}`); }} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">{m.manualStatus === "online" || m.status === "online" ? "Set offline" : "Set online"}</button>
               <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
               <button
                 type="button"

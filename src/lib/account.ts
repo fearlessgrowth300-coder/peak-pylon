@@ -96,12 +96,13 @@ export function topRole(roles: Role[]): Role {
 }
 
 export function accountToMember(a: Account): Member & { real: true; role: Role } {
+  const isRecentlyActive = new Date(a.last_active_at).getTime() > Date.now() - 6 * 60 * 1000;
   return {
     id: a.id,
     name: a.display_name,
     handle: a.handle ?? "@member",
     platform: a.platform,
-    status: (["online", "live", "offline"].includes(a.status) ? a.status : "online") as Status,
+    status: a.status === "live" ? "live" : isRecentlyActive ? "online" : "offline",
     link: a.channel_url,
     bio: a.bio,
     avatar: a.avatar_url,

@@ -17,6 +17,7 @@ export type Member = {
   handle: string;
   platform: string;
   status: Status;
+  manualStatus?: "online" | "offline" | undefined;
   link: string;
   bio: string;
   avatar: string;

@@ -60,9 +60,12 @@ function Index() {
   const isAdmin = !!myAccount?.roles.includes("admin");
 
   useEffect(() => {
-    if (!userId || !isAdmin) return;
-    void supabase.from("profiles").update({ status: "online" }).eq("id", userId).then(() => void refresh());
-  }, [isAdmin, refresh, userId]);
+    if (!userId) return;
+    const heartbeat = () => void supabase.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", userId).then(() => void refresh());
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 60_000);
+    return () => window.clearInterval(timer);
+  }, [refresh, userId]);
 
   const channels = useMemo(() => {
     const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
@@ -134,12 +137,14 @@ function Index() {
         let realProfileChanged = false;
         updates.forEach((update) => {
           const member = twitchMembers.find((item) => item.id === update.id);
-          if (!member || (member.status === update.status && (!update.banner || member.banner === update.banner))) return;
+          if (!member) return;
+          const nextStatus = update.status === "live" ? "live" : member.manualStatus ?? (member.real ? "offline" : "offline");
+          if (member.status === nextStatus && (!update.banner || member.banner === update.banner)) return;
           const realAccount = accounts.find((account) => account.id === member.id);
           if (realAccount) {
             realProfileChanged = true;
             void supabase.from("profiles").update({ status: update.status, ...(update.banner ? { banner_url: update.banner } : {}) }).eq("id", realAccount.id);
-          } else updateMember(member.id, { status: update.status, ...(update.banner ? { banner: update.banner } : {}) });
+          } else updateMember(member.id, { status: nextStatus, ...(update.banner ? { banner: update.banner } : {}) });
         });
         if (realProfileChanged) void refresh();
       } catch { /* Keep the last known status if Twitch is temporarily unavailable. */ }
