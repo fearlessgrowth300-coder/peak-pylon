@@ -32,6 +32,8 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [handle, setHandle] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -50,7 +52,6 @@ function AuthPage() {
         email,
         password,
         options: {
-          emailRedirectTo: window.location.origin,
           data: {
             display_name: displayName || email.split("@")[0],
             handle: handle.startsWith("@") ? handle : handle ? `@${handle}` : null,
@@ -58,10 +59,26 @@ function AuthPage() {
         },
       });
       setBusy(false);
-      setMsg(error ? error.message : "Check your email to confirm your account.");
+      if (error) return setMsg(error.message);
+      setAwaitingVerification(true);
+      setMsg("We sent a 6-digit verification code to your email.");
       return;
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (error) return setMsg(error.message);
+    void navigate({ to: "/" });
+  }
+
+  async function verifyCode(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg("");
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: verificationCode.replace(/\s/g, ""),
+      type: "signup",
+    });
     setBusy(false);
     if (error) return setMsg(error.message);
     void navigate({ to: "/" });
@@ -96,7 +113,27 @@ function AuthPage() {
           <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
         </div>
 
-        <form onSubmit={submit} className="space-y-3">
+        {awaitingVerification ? (
+          <form onSubmit={verifyCode} className="mt-5 space-y-3">
+            <Field label="Email verification code">
+              <input
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={8}
+                className={`${inputClass} text-center text-xl font-bold tracking-[0.35em]`}
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="123456"
+              />
+            </Field>
+            <p className="text-xs text-muted-foreground">Enter the code from the email we sent to {email}.</p>
+            <button disabled={busy} type="submit" className={`${buttonClass} w-full`}>
+              {busy ? "Verifying…" : "Verify account"}
+            </button>
+            <button type="button" onClick={() => setAwaitingVerification(false)} className="w-full text-xs text-muted-foreground hover:underline">Use a different email</button>
+          </form>
+        ) : <form onSubmit={submit} className="space-y-3">
           {mode === "signup" && (
             <>
               <Field label="Display name">
@@ -139,7 +176,7 @@ function AuthPage() {
           <button disabled={busy} type="submit" className={`${buttonClass} w-full`}>
             {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
           </button>
-        </form>
+        </form>}
 
         {msg && <p className="mt-3 text-sm text-primary">{msg}</p>}
 
