@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ROLE_META, isRestricted, topRole, type Account } from "@/lib/account";
 import { formatDate } from "@/lib/community";
 import { Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
+import { getTwitchChannel } from "@/lib/twitch.functions";
 
 export function ProfileEditor({
   account,
@@ -24,6 +25,7 @@ export function ProfileEditor({
     status: account.status,
     avatar_url: account.avatar_url,
     banner_url: account.banner_url,
+    created_at: account.created_at,
   });
   const [busy, setBusy] = useState(false);
 
@@ -37,10 +39,20 @@ export function ProfileEditor({
       status: account.status,
       avatar_url: account.avatar_url,
       banner_url: account.banner_url,
+      created_at: account.created_at,
     });
   }, [account]);
 
   const role = topRole(account.roles);
+
+  async function autoFillChannel() {
+    if (!form.channel_url.trim()) return notify("Paste your Twitch channel URL first");
+    try {
+      const metadata = await getTwitchChannel({ data: { channelUrl: form.channel_url } });
+      setForm((current) => ({ ...current, display_name: metadata.name || current.display_name, handle: metadata.handle || current.handle, bio: metadata.bio || current.bio, platform: metadata.platform, status: metadata.status, avatar_url: metadata.avatar || current.avatar_url, banner_url: metadata.banner || current.banner_url }));
+      notify("Twitch profile, banner, bio, and live status filled");
+    } catch { notify("Could not read that Twitch channel. Check the URL and try again."); }
+  }
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -66,7 +78,7 @@ export function ProfileEditor({
       </header>
 
       <div className="rounded-xl bg-popover p-4 text-xs text-muted-foreground">
-        Member since {formatDate(new Date(account.created_at).getTime())}.{" "}
+        Member since {formatDate(new Date(form.created_at).getTime())}.{" "}
         {account.is_banned
           ? "Your account is banned — contact the owner."
           : isRestricted(account)
@@ -124,14 +136,15 @@ export function ProfileEditor({
           </Field>
         </div>
         <Field label="Channel URL">
-          <input
+          <div className="flex gap-2"><input
             type="url"
             className={inputClass}
             value={form.channel_url}
             onChange={(e) => setForm({ ...form, channel_url: e.target.value })}
             placeholder="https://twitch.tv/yourchannel"
-          />
+          /><button type="button" onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0`}>Auto-fill</button></div>
         </Field>
+        <Field label="Member since"><input type="date" className={inputClass} value={form.created_at.slice(0, 10)} onChange={(e) => setForm({ ...form, created_at: new Date(`${e.target.value}T12:00:00`).toISOString() })} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Avatar image URL">
             <input

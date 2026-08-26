@@ -1,4 +1,5 @@
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, MessageSquare, PhoneCall, UserPlus } from "lucide-react";
+import { useState } from "react";
 import { formatDate, type Connection, type Member } from "@/lib/community";
 import { Avatar } from "./Bits";
 import { BrandIcon, VerifiedCheck } from "./BrandIcon";
@@ -38,6 +39,7 @@ export function ProfileModal({
   onClose: () => void;
   isAdmin?: boolean;
 }) {
+  const [notice, setNotice] = useState("");
   if (!member) return null;
   const connections = memberConnections(member);
   const statusLabel =
@@ -94,7 +96,12 @@ export function ProfileModal({
             </p>
           </div>
 
-          <p className="mt-4 rounded-lg bg-accent/60 px-3 py-2 text-xs text-muted-foreground">Community communication happens in public channels. Private friends and direct messages are reserved for Twitch Partners.</p>
+          <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+            <button onClick={() => setNotice("Friends are available only to verified Twitch or Kick Partners.")} className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/85"><UserPlus className="h-4 w-4" /> Add Friend</button>
+            <button onClick={() => setNotice("Private messages are available only to verified Twitch or Kick Partners.")} aria-label="Message" className="grid h-10 w-10 place-items-center rounded-lg bg-accent hover:bg-accent/70"><MessageSquare className="h-4 w-4" /></button>
+            <button onClick={() => setNotice("Private calls are available only to verified Twitch or Kick Partners.")} aria-label="Call" className="grid h-10 w-10 place-items-center rounded-lg bg-accent hover:bg-accent/70"><PhoneCall className="h-4 w-4" /></button>
+          </div>
+          {notice && <p className="mt-2 rounded-lg bg-accent/60 px-3 py-2 text-xs text-muted-foreground">{notice}</p>}
 
           <p className="mt-5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
             About me

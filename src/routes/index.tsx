@@ -59,6 +59,11 @@ function Index() {
   );
   const isAdmin = !!myAccount?.roles.includes("admin");
 
+  useEffect(() => {
+    if (!userId || !isAdmin) return;
+    void supabase.from("profiles").update({ status: "online" }).eq("id", userId).then(() => void refresh());
+  }, [isAdmin, refresh, userId]);
+
   const channels = useMemo(() => {
     const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
       {
