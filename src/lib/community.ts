@@ -222,6 +222,7 @@ export function useCommunity() {
       posts: s.posts.filter((p) => p.authorId !== id),
     }));
     void (supabase as any).from("community_listed_members").delete().eq("id", id);
+    void (supabase as any).from("community_posts").delete().eq("data->>authorId", id);
   }, []);
 
   const addPost = useCallback((input: PostInput) => {
