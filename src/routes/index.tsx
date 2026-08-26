@@ -123,23 +123,30 @@ function Index() {
   const offline = allMembers.filter((m) => m.status === "offline");
 
   useEffect(() => {
-    const twitchMembers = state.members.filter((member) => member.platform === "Twitch" && member.link);
+    const twitchMembers = allMembers.filter((member) => member.platform === "Twitch" && member.link);
     if (!twitchMembers.length) return;
     let active = true;
     const refreshTwitch = async () => {
       try {
         const updates = await refreshTwitchStatuses({ data: { channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link })) } });
         if (!active) return;
+        let realProfileChanged = false;
         updates.forEach((update) => {
           const member = twitchMembers.find((item) => item.id === update.id);
-          if (member && (member.status !== update.status || (update.banner && member.banner !== update.banner))) updateMember(member.id, { status: update.status, ...(update.banner ? { banner: update.banner } : {}) });
+          if (!member || (member.status === update.status && (!update.banner || member.banner === update.banner))) return;
+          const realAccount = accounts.find((account) => account.id === member.id);
+          if (realAccount) {
+            realProfileChanged = true;
+            void supabase.from("profiles").update({ status: update.status, ...(update.banner ? { banner_url: update.banner } : {}) }).eq("id", realAccount.id);
+          } else updateMember(member.id, { status: update.status, ...(update.banner ? { banner: update.banner } : {}) });
         });
+        if (realProfileChanged) void refresh();
       } catch { /* Keep the last known status if Twitch is temporarily unavailable. */ }
     };
     void refreshTwitch();
     const timer = window.setInterval(() => void refreshTwitch(), 60_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [state.members, updateMember]);
+  }, [accounts, allMembers, refresh, state.members, updateMember]);
 
   async function signOut() {
     await supabase.auth.signOut();
