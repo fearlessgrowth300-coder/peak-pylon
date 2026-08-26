@@ -67,7 +67,7 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) return setMsg(error.message);
-    void navigate({ to: "/" });
+    window.location.assign("/");
   }
 
   async function verifyCode(e: FormEvent) {
@@ -81,7 +81,7 @@ function AuthPage() {
     });
     setBusy(false);
     if (error) return setMsg(error.message);
-    void navigate({ to: "/" });
+    window.location.assign("/");
   }
 
   async function google() {
