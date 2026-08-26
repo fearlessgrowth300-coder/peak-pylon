@@ -215,14 +215,17 @@ export function useCommunity() {
     void (supabase as any).from("community_listed_members").select("data").eq("id", id).maybeSingle().then(({ data }: any) => data && (supabase as any).from("community_listed_members").update({ data: { ...data.data, ...patch } }).eq("id", id));
   }, []);
 
-  const removeMember = useCallback((id: string) => {
+  const removeMember = useCallback(async (id: string) => {
+    const db = supabase as any;
+    const { error } = await db.from("community_listed_members").delete().eq("id", id);
+    if (error) throw error;
     setState((s) => ({
       ...s,
       members: s.members.filter((m) => m.id !== id),
       posts: s.posts.filter((p) => p.authorId !== id),
     }));
-    void (supabase as any).from("community_listed_members").delete().eq("id", id);
-    void (supabase as any).from("community_posts").delete().eq("data->>authorId", id);
+    // Posts are secondary data; a failed cleanup must not bring the member back.
+    void db.from("community_posts").delete().eq("data->>authorId", id);
   }, []);
 
   const addPost = useCallback((input: PostInput) => {

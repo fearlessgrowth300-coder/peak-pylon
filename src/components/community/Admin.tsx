@@ -29,7 +29,7 @@ export function AdminView({
 }: {
   state: State;
   addMember: (m: Omit<Member, "id">) => void;
-  removeMember: (id: string) => void;
+  removeMember: (id: string) => Promise<void>;
   addPost: (post: PostInput) => void;
   setStats: (s: Stats) => void;
   setCommunity: (community: Community) => void;
@@ -438,10 +438,11 @@ export function AdminView({
               <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
               <button
                 type="button"
-                onClick={() => {
-                  removeMember(m.id);
-                  notify("Member permanently removed from the community");
-                }}
+                onClick={() =>
+                  void removeMember(m.id)
+                    .then(() => notify("Member permanently removed from the community"))
+                    .catch((error) => notify(`Could not remove member: ${error.message ?? "database request failed"}`))
+                }
                 className="shrink-0 rounded-md bg-destructive/15 px-3 py-1.5 text-xs font-bold text-destructive"
               >
                 Remove
