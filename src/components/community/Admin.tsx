@@ -439,9 +439,8 @@ export function AdminView({
               <button
                 type="button"
                 onClick={() => {
-                  if (state.members.length <= 1) return notify("Keep at least one profile");
                   removeMember(m.id);
-                  notify("Member removed");
+                  notify("Member permanently removed from the community");
                 }}
                 className="shrink-0 rounded-md bg-destructive/15 px-3 py-1.5 text-xs font-bold text-destructive"
               >

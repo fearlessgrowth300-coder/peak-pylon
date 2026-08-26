@@ -4,6 +4,7 @@ import {
   ROLE_META,
   accountToMember,
   isRestricted,
+  removeFromCommunity,
   setBanned,
   setRestriction,
   setUserRole,
@@ -85,6 +86,7 @@ export function MembersCRM({
       <div className="space-y-2">
         {list.map((a) => {
           const role = topRole(a.roles);
+          const isOwner = role === "admin";
           return (
             <div key={a.id} className="space-y-3 rounded-md bg-background p-3">
               <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
@@ -109,7 +111,7 @@ export function MembersCRM({
 
               <div className="flex flex-wrap items-center gap-2">
                 <select
-                  disabled={!isAdmin || busy === a.id}
+                  disabled={!isAdmin || isOwner || busy === a.id}
                   className={`${inputClass} w-auto`}
                   value={role}
                   onChange={(e) =>
@@ -127,7 +129,7 @@ export function MembersCRM({
                   ))}
                 </select>
                 <button
-                  disabled={!isAdmin || busy === a.id}
+                  disabled={!isAdmin || isOwner || busy === a.id}
                   onClick={() =>
                     void run(
                       a.id,
@@ -140,7 +142,7 @@ export function MembersCRM({
                   {isRestricted(a) ? "Lift restriction" : "Restrict 7 days"}
                 </button>
                 <button
-                  disabled={!isAdmin || busy === a.id}
+                  disabled={!isAdmin || isOwner || busy === a.id}
                   onClick={() =>
                     void run(
                       a.id,
@@ -152,6 +154,21 @@ export function MembersCRM({
                 >
                   {a.is_banned ? "Unban" : "Ban"}
                 </button>
+                {!isOwner && (
+                  <button
+                    disabled={!isAdmin || busy === a.id}
+                    onClick={() =>
+                      void run(
+                        a.id,
+                        () => removeFromCommunity(a.id),
+                        "Account permanently removed from this community",
+                      )
+                    }
+                    className="rounded-md bg-destructive px-3 py-1.5 text-xs font-bold text-destructive-foreground disabled:opacity-50"
+                  >
+                    Remove permanently
+                  </button>
+                )}
                 {a.channel_url && (
                   <a
                     href={a.channel_url}

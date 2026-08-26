@@ -138,6 +138,20 @@ export async function setBanned(userId: string, banned: boolean) {
   return supabase.from("profiles").update({ is_banned: banned }).eq("id", userId);
 }
 
+// This removes a person from the community directory, their role, and their
+// community content. Their Supabase Auth identity is intentionally retained so
+// the owner never deletes somebody's external login by mistake.
+export async function removeFromCommunity(userId: string) {
+  const [roles, profile, listed, posts] = await Promise.all([
+    supabase.from("user_roles").delete().eq("user_id", userId),
+    supabase.from("profiles").delete().eq("id", userId),
+    (supabase as any).from("community_listed_members").delete().eq("id", userId),
+    (supabase as any).from("community_posts").delete().eq("data->>authorId", userId),
+  ]);
+  const failure = [roles.error, profile.error, listed.error, posts.error].find(Boolean);
+  if (failure) throw failure;
+}
+
 export function isRestricted(a: Account) {
   return !!a.restricted_until && new Date(a.restricted_until).getTime() > Date.now();
 }

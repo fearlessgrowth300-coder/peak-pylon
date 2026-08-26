@@ -182,22 +182,16 @@ export function useCommunity() {
     const db = supabase as any;
     let active = true;
     const sync = async () => {
-      const [{ data: memberRows }, { data: postRows }] = await Promise.all([
+      const [{ data: memberRows, error: memberError }, { data: postRows, error: postError }] = await Promise.all([
         db.from("community_listed_members").select("id, data"),
         db.from("community_posts").select("id, data").order("created_at", { ascending: true }),
       ]);
-      if (!active) return;
+      // An empty result is meaningful: it means the owner deliberately removed
+      // the final member or post.  Never repopulate it from browser sample data.
+      if (!active || memberError || postError) return;
       const members = (memberRows ?? []).map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
       const posts = (postRows ?? []).map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
-      if (members.length || posts.length) {
-        setState((current) => ({ ...current, members: members.length ? members : current.members, posts: posts.length ? posts : current.posts }));
-      } else {
-        const initial = state;
-        await Promise.all([
-          db.from("community_listed_members").upsert(initial.members.map(({ id, ...data }) => ({ id, data }))),
-          db.from("community_posts").upsert(initial.posts.map(({ id, ...data }) => ({ id, data }))),
-        ]);
-      }
+      setState((current) => ({ ...current, members, posts }));
     };
     void sync();
     const timer = window.setInterval(() => void sync(), 12_000);
@@ -222,15 +216,11 @@ export function useCommunity() {
   }, []);
 
   const removeMember = useCallback((id: string) => {
-    setState((s) =>
-      s.members.length <= 1
-        ? s
-        : {
-            ...s,
-            members: s.members.filter((m) => m.id !== id),
-            posts: s.posts.filter((p) => p.authorId !== id),
-          },
-    );
+    setState((s) => ({
+      ...s,
+      members: s.members.filter((m) => m.id !== id),
+      posts: s.posts.filter((p) => p.authorId !== id),
+    }));
     void (supabase as any).from("community_listed_members").delete().eq("id", id);
   }, []);
 
