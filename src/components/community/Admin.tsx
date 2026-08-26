@@ -28,7 +28,7 @@ export function AdminView({
   removeChannel,
 }: {
   state: State;
-  addMember: (m: Omit<Member, "id">) => void;
+  addMember: (m: Omit<Member, "id">) => Promise<void>;
   removeMember: (id: string) => Promise<void>;
   addPost: (post: PostInput) => Promise<void>;
   setStats: (s: Stats) => void;
@@ -99,8 +99,12 @@ export function AdminView({
       updateMember(editingMember.id, saved);
       notify("Member updated");
     } else {
-      addMember(saved);
-      notify("Member added");
+      try {
+        await addMember(saved);
+        notify("Member added");
+      } catch {
+        return notify("Member could not be saved to Supabase");
+      }
     }
     setForm({ name: "", handle: "", link: "", bio: "", status: "online", platform: "Twitch", joined: new Date().toISOString().slice(0, 10) });
     setAvatarFile(null);

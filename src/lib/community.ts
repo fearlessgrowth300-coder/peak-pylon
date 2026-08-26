@@ -200,14 +200,19 @@ export function useCommunity() {
     return () => { active = false; window.clearInterval(timer); };
   }, [hydrated]);
 
-  const addMember = useCallback((member: Omit<Member, "id">) => {
+  const addMember = useCallback(async (member: Omit<Member, "id">) => {
     const id = uid();
     mutationVersion.current += 1;
+    const record = { joined: Date.now(), ...member };
+    const { error } = await (supabase as any).from("community_listed_members").upsert({ id, data: record });
+    if (error) {
+      mutationVersion.current += 1;
+      throw error;
+    }
     setState((s) => ({
       ...s,
-      members: [{ joined: Date.now(), ...member, id }, ...s.members],
+      members: [{ ...record, id }, ...s.members],
     }));
-    void (supabase as any).from("community_listed_members").upsert({ id, data: { joined: Date.now(), ...member } });
   }, []);
 
   const updateMember = useCallback((id: string, patch: Partial<Member>) => {

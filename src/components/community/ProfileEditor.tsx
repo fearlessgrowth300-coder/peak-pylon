@@ -25,6 +25,7 @@ export function ProfileEditor({
     status: account.status,
     avatar_url: account.avatar_url,
     banner_url: account.banner_url,
+    created_at: account.created_at,
     social_links: account.social_links ?? [],
   });
   const [busy, setBusy] = useState(false);
@@ -41,6 +42,7 @@ export function ProfileEditor({
       status: account.status,
       avatar_url: account.avatar_url,
       banner_url: account.banner_url,
+      created_at: account.created_at,
       social_links: account.social_links ?? [],
     });
   }, [account]);
@@ -167,7 +169,7 @@ export function ProfileEditor({
             placeholder="https://twitch.tv/yourchannel"
           /><button type="button" onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0`}>Auto-fill</button></div>
         </Field>
-        {isAdmin && <Field label="Member since"><input type="date" className={inputClass} value={account.created_at.slice(0, 10)} onChange={(e) => setForm({ ...form, created_at: new Date(`${e.target.value}T12:00:00`).toISOString() })} /><p className="mt-1 text-xs text-muted-foreground">Only the community admin can adjust this date.</p></Field>}
+        {isAdmin && <Field label="Member since"><input type="date" className={inputClass} value={form.created_at.slice(0, 10)} onChange={(e) => setForm({ ...form, created_at: new Date(`${e.target.value}T12:00:00`).toISOString() })} /><p className="mt-1 text-xs text-muted-foreground">Only the community admin can adjust this date.</p></Field>}
         </>}
         {!isAdmin && <div className="space-y-3 rounded-xl bg-background p-4"><div className="flex items-center justify-between"><div><p className="font-bold">Connections</p><p className="text-xs text-muted-foreground">Connect accounts to verify and show them on your profile.</p></div><button type="button" onClick={() => setConnectionsOpen(true)} className={ghostButtonClass}>Add</button></div>{account.twitch_verified && <p className="rounded-md bg-primary/15 px-3 py-2 text-sm font-semibold text-primary">✓ Twitch connected and verified</p>}{form.social_links.map((link: SocialLink, index: number) => <div key={index} className="grid grid-cols-[110px_minmax(0,1fr)_auto] gap-2"><span className="self-center text-sm font-semibold">{link.platform}</span><input type="url" className={inputClass} placeholder="Profile URL" value={link.url} onChange={(e) => setForm({ ...form, social_links: form.social_links.map((item, i) => i === index ? { ...item, url: e.target.value, label: e.target.value } : item) })} /><button type="button" className="text-xs text-destructive" onClick={() => setForm({ ...form, social_links: form.social_links.filter((_, i) => i !== index) })}>Remove</button></div>)}{selectedProvider && <div className="grid grid-cols-[110px_minmax(0,1fr)_auto] gap-2"><span className="self-center text-sm font-semibold">{selectedProvider}</span><input autoFocus type="url" className={inputClass} placeholder={`${selectedProvider} profile URL`} onBlur={(e) => { if (e.target.value.trim()) setForm({ ...form, social_links: [...form.social_links, { platform: selectedProvider, url: e.target.value.trim(), label: e.target.value.trim() }] }); setSelectedProvider(null); }} /><button type="button" className="text-xs text-muted-foreground" onClick={() => setSelectedProvider(null)}>Cancel</button></div>}</div>}
         {isAdmin && <div className="grid grid-cols-2 gap-3">
