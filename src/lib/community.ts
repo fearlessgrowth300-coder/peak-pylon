@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 export type Status = "online" | "live" | "offline";
 
+export type Connection = {
+  id: string;
+  platform: string;
+  label: string;
+  url: string;
+  verified: boolean;
+};
+
 export type Member = {
   id: string;
   name: string;
@@ -15,6 +23,7 @@ export type Member = {
   joined?: number | undefined;
   real?: boolean | undefined;
   role?: string | undefined;
+  connections?: Connection[] | undefined;
 };
 
 export type Post = {
@@ -39,14 +48,28 @@ export type PostInput = {
 
 export type Stats = { members: string; online: string; rank: string };
 
-export type State = { stats: Stats; members: Member[]; posts: Post[] };
+export type Community = { name: string; logo: string; banner: string; tagline: string };
+
+export type State = {
+  stats: Stats;
+  community: Community;
+  members: Member[];
+  posts: Post[];
+};
 
 const KEY = "streamcore-demo-v1";
 
-const uid = () =>
+export const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
+
+export const defaultCommunity: Community = {
+  name: "StreamCore",
+  logo: "",
+  banner: "",
+  tagline: "The home of streamers",
+};
 
 export function defaultState(): State {
   const m1 = uid();
@@ -54,6 +77,7 @@ export function defaultState(): State {
   const m3 = uid();
   return {
     stats: { members: "42M", online: "1.6K", rank: "#3" },
+    community: { ...defaultCommunity },
     members: [
       {
         id: m1,
@@ -118,7 +142,14 @@ export function useCommunity() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) setState(JSON.parse(raw) as State);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<State>;
+        setState((s) => ({
+          ...s,
+          ...parsed,
+          community: { ...defaultCommunity, ...(parsed.community ?? {}) },
+        }));
+      }
     } catch {
       /* ignore */
     }
@@ -138,6 +169,13 @@ export function useCommunity() {
     setState((s) => ({
       ...s,
       members: [{ joined: Date.now(), ...member, id: uid() }, ...s.members],
+    }));
+  }, []);
+
+  const updateMember = useCallback((id: string, patch: Partial<Member>) => {
+    setState((s) => ({
+      ...s,
+      members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     }));
   }, []);
 
@@ -172,7 +210,20 @@ export function useCommunity() {
     setState((s) => ({ ...s, stats }));
   }, []);
 
-  return { state, hydrated, addMember, removeMember, addPost, setStats };
+  const setCommunity = useCallback((community: Community) => {
+    setState((s) => ({ ...s, community }));
+  }, []);
+
+  return {
+    state,
+    hydrated,
+    addMember,
+    updateMember,
+    removeMember,
+    addPost,
+    setStats,
+    setCommunity,
+  };
 }
 
 export function initials(name: string) {
