@@ -45,7 +45,9 @@ export function ProfileEditor({
       created_at: account.created_at,
       social_links: account.social_links ?? [],
     });
-  }, [account]);
+  // A heartbeat refresh replaces the account object every minute. Do not throw
+  // away an admin's in-progress date edit merely because that happened.
+  }, [account.id]);
 
   const role = topRole(account.roles);
   const isAdmin = role === "admin";

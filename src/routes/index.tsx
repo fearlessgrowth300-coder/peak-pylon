@@ -41,7 +41,11 @@ function Index() {
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
-  const [view, setView] = useState<View>("general");
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === "undefined") return "general";
+    const saved = localStorage.getItem("streamcore:last-view") as View | null;
+    return saved && (saved === "rules" || saved === "general" || saved === "creators" || saved === "live-now" || saved === "admin" || saved === "me" || saved.startsWith("channel:")) ? saved : "general";
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [channelDetailsOpen, setChannelDetailsOpen] = useState(false);
@@ -125,6 +129,10 @@ function Index() {
   }, []);
 
   useEffect(() => {
+    localStorage.setItem("streamcore:last-view", view);
+  }, [view]);
+
+  useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 1800);
     return () => clearTimeout(t);
@@ -167,7 +175,7 @@ function Index() {
         updates.forEach((update) => {
           const member = twitchMembers.find((item) => item.id === update.id);
           if (!member) return;
-          const nextStatus = update.status === "live" ? "live" : member.manualStatus ?? (member.real ? "offline" : "offline");
+          const nextStatus = update.status === "live" ? "live" : member.manualStatus ?? "offline";
           if (member.status === nextStatus && (!update.banner || member.banner === update.banner)) return;
           const realAccount = accounts.find((account) => account.id === member.id);
           if (realAccount) {

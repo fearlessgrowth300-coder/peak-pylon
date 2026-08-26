@@ -1,0 +1,12 @@
+{
+  "name": "Peak Pylon",
+  "short_name": "Peak Pylon",
+  "description": "A verified streamer community.",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#1f2026",
+  "theme_color": "#5865f2",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
