@@ -119,8 +119,9 @@ function Index() {
     `${m.name} ${m.handle} ${m.platform} ${m.bio}`.toLowerCase().includes(query.toLowerCase()),
   );
   const liveMembers = allMembers.filter((m) => m.status !== "offline");
-  const online = allMembers.filter((m) => m.status !== "offline");
-  const offline = allMembers.filter((m) => m.status === "offline");
+  const adminMembers = allMembers.filter((m) => m.role === "admin");
+  const online = allMembers.filter((m) => m.status !== "offline" && m.role !== "admin");
+  const offline = allMembers.filter((m) => m.status === "offline" && m.role !== "admin");
 
   useEffect(() => {
     const twitchMembers = allMembers.filter((member) => member.platform === "Twitch" && member.link);
@@ -527,24 +528,7 @@ function Index() {
               + Invite members
             </button>
 
-            {myAccount && isAdmin && (
-              <>
-                <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                  Admin — 1
-                </p>
-                <button
-                  onClick={() => setProfile(accountToMember(myAccount))}
-                  className="mb-4 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/50"
-                >
-                  <Avatar member={accountToMember(myAccount)} size={32} />
-                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                    {myAccount.display_name}
-                  </span>
-                  <span className="shrink-0 text-xs" title="Community admin">👑</span>
-                </button>
-              </>
-            )}
-
+            <MemberGroup title={`Admin — ${adminMembers.length}`} list={adminMembers} onPick={setProfile} admin />
             <MemberGroup title={`Online — ${online.length}`} list={online} onPick={setProfile} />
             <MemberGroup
               title={`Offline — ${offline.length}`}
@@ -605,11 +589,13 @@ function MemberGroup({
   list,
   onPick,
   dim,
+  admin,
 }: {
   title: string;
   list: Member[];
   onPick: (m: Member) => void;
   dim?: boolean;
+  admin?: boolean;
 }) {
   if (!list.length) return null;
   return (
@@ -630,6 +616,7 @@ function MemberGroup({
           {m.status === "live" && (
             <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor(m.status)}`} />
           )}
+          {admin && <span className="shrink-0 text-xs" title="Community admin">👑</span>}
         </button>
       ))}
     </div>

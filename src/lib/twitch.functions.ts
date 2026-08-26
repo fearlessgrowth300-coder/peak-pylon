@@ -50,12 +50,13 @@ export const completeTwitchAuthorization = createServerFn({ method: "POST" })
     const token = (await tokenResponse.json()) as { access_token?: string };
     if (!token.access_token) throw new Error("Twitch did not return an access token");
     const headers = { "Client-Id": clientId, Authorization: `Bearer ${token.access_token}` };
-    const [userResponse, streamResponse] = await Promise.all([fetch("https://api.twitch.tv/helix/users", { headers }), fetch("https://api.twitch.tv/helix/streams?first=1", { headers })]);
+    const userResponse = await fetch("https://api.twitch.tv/helix/users", { headers });
     if (!userResponse.ok) throw new Error("Twitch profile lookup failed");
-    const users = (await userResponse.json()) as { data?: Array<{ display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
+    const users = (await userResponse.json()) as { data?: Array<{ id: string; display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
     const user = users.data?.[0];
     if (!user) throw new Error("Twitch did not return a profile");
-    const streams = streamResponse.ok ? (await streamResponse.json()) as { data?: Array<{ thumbnail_url?: string }> } : { data: [] };
+    const ownStreamResponse = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(user.id)}`, { headers });
+    const streams = ownStreamResponse.ok ? (await ownStreamResponse.json()) as { data?: Array<{ thumbnail_url?: string }> } : { data: [] };
     const thumbnail = streams.data?.[0]?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720") ?? "";
     return { display_name: user.display_name, handle: `@${user.login}`, bio: user.description || "", avatar_url: user.profile_image_url || "", banner_url: thumbnail || user.offline_image_url || "", platform: "Twitch", channel_url: `https://www.twitch.tv/${user.login}`, status: thumbnail ? "live" : "offline" };
   });
