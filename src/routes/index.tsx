@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { timeAgo, useCommunity, type Member, type PostInput } from "@/lib/community";
+import { timeAgo, useCommunity, type Member, type Post, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
@@ -37,7 +37,7 @@ export const Route = createFileRoute("/")({
 type View = "rules" | "general" | "creators" | "live-now" | "admin" | "me" | `channel:${string}`;
 
 function Index() {
-  const { state, addMember, updateMember, removeMember, addPost, setStats, setCommunity, addChannel, removeChannel } = useCommunity();
+  const { state, addMember, updateMember, removeMember, addPost, setStats, setCommunity, addChannel, removeChannel, toggleReaction } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
@@ -301,7 +301,7 @@ function Index() {
                 <LiveStories members={liveMembers.filter((member) => member.status === "live")} onPick={setProfile} />
 
                 <div className="space-y-0.5">
-                  {[...state.posts]
+                  {[...state.posts.filter((post) => !post.channel || post.channel === "general")]
                     .sort((a, b) => a.time - b.time)
                     .map((p) => {
                       const m = memberById.get(p.authorId);
@@ -380,6 +380,7 @@ function Index() {
                                   className="mt-2 max-h-80 w-full rounded-lg"
                                 />
                               )}
+                              <div className="mt-2 flex gap-2 text-xs"><button onClick={() => toggleReaction(p.id, "👍")} className="rounded bg-accent px-2 py-1 hover:bg-accent/70">👍 {p.reactions?.["👍"] ?? ""}</button><button onClick={() => toggleReaction(p.id, "❤️")} className="rounded bg-accent px-2 py-1 hover:bg-accent/70">❤️ {p.reactions?.["❤️"] ?? ""}</button></div>
                             </div>
                           </div>
                         </article>
@@ -389,11 +390,11 @@ function Index() {
               </div>
             )}
 
-            {view === "rules" && <RulesChannel onContinue={() => setView("general")} />}
+            {view === "rules" && <RulesChannel rules={state.community.rules} onContinue={() => setView("general")} />}
 
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
-              return channel ? <CustomChannel name={channel.name} topic={channel.topic} /> : null;
+              return channel ? <CustomChannel name={channel.name} topic={channel.topic} posts={state.posts.filter((post) => post.channel === channel.id)} members={memberById} onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })} onReact={toggleReaction} /> : null;
             })()}
 
             {(view === "creators" || view === "live-now") && (
@@ -492,6 +493,7 @@ function Index() {
               onSend={(post: PostInput) => addPost(post)}
             />
           )}
+          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat ? <Composer authors={state.members} authorId={chatAuthor || state.members[0]?.id || ""} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.id })} channel={channel.name} /> : null; })()}
           </div>
 
           {/* Member list */}
@@ -558,12 +560,12 @@ function CommunityMark({ community, size }: { community: { name: string; logo: s
   return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
 }
 
-function RulesChannel({ onContinue }: { onContinue: () => void }) {
-  return <div className="mx-auto max-w-2xl space-y-4 px-4 py-8"><section className="rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #rules!</h1><p className="mt-2 text-sm text-muted-foreground">Please read these rules before taking part in the community.</p></section><section className="space-y-3 rounded-xl bg-popover p-5"><h2 className="font-bold">Community rules</h2><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground"><li>Respect every member. Harassment, hate speech, and threats are not welcome.</li><li>Keep posts relevant to the channel and avoid spam or unwanted promotions.</li><li>Do not share private information, scams, or content that breaks platform rules.</li><li>Use creator profiles and live notifications honestly. Ask an admin if you need help.</li></ol><button onClick={onContinue} className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85">I have read the rules — Continue to #general</button></section></div>;
+function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => void }) {
+  return <div className="mx-auto max-w-2xl space-y-4 px-4 py-8"><section className="rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #rules!</h1><p className="mt-2 text-sm text-muted-foreground">Please read these rules before taking part in the community.</p></section><section className="space-y-3 rounded-xl bg-popover p-5"><h2 className="font-bold">Community rules</h2><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">{rules.split("\n").filter(Boolean).map((rule) => <li key={rule}>{rule}</li>)}</ol><button onClick={onContinue} className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85">I have read the rules — Continue to #general</button></section></div>;
 }
 
-function CustomChannel({ name, topic }: { name: string; topic: string }) {
-  return <div className="mx-auto flex min-h-full max-w-2xl items-center px-4 py-8"><section className="w-full rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-2 text-sm text-muted-foreground">{topic}</p><p className="mt-5 text-xs text-muted-foreground">This is the start of the #{name} channel.</p></section></div>;
+function CustomChannel({ name, topic, posts, members, onReply, onReact }: { name: string; topic: string; posts: Post[]; members: Map<string, Member>; onReply: (post: { id: string; authorId: string }) => void; onReact: (id: string, emoji: string) => void }) {
+  return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleString() : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{post.text}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<div className="mt-2 flex gap-2 text-xs"><button onClick={() => post.id && onReact(post.id, "👍")} className="rounded bg-accent px-2 py-1">👍 {post.reactions?.["👍"] ?? ""}</button><button onClick={() => post.id && onReply({ id: post.id, authorId: post.authorId })} className="rounded bg-accent px-2 py-1">Reply</button></div></div></div></article>; })}</div>;
 }
 
 function LiveStories({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {

@@ -34,6 +34,8 @@ export type Post = {
   video?: string | undefined;
   sticker?: string | undefined;
   replyToId?: string | undefined;
+  channel?: string | undefined;
+  reactions?: Record<string, number> | undefined;
   time: number;
 };
 
@@ -44,12 +46,13 @@ export type PostInput = {
   video?: string | undefined;
   sticker?: string | undefined;
   replyToId?: string | undefined;
+  channel?: string | undefined;
 };
 
 export type Stats = { members: string; online: string; rank: string };
 
-export type Community = { name: string; logo: string; banner: string; tagline: string };
-export type CommunityChannel = { id: string; name: string; topic: string; type: "text" | "announcement"; createdAt: number };
+export type Community = { name: string; logo: string; banner: string; tagline: string; rules: string };
+export type CommunityChannel = { id: string; name: string; topic: string; type: "text" | "media" | "voice" | "announcement" | "testimony" | "social"; allowChat: boolean; createdAt: number };
 
 export type State = {
   stats: Stats;
@@ -71,6 +74,7 @@ export const defaultCommunity: Community = {
   logo: "",
   banner: "",
   tagline: "The home of streamers",
+  rules: "Respect every member.\nKeep posts relevant to the channel.\nNo spam, scams, or private information.\nUse creator profiles and live notifications honestly.",
 };
 
 export function defaultState(): State {
@@ -80,7 +84,7 @@ export function defaultState(): State {
   return {
     stats: { members: "42M", online: "1.6K", rank: "#3" },
     community: { ...defaultCommunity },
-    channels: [{ id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "text", createdAt: Date.now() }],
+    channels: [{ id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "announcement", allowChat: false, createdAt: Date.now() }],
     members: [
       {
         id: m1,
@@ -203,6 +207,8 @@ export function useCommunity() {
           ...input,
           id: uid(),
           image: input.image ?? "",
+          channel: input.channel ?? "general",
+          reactions: {},
           time: Date.now(),
         },
         ...s.posts,
@@ -227,6 +233,10 @@ export function useCommunity() {
     setState((s) => ({ ...s, channels: s.channels.filter((channel) => channel.id !== id) }));
   }, []);
 
+  const toggleReaction = useCallback((id: string, emoji: string) => {
+    setState((s) => ({ ...s, posts: s.posts.map((post) => post.id === id ? { ...post, reactions: { ...(post.reactions ?? {}), [emoji]: ((post.reactions ?? {})[emoji] ?? 0) + 1 } } : post) }));
+  }, []);
+
   return {
     state,
     hydrated,
@@ -238,6 +248,7 @@ export function useCommunity() {
     setCommunity,
     addChannel,
     removeChannel,
+    toggleReaction,
   };
 }
 

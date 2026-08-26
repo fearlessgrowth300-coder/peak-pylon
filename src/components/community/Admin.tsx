@@ -63,6 +63,8 @@ export function AdminView({
   const [autoBanner, setAutoBanner] = useState("");
   const [channelName, setChannelName] = useState("");
   const [channelTopic, setChannelTopic] = useState("");
+  const [channelType, setChannelType] = useState<CommunityChannel["type"]>("text");
+  const [channelAllowsChat, setChannelAllowsChat] = useState(true);
 
   const [postAuthor, setPostAuthor] = useState(state.members[0]?.id ?? "");
   const [postText, setPostText] = useState("");
@@ -198,7 +200,7 @@ export function AdminView({
     const name = channelName.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
     if (!name) return notify("Enter a channel name");
     if (state.channels.some((channel) => channel.name === name) || ["general", "creators", "live-now"].includes(name)) return notify("That channel already exists");
-    addChannel({ name, topic: channelTopic.trim() || "Community discussion", type: "text" });
+    addChannel({ name, topic: channelTopic.trim() || "Community discussion", type: channelType, allowChat: channelAllowsChat });
     setChannelName("");
     setChannelTopic("");
     notify(`#${name} created`);
@@ -225,6 +227,9 @@ export function AdminView({
         </Field>
         <Field label="Tagline">
           <input className={inputClass} value={community.tagline} onChange={(e) => setLocalCommunity({ ...community, tagline: e.target.value })} placeholder="The home of streamers" />
+        </Field>
+        <Field label="Community rules (one rule per line)">
+          <textarea rows={5} className={inputClass} value={community.rules} onChange={(e) => setLocalCommunity({ ...community, rules: e.target.value })} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label={communityLogoFile ? "Community logo ✓" : "Community logo"}>
@@ -330,9 +335,10 @@ export function AdminView({
         <Field label="Channel topic">
           <input className={inputClass} value={channelTopic} onChange={(e) => setChannelTopic(e.target.value)} placeholder="What members can discuss here" />
         </Field>
+        <div className="grid grid-cols-2 gap-3"><Field label="Channel type"><select className={inputClass} value={channelType} onChange={(e) => setChannelType(e.target.value as CommunityChannel["type"])}><option value="text">Text chat</option><option value="media">Clips & media</option><option value="announcement">Announcements</option><option value="testimony">Testimonials</option><option value="social">Social updates</option><option value="voice">Call room</option></select></Field><label className="flex items-end gap-2 pb-2 text-sm"><input type="checkbox" checked={channelAllowsChat} onChange={(e) => setChannelAllowsChat(e.target.checked)} /> Allow members to chat</label></div>
         <button type="submit" className={`${buttonClass} w-full`}>Create channel</button>
         <div className="space-y-2 pt-1">
-          {state.channels.map((channel) => <div key={channel.id} className="flex items-center justify-between rounded-md bg-background px-3 py-2 text-sm"><span><strong># {channel.name}</strong><span className="ml-2 text-xs text-muted-foreground">{channel.topic}</span></span>{channel.id === "rules" ? <span className="text-xs text-primary">Required</span> : <button type="button" className="text-xs font-semibold text-destructive" onClick={() => { removeChannel(channel.id); notify(`#${channel.name} removed`); }}>Remove</button>}</div>)}
+          {state.channels.map((channel) => <div key={channel.id} className="flex items-center justify-between rounded-md bg-background px-3 py-2 text-sm"><span><strong># {channel.name}</strong><span className="ml-2 text-xs text-muted-foreground">{channel.type} · {channel.allowChat ? "chat on" : "read only"}</span></span>{channel.id === "rules" ? <span className="text-xs text-primary">Required</span> : <button type="button" className="text-xs font-semibold text-destructive" onClick={() => { removeChannel(channel.id); notify(`#${channel.name} removed`); }}>Remove</button>}</div>)}
         </div>
       </form>
 

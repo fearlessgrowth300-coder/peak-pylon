@@ -9,6 +9,7 @@ export function Composer({
   replyTo,
   clearReply,
   onSend,
+  channel = "general",
 }: {
   authors: Member[];
   authorId: string;
@@ -16,6 +17,7 @@ export function Composer({
   replyTo: { id: string; name: string } | null;
   clearReply: () => void;
   onSend: (post: PostInput) => void;
+  channel?: string;
 }) {
   const [text, setText] = useState("");
   const [image, setImage] = useState("");
@@ -33,6 +35,7 @@ export function Composer({
       image,
       video,
       replyToId: replyTo?.id,
+      channel,
       ...extra,
     };
     if (!payload.text && !payload.image && !payload.video && !payload.sticker) return;
@@ -142,7 +145,7 @@ export function Composer({
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Message #general"
+          placeholder={`Message #${channel}`}
           className="min-w-0 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
         />
         <div className="flex shrink-0 items-center gap-1">
