@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export type Status = "online" | "live" | "offline";
@@ -147,6 +147,7 @@ export function defaultState(): State {
 export function useCommunity() {
   const [state, setState] = useState<State>(() => defaultState());
   const [hydrated, setHydrated] = useState(false);
+  const mutationVersion = useRef(0);
 
   useEffect(() => {
     try {
@@ -182,13 +183,14 @@ export function useCommunity() {
     const db = supabase as any;
     let active = true;
     const sync = async () => {
+      const versionAtStart = mutationVersion.current;
       const [{ data: memberRows, error: memberError }, { data: postRows, error: postError }] = await Promise.all([
         db.from("community_listed_members").select("id, data"),
         db.from("community_posts").select("id, data").order("created_at", { ascending: true }),
       ]);
       // An empty result is meaningful: it means the owner deliberately removed
       // the final member or post.  Never repopulate it from browser sample data.
-      if (!active || memberError || postError) return;
+      if (!active || memberError || postError || versionAtStart !== mutationVersion.current) return;
       const members = (memberRows ?? []).map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
       const posts = (postRows ?? []).map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
       setState((current) => ({ ...current, members, posts }));
@@ -200,6 +202,7 @@ export function useCommunity() {
 
   const addMember = useCallback((member: Omit<Member, "id">) => {
     const id = uid();
+    mutationVersion.current += 1;
     setState((s) => ({
       ...s,
       members: [{ joined: Date.now(), ...member, id }, ...s.members],
@@ -208,6 +211,7 @@ export function useCommunity() {
   }, []);
 
   const updateMember = useCallback((id: string, patch: Partial<Member>) => {
+    mutationVersion.current += 1;
     setState((s) => ({
       ...s,
       members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)),
@@ -216,6 +220,7 @@ export function useCommunity() {
   }, []);
 
   const removeMember = useCallback(async (id: string) => {
+    mutationVersion.current += 1;
     const db = supabase as any;
     const { error } = await db.from("community_listed_members").delete().eq("id", id);
     if (error) throw error;
@@ -228,9 +233,16 @@ export function useCommunity() {
     void db.from("community_posts").delete().eq("data->>authorId", id);
   }, []);
 
-  const addPost = useCallback((input: PostInput) => {
+  const addPost = useCallback(async (input: PostInput) => {
     const id = uid();
     const post = { ...input, id, image: input.image ?? "", channel: input.channel ?? "general", reactions: {}, time: Date.now() };
+    mutationVersion.current += 1;
+    const { id: _id, ...data } = post;
+    const { error } = await (supabase as any).from("community_posts").upsert({ id, data });
+    if (error) {
+      mutationVersion.current += 1;
+      throw error;
+    }
     setState((s) => ({
       ...s,
       posts: [
@@ -238,7 +250,6 @@ export function useCommunity() {
         ...s.posts,
       ],
     }));
-    void (supabase as any).from("community_posts").upsert({ id, data: (() => { const { id: _id, ...data } = post; return data; })() });
   }, []);
 
   const setStats = useCallback((stats: Stats) => {

@@ -16,7 +16,7 @@ export function Composer({
   setAuthorId: (id: string) => void;
   replyTo: { id: string; name: string } | null;
   clearReply: () => void;
-  onSend: (post: PostInput) => void;
+  onSend: (post: PostInput) => Promise<void>;
   channel?: string;
 }) {
   const [text, setText] = useState("");
@@ -24,10 +24,11 @@ export function Composer({
   const [video, setVideo] = useState("");
   const [stickers, setStickers] = useState(false);
   const [stickerSearch, setStickerSearch] = useState("");
+  const [sendError, setSendError] = useState("");
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
 
-  function send(extra?: Partial<PostInput>) {
+  async function send(extra?: Partial<PostInput>) {
     if (!authorId) return;
     const payload: PostInput = {
       authorId,
@@ -39,17 +40,22 @@ export function Composer({
       ...extra,
     };
     if (!payload.text && !payload.image && !payload.video && !payload.sticker) return;
-    onSend(payload);
-    setText("");
-    setImage("");
-    setVideo("");
-    setStickers(false);
-    clearReply();
+    try {
+      await onSend(payload);
+      setText("");
+      setImage("");
+      setVideo("");
+      setStickers(false);
+      setSendError("");
+      clearReply();
+    } catch {
+      setSendError("Message was not saved. Please try again.");
+    }
   }
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    send();
+    void send();
   }
 
   return (
@@ -98,7 +104,7 @@ export function Composer({
           <div className="grid grid-cols-6 gap-1">{[...STICKERS, ...EMOJI_LIBRARY.filter(([, name]) => name.includes(stickerSearch.toLowerCase())).map(([emoji]) => emoji)].filter((emoji, index, list) => list.indexOf(emoji) === index).map((s) => (
             <button
               key={s}
-              onClick={() => send({ sticker: s })}
+              onClick={() => void send({ sticker: s })}
               className="rounded-md py-1.5 text-2xl hover:bg-accent/60"
             >
               {s}
@@ -166,6 +172,7 @@ export function Composer({
           </button>
         </div>
       </form>
+      {sendError && <p className="mt-1 px-2 text-xs font-semibold text-destructive">{sendError}</p>}
 
       <input
         ref={imageRef}

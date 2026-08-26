@@ -30,7 +30,7 @@ export function AdminView({
   state: State;
   addMember: (m: Omit<Member, "id">) => void;
   removeMember: (id: string) => Promise<void>;
-  addPost: (post: PostInput) => void;
+  addPost: (post: PostInput) => Promise<void>;
   setStats: (s: Stats) => void;
   setCommunity: (community: Community) => void;
   updateMember: (id: string, patch: Partial<Member>) => void;
@@ -190,10 +190,14 @@ export function AdminView({
     const image = await readFileAsDataUrl(postImage);
     const author = postAuthor || state.members[0]?.id;
     if (!author) return;
-    addPost({ authorId: author, text: postText, image });
-    setPostText("");
-    setPostImage(null);
-    notify("Post published");
+    try {
+      await addPost({ authorId: author, text: postText, image });
+      setPostText("");
+      setPostImage(null);
+      notify("Post published");
+    } catch {
+      notify("Post could not be saved to Supabase");
+    }
   }
 
   function submitChannel(e: FormEvent) {
