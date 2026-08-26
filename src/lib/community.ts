@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 export type Status = "online" | "live" | "offline";
 
+export type Connection = {
+  id: string;
+  platform: string;
+  label: string;
+  url: string;
+  verified: boolean;
+};
+
 export type Member = {
   id: string;
   name: string;
@@ -15,6 +23,7 @@ export type Member = {
   joined?: number | undefined;
   real?: boolean | undefined;
   role?: string | undefined;
+  connections?: Connection[] | undefined;
 };
 
 export type Post = {
