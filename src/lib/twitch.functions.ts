@@ -41,14 +41,23 @@ export const getTwitchChannel = createServerFn({ method: "POST" })
     const users = (await userResponse.json()) as { data?: Array<{ display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
     const user = users.data?.[0];
     if (!user) throw new Error("Twitch channel not found");
-    const streams = streamResponse.ok ? ((await streamResponse.json()) as { data?: unknown[] }) : { data: [] };
+    const streams = streamResponse.ok
+      ? ((await streamResponse.json()) as {
+          data?: Array<{ title?: string; game_name?: string; thumbnail_url?: string }>;
+        })
+      : { data: [] };
+    const stream = streams.data?.[0];
+    const liveBanner = stream?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720") ?? "";
+    const fallbackBio = stream?.title
+      ? `${stream.game_name ? `${stream.game_name} · ` : ""}${stream.title}`
+      : "";
     return {
       name: user.display_name,
       handle: `@${user.login}`,
-      bio: user.description ?? "",
+      bio: user.description || fallbackBio,
       avatar: user.profile_image_url ?? "",
-      banner: user.offline_image_url ?? "",
-      status: streams.data?.length ? "live" : "offline",
+      banner: user.offline_image_url || liveBanner,
+      status: stream ? "live" : "offline",
       platform: "Twitch",
     };
   });
