@@ -48,14 +48,28 @@ export type PostInput = {
 
 export type Stats = { members: string; online: string; rank: string };
 
-export type State = { stats: Stats; members: Member[]; posts: Post[] };
+export type Community = { name: string; logo: string; banner: string; tagline: string };
+
+export type State = {
+  stats: Stats;
+  community: Community;
+  members: Member[];
+  posts: Post[];
+};
 
 const KEY = "streamcore-demo-v1";
 
-const uid = () =>
+export const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
+
+export const defaultCommunity: Community = {
+  name: "StreamCore",
+  logo: "",
+  banner: "",
+  tagline: "The home of streamers",
+};
 
 export function defaultState(): State {
   const m1 = uid();
@@ -63,6 +77,7 @@ export function defaultState(): State {
   const m3 = uid();
   return {
     stats: { members: "42M", online: "1.6K", rank: "#3" },
+    community: { ...defaultCommunity },
     members: [
       {
         id: m1,
