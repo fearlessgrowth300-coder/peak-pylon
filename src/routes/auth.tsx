@@ -32,6 +32,7 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [handle, setHandle] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [awaitingVerification, setAwaitingVerification] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -51,7 +52,6 @@ function AuthPage() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth`,
           data: {
             display_name: displayName || email.split("@")[0],
             handle: handle.startsWith("@") ? handle : handle ? `@${handle}` : null,
@@ -61,10 +61,24 @@ function AuthPage() {
       setBusy(false);
       if (error) return setMsg(error.message);
       setAwaitingVerification(true);
-      setMsg("Check your email and open the confirmation link to activate your account.");
+      setMsg("We sent a 6-digit verification code to your email.");
       return;
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (error) return setMsg(error.message);
+    void navigate({ to: "/" });
+  }
+
+  async function verifyCode(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg("");
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: verificationCode.replace(/\s/g, ""),
+      type: "signup",
+    });
     setBusy(false);
     if (error) return setMsg(error.message);
     void navigate({ to: "/" });
@@ -100,11 +114,25 @@ function AuthPage() {
         </div>
 
         {awaitingVerification ? (
-          <section className="mt-5 space-y-3 rounded-xl border border-border bg-background/40 p-4">
-            <p className="text-sm font-semibold">Confirm your email</p>
-            <p className="text-sm text-muted-foreground">We sent a confirmation link to {email}. Open it to activate your account, then return here to sign in.</p>
+          <form onSubmit={verifyCode} className="mt-5 space-y-3">
+            <Field label="Email verification code">
+              <input
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={8}
+                className={`${inputClass} text-center text-xl font-bold tracking-[0.35em]`}
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="123456"
+              />
+            </Field>
+            <p className="text-xs text-muted-foreground">Enter the code from the email we sent to {email}.</p>
+            <button disabled={busy} type="submit" className={`${buttonClass} w-full`}>
+              {busy ? "Verifying…" : "Verify account"}
+            </button>
             <button type="button" onClick={() => setAwaitingVerification(false)} className="w-full text-xs text-muted-foreground hover:underline">Use a different email</button>
-          </section>
+          </form>
         ) : <form onSubmit={submit} className="space-y-3">
           {mode === "signup" && (
             <>
