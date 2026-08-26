@@ -85,7 +85,7 @@ export function ProfileEditor({
     e.preventDefault();
     setBusy(true);
     const { error } = await supabase.from("profiles").update(form).eq("id", account.id);
-    await refresh();
+    if (!error) await refresh();
     setBusy(false);
     notify(error ? error.message : "Profile saved");
   }

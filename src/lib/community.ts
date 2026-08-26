@@ -86,7 +86,10 @@ export function defaultState(): State {
   return {
     stats: { members: "42M", online: "1.6K", rank: "#3" },
     community: { ...defaultCommunity },
-    channels: [{ id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "announcement", allowChat: false, createdAt: Date.now() }],
+    channels: [
+      { id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "announcement", allowChat: false, createdAt: Date.now() },
+      { id: "clips", name: "clips", topic: "Share your best clips and moments.", type: "media", allowChat: true, createdAt: Date.now() },
+    ],
     members: [
       {
         id: m1,
@@ -215,13 +218,14 @@ export function useCommunity() {
     }));
   }, []);
 
-  const updateMember = useCallback((id: string, patch: Partial<Member>) => {
+  const updateMember = useCallback(async (id: string, patch: Partial<Member>) => {
     mutationVersion.current += 1;
-    setState((s) => ({
-      ...s,
-      members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-    }));
-    void (supabase as any).from("community_listed_members").select("data").eq("id", id).maybeSingle().then(({ data }: any) => data && (supabase as any).from("community_listed_members").update({ data: { ...data.data, ...patch } }).eq("id", id));
+    const db = supabase as any;
+    const { data, error: readError } = await db.from("community_listed_members").select("data").eq("id", id).maybeSingle();
+    if (readError || !data) throw readError ?? new Error("Member record was not found");
+    const { error } = await db.from("community_listed_members").update({ data: { ...data.data, ...patch } }).eq("id", id);
+    if (error) throw error;
+    setState((s) => ({ ...s, members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) }));
   }, []);
 
   const removeMember = useCallback(async (id: string) => {

@@ -33,7 +33,7 @@ export function AdminView({
   addPost: (post: PostInput) => Promise<void>;
   setStats: (s: Stats) => void;
   setCommunity: (community: Community) => void;
-  updateMember: (id: string, patch: Partial<Member>) => void;
+  updateMember: (id: string, patch: Partial<Member>) => Promise<void>;
   notify: (msg: string) => void;
   crm?: ReactNode;
   addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
@@ -96,8 +96,12 @@ export function AdminView({
        manualStatus: form.status === "offline" ? "offline" : "online",
     };
     if (editingMember) {
-      updateMember(editingMember.id, saved);
-      notify("Member updated");
+      try {
+        await updateMember(editingMember.id, saved);
+        notify("Member updated");
+      } catch {
+        return notify("Member update could not be saved to Supabase");
+      }
     } else {
       try {
         await addMember(saved);
@@ -442,7 +446,7 @@ export function AdminView({
                 </p>
               </div>
                <div className="flex gap-2">
-               <button type="button" onClick={() => { const next = m.manualStatus === "online" || m.status === "online" ? "offline" : "online"; updateMember(m.id, { manualStatus: next, status: next }); notify(`${m.name} set ${next}`); }} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">{m.manualStatus === "online" || m.status === "online" ? "Set offline" : "Set online"}</button>
+               <button type="button" onClick={() => { const next = m.manualStatus === "online" || m.status === "online" ? "offline" : "online"; void updateMember(m.id, { manualStatus: next, status: next }).then(() => notify(`${m.name} set ${next}`)).catch(() => notify("Could not save member status")); }} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">{m.manualStatus === "online" || m.status === "online" ? "Set offline" : "Set online"}</button>
               <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
               <button
                 type="button"
