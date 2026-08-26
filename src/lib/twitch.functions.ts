@@ -56,7 +56,9 @@ export const getTwitchChannel = createServerFn({ method: "POST" })
       handle: `@${user.login}`,
       bio: user.description || fallbackBio,
       avatar: user.profile_image_url ?? "",
-      banner: user.offline_image_url || liveBanner,
+      // Twitch exposes an offline player image even while a channel is live. Prefer
+      // the live preview when available, then retain the creator's offline banner.
+      banner: liveBanner || user.offline_image_url || "",
       status: stream ? "live" : "offline",
       platform: "Twitch",
     };
@@ -71,9 +73,20 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     if (!valid.length) return [];
     const { clientId, token } = await getAppToken();
     const query = valid.map((channel) => `user_login=${encodeURIComponent(channel.login)}`).join("&");
-    const response = await fetch(`https://api.twitch.tv/helix/streams?${query}`, { headers: { "Client-Id": clientId, Authorization: `Bearer ${token}` } });
+    const headers = { "Client-Id": clientId, Authorization: `Bearer ${token}` };
+    const [response, usersResponse] = await Promise.all([
+      fetch(`https://api.twitch.tv/helix/streams?${query}`, { headers }),
+      fetch(`https://api.twitch.tv/helix/users?${valid.map((channel) => `login=${encodeURIComponent(channel.login)}`).join("&")}`, { headers }),
+    ]);
     if (!response.ok) throw new Error("Twitch live-status lookup failed");
-    const payload = (await response.json()) as { data?: Array<{ user_login: string }> };
+    const payload = (await response.json()) as { data?: Array<{ user_login: string; thumbnail_url?: string }> };
+    const users = usersResponse.ok ? (await usersResponse.json()) as { data?: Array<{ login: string; offline_image_url?: string }> } : { data: [] };
     const live = new Set((payload.data ?? []).map((stream) => stream.user_login.toLowerCase()));
-    return valid.map((channel) => ({ id: channel.id, status: live.has(channel.login) ? "live" as const : "offline" as const }));
+    const streamByLogin = new Map((payload.data ?? []).map((stream) => [stream.user_login.toLowerCase(), stream]));
+    const userByLogin = new Map((users.data ?? []).map((user) => [user.login.toLowerCase(), user]));
+    return valid.map((channel) => {
+      const stream = streamByLogin.get(channel.login);
+      const liveBanner = stream?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720");
+      return { id: channel.id, status: live.has(channel.login) ? "live" as const : "offline" as const, banner: liveBanner || userByLogin.get(channel.login)?.offline_image_url || "" };
+    });
   });

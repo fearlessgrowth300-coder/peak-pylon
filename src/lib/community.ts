@@ -49,12 +49,14 @@ export type PostInput = {
 export type Stats = { members: string; online: string; rank: string };
 
 export type Community = { name: string; logo: string; banner: string; tagline: string };
+export type CommunityChannel = { id: string; name: string; topic: string; type: "text" | "announcement"; createdAt: number };
 
 export type State = {
   stats: Stats;
   community: Community;
   members: Member[];
   posts: Post[];
+  channels: CommunityChannel[];
 };
 
 const KEY = "streamcore-demo-v1";
@@ -78,6 +80,7 @@ export function defaultState(): State {
   return {
     stats: { members: "42M", online: "1.6K", rank: "#3" },
     community: { ...defaultCommunity },
+    channels: [{ id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "text", createdAt: Date.now() }],
     members: [
       {
         id: m1,
@@ -148,6 +151,7 @@ export function useCommunity() {
           ...s,
           ...parsed,
           community: { ...defaultCommunity, ...(parsed.community ?? {}) },
+          channels: Array.isArray(parsed.channels) && parsed.channels.length ? parsed.channels : s.channels,
         }));
       }
     } catch {
@@ -214,6 +218,15 @@ export function useCommunity() {
     setState((s) => ({ ...s, community }));
   }, []);
 
+  const addChannel = useCallback((channel: Omit<CommunityChannel, "id" | "createdAt">) => {
+    setState((s) => ({ ...s, channels: [...s.channels, { ...channel, id: uid(), createdAt: Date.now() }] }));
+  }, []);
+
+  const removeChannel = useCallback((id: string) => {
+    if (id === "rules") return;
+    setState((s) => ({ ...s, channels: s.channels.filter((channel) => channel.id !== id) }));
+  }, []);
+
   return {
     state,
     hydrated,
@@ -223,6 +236,8 @@ export function useCommunity() {
     addPost,
     setStats,
     setCommunity,
+    addChannel,
+    removeChannel,
   };
 }
 

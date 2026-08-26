@@ -61,12 +61,13 @@ function AuthPage() {
       setBusy(false);
       if (error) return setMsg(error.message);
       setAwaitingVerification(true);
-      setMsg("We sent a 6-digit verification code to your email.");
+      setMsg("We sent an 8-digit verification code to your email.");
       return;
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) return setMsg(error.message);
+    localStorage.setItem("streamcore:open-rules", "1");
     window.location.assign("/");
   }
 
@@ -124,7 +125,7 @@ function AuthPage() {
                 className={`${inputClass} text-center text-xl font-bold tracking-[0.35em]`}
                 value={verificationCode}
                 onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
-                placeholder="123456"
+                placeholder="12345678"
               />
             </Field>
             <p className="text-xs text-muted-foreground">Enter the code from the email we sent to {email}.</p>

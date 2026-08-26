@@ -2,6 +2,7 @@ import { useState, type ReactNode, type FormEvent } from "react";
 import {
   readFileAsDataUrl,
   type Community,
+  type CommunityChannel,
   type Connection,
   type Member,
   type State,
@@ -23,6 +24,8 @@ export function AdminView({
   updateMember,
   notify,
   crm,
+  addChannel,
+  removeChannel,
 }: {
   state: State;
   addMember: (m: Omit<Member, "id">) => void;
@@ -33,6 +36,8 @@ export function AdminView({
   updateMember: (id: string, patch: Partial<Member>) => void;
   notify: (msg: string) => void;
   crm?: ReactNode;
+  addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
+  removeChannel: (id: string) => void;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -56,6 +61,8 @@ export function AdminView({
   const [autoFilling, setAutoFilling] = useState(false);
   const [autoAvatar, setAutoAvatar] = useState("");
   const [autoBanner, setAutoBanner] = useState("");
+  const [channelName, setChannelName] = useState("");
+  const [channelTopic, setChannelTopic] = useState("");
 
   const [postAuthor, setPostAuthor] = useState(state.members[0]?.id ?? "");
   const [postText, setPostText] = useState("");
@@ -186,6 +193,17 @@ export function AdminView({
     notify("Post published");
   }
 
+  function submitChannel(e: FormEvent) {
+    e.preventDefault();
+    const name = channelName.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!name) return notify("Enter a channel name");
+    if (state.channels.some((channel) => channel.name === name) || ["general", "creators", "live-now"].includes(name)) return notify("That channel already exists");
+    addChannel({ name, topic: channelTopic.trim() || "Community discussion", type: "text" });
+    setChannelName("");
+    setChannelTopic("");
+    notify(`#${name} created`);
+  }
+
   return (
     <div className="space-y-4 px-4 py-5">
       <header className="flex items-start justify-between gap-3">
@@ -303,8 +321,23 @@ export function AdminView({
         </button>
       </form>
 
+      <form onSubmit={submitChannel} className="space-y-3 rounded-xl bg-popover p-4">
+        <h2 className="font-bold">03 · Community channels</h2>
+        <p className="text-xs text-muted-foreground">Only the community owner can create or remove channels. New members begin in #rules.</p>
+        <Field label="Channel name">
+          <input required className={inputClass} value={channelName} onChange={(e) => setChannelName(e.target.value)} placeholder="e.g. clips-and-highlights" />
+        </Field>
+        <Field label="Channel topic">
+          <input className={inputClass} value={channelTopic} onChange={(e) => setChannelTopic(e.target.value)} placeholder="What members can discuss here" />
+        </Field>
+        <button type="submit" className={`${buttonClass} w-full`}>Create channel</button>
+        <div className="space-y-2 pt-1">
+          {state.channels.map((channel) => <div key={channel.id} className="flex items-center justify-between rounded-md bg-background px-3 py-2 text-sm"><span><strong># {channel.name}</strong><span className="ml-2 text-xs text-muted-foreground">{channel.topic}</span></span>{channel.id === "rules" ? <span className="text-xs text-primary">Required</span> : <button type="button" className="text-xs font-semibold text-destructive" onClick={() => { removeChannel(channel.id); notify(`#${channel.name} removed`); }}>Remove</button>}</div>)}
+        </div>
+      </form>
+
       <form onSubmit={submitPost} className="space-y-3 rounded-xl bg-popover p-4">
-        <h2 className="font-bold">03 · Publish a post</h2>
+        <h2 className="font-bold">04 · Publish a post</h2>
         <Field label="Display author">
           <select
             className={inputClass}
@@ -349,7 +382,7 @@ export function AdminView({
         }}
         className="space-y-3 rounded-xl bg-popover p-4"
       >
-        <h2 className="font-bold">04 · Public stats</h2>
+          <h2 className="font-bold">05 · Public stats</h2>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Members">
             <input
@@ -379,7 +412,7 @@ export function AdminView({
       </form>
 
       <div className="space-y-3 rounded-xl bg-popover p-4">
-        <h2 className="font-bold">05 · Manage members</h2>
+        <h2 className="font-bold">06 · Manage members</h2>
         <div className="space-y-2">
           {state.members.map((m) => (
             <div

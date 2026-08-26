@@ -34,10 +34,10 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type View = "general" | "creators" | "live-now" | "admin" | "me";
+type View = "rules" | "general" | "creators" | "live-now" | "admin" | "me" | `channel:${string}`;
 
 function Index() {
-  const { state, addMember, updateMember, removeMember, addPost, setStats, setCommunity } = useCommunity();
+  const { state, addMember, updateMember, removeMember, addPost, setStats, setCommunity, addChannel, removeChannel } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
@@ -64,9 +64,11 @@ function Index() {
       {
         group: "Community",
         items: [
+          { id: "rules", label: "rules", icon: "#" },
           { id: "general", label: "general", icon: "#" },
           { id: "creators", label: "creators", icon: "#" },
           { id: "live-now", label: "live-now", icon: "#" },
+          ...state.channels.filter((channel) => channel.id !== "rules").map((channel) => ({ id: `channel:${channel.id}` as View, label: channel.name, icon: "#" })),
         ],
       },
     ];
@@ -76,7 +78,14 @@ function Index() {
       groups.push({ group: "Owner", items: [{ id: "admin", label: "control-center", icon: "⚙" }] });
     }
     return groups;
-  }, [isAdmin, myAccount]);
+  }, [isAdmin, myAccount, state.channels]);
+
+  useEffect(() => {
+    if (localStorage.getItem("streamcore:open-rules") === "1") {
+      localStorage.removeItem("streamcore:open-rules");
+      setView("rules");
+    }
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -118,7 +127,7 @@ function Index() {
         if (!active) return;
         updates.forEach((update) => {
           const member = twitchMembers.find((item) => item.id === update.id);
-          if (member && member.status !== update.status) updateMember(member.id, { status: update.status });
+          if (member && (member.status !== update.status || (update.banner && member.banner !== update.banner))) updateMember(member.id, { status: update.status, ...(update.banner ? { banner: update.banner } : {}) });
         });
       } catch { /* Keep the last known status if Twitch is temporarily unavailable. */ }
     };
@@ -242,7 +251,7 @@ function Index() {
           <button onClick={() => view === "general" && setChannelDetailsOpen(true)} className="flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default" disabled={view !== "general"} title={view === "general" ? "Open channel details" : undefined}>
             <span className="text-xl text-muted-foreground">#</span>
             <strong className="truncate">
-              {view === "admin" ? "control-center" : view === "me" ? "my-profile" : view}
+               {view === "admin" ? "control-center" : view === "me" ? "my-profile" : view.startsWith("channel:") ? state.channels.find((channel) => `channel:${channel.id}` === view)?.name ?? "channel" : view}
             </strong>
           </button>
           <button
@@ -286,19 +295,6 @@ function Index() {
                     </strong>{" "}
                     verified streamer accounts have joined with a real login.
                   </p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setView("creators")}
-                      className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
-                    >
-                      Explore creators
-                    </button>
-                    {isAdmin && (
-                      <button onClick={() => setView("admin")} className={ghostButtonClass}>
-                        Owner controls
-                      </button>
-                    )}
-                  </div>
                   </div>
                 </section>
 
@@ -393,6 +389,13 @@ function Index() {
               </div>
             )}
 
+            {view === "rules" && <RulesChannel onContinue={() => setView("general")} />}
+
+            {view.startsWith("channel:") && (() => {
+              const channel = state.channels.find((item) => `channel:${item.id}` === view);
+              return channel ? <CustomChannel name={channel.name} topic={channel.topic} /> : null;
+            })()}
+
             {(view === "creators" || view === "live-now") && (
               <div className="space-y-4 px-4 py-5">
                 <div>
@@ -466,6 +469,8 @@ function Index() {
                 setCommunity={setCommunity}
                 updateMember={updateMember}
                 notify={setToast}
+                addChannel={addChannel}
+                removeChannel={removeChannel}
                 crm={
                   <MembersCRM
                     accounts={accounts}
@@ -551,6 +556,14 @@ function Index() {
 
 function CommunityMark({ community, size }: { community: { name: string; logo: string }; size: number }) {
   return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
+}
+
+function RulesChannel({ onContinue }: { onContinue: () => void }) {
+  return <div className="mx-auto max-w-2xl space-y-4 px-4 py-8"><section className="rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #rules!</h1><p className="mt-2 text-sm text-muted-foreground">Please read these rules before taking part in the community.</p></section><section className="space-y-3 rounded-xl bg-popover p-5"><h2 className="font-bold">Community rules</h2><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground"><li>Respect every member. Harassment, hate speech, and threats are not welcome.</li><li>Keep posts relevant to the channel and avoid spam or unwanted promotions.</li><li>Do not share private information, scams, or content that breaks platform rules.</li><li>Use creator profiles and live notifications honestly. Ask an admin if you need help.</li></ol><button onClick={onContinue} className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85">I have read the rules — Continue to #general</button></section></div>;
+}
+
+function CustomChannel({ name, topic }: { name: string; topic: string }) {
+  return <div className="mx-auto flex min-h-full max-w-2xl items-center px-4 py-8"><section className="w-full rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-2 text-sm text-muted-foreground">{topic}</p><p className="mt-5 text-xs text-muted-foreground">This is the start of the #{name} channel.</p></section></div>;
 }
 
 function LiveStories({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
