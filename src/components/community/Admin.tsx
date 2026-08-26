@@ -199,10 +199,6 @@ export function AdminView({
             onChange={(e) => setPostImage(e.target.files?.[0] ?? null)}
           />
         </Field>
-        <p className="rounded-md bg-background p-3 text-xs text-muted-foreground">
-          <strong className="text-foreground">Transparency label is always on.</strong> Posts
-          show “Community-managed post” so viewers know the owner published it.
-        </p>
         <button type="submit" className={`${buttonClass} w-full`}>
           Publish to community
         </button>

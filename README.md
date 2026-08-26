@@ -146,7 +146,6 @@ Information saves locally in the browser.
 
 
 
-I kept owner-published posts visibly marked “Community-managed post.” This lets you showcase profiles without making visitors believe a real streamer personally wrote something they didn't write. If creators eventually claim their own accounts, we can give them genuine authenticated posting.
 
 
 

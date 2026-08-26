@@ -273,12 +273,6 @@ function Index() {
                   </div>
                 </section>
 
-                <p className="rounded-md bg-primary/10 p-3 text-xs leading-relaxed text-muted-foreground">
-                  <strong className="text-foreground">Community-managed demo.</strong> Creator
-                  profiles can link to real channels, but posts are labeled so visitors know
-                  they were published by the community owner.
-                </p>
-
                 <div className="space-y-0.5">
                   {[...state.posts]
                     .sort((a, b) => a.time - b.time)
@@ -324,9 +318,6 @@ function Index() {
                                 >
                                   {m?.name ?? "Community"}
                                 </button>
-                                <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
-                                  COMMUNITY-MANAGED POST
-                                </span>
                                 <span className="text-xs text-muted-foreground">
                                   {timeAgo(p.time)}
                                 </span>
