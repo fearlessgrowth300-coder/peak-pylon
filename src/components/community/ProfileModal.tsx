@@ -18,6 +18,17 @@ function memberConnections(member: Member): Connection[] {
   return [];
 }
 
+function channelName(member: Member) {
+  const fallback = member.handle.replace(/^@/, "") || "—";
+  if (!member.link) return fallback;
+  try {
+    const path = new URL(member.link).pathname.split("/").filter(Boolean);
+    return path.at(-1) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function ProfileModal({
   member,
   onClose,
@@ -167,17 +178,10 @@ export function ProfileModal({
               </p>
               <p className="text-muted-foreground">Role: {member.role ?? "streamer"}</p>
               <p className="text-muted-foreground">Primary platform: {member.platform}</p>
-              <p className="break-all text-muted-foreground">
-                Channel: {member.link || "—"}
-              </p>
+              <p className="text-muted-foreground">Channel: {channelName(member)}</p>
               <p className="break-all text-muted-foreground">ID: {member.id}</p>
             </div>
           )}
-
-          <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-            This profile is displayed by the community. A linked external channel does not
-            mean the creator endorses this community.
-          </p>
         </div>
       </div>
     </div>
