@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export type Status = "online" | "live" | "offline";
 
@@ -173,11 +174,42 @@ export function useCommunity() {
     }
   }, [state, hydrated]);
 
+  // Shared community content: keep the owner-created directory and messages in
+  // Supabase so every signed-in account sees the same community.
+  useEffect(() => {
+    if (!hydrated) return;
+    const db = supabase as any;
+    let active = true;
+    const sync = async () => {
+      const [{ data: memberRows }, { data: postRows }] = await Promise.all([
+        db.from("community_listed_members").select("id, data"),
+        db.from("community_posts").select("id, data").order("created_at", { ascending: true }),
+      ]);
+      if (!active) return;
+      const members = (memberRows ?? []).map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
+      const posts = (postRows ?? []).map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
+      if (members.length || posts.length) {
+        setState((current) => ({ ...current, members: members.length ? members : current.members, posts: posts.length ? posts : current.posts }));
+      } else {
+        const initial = state;
+        await Promise.all([
+          db.from("community_listed_members").upsert(initial.members.map(({ id, ...data }) => ({ id, data }))),
+          db.from("community_posts").upsert(initial.posts.map(({ id, ...data }) => ({ id, data }))),
+        ]);
+      }
+    };
+    void sync();
+    const timer = window.setInterval(() => void sync(), 12_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [hydrated]);
+
   const addMember = useCallback((member: Omit<Member, "id">) => {
+    const id = uid();
     setState((s) => ({
       ...s,
-      members: [{ joined: Date.now(), ...member, id: uid() }, ...s.members],
+      members: [{ joined: Date.now(), ...member, id }, ...s.members],
     }));
+    void (supabase as any).from("community_listed_members").upsert({ id, data: { joined: Date.now(), ...member } });
   }, []);
 
   const updateMember = useCallback((id: string, patch: Partial<Member>) => {
@@ -185,6 +217,7 @@ export function useCommunity() {
       ...s,
       members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     }));
+    void (supabase as any).from("community_listed_members").select("data").eq("id", id).maybeSingle().then(({ data }: any) => data && (supabase as any).from("community_listed_members").update({ data: { ...data.data, ...patch } }).eq("id", id));
   }, []);
 
   const removeMember = useCallback((id: string) => {
@@ -197,23 +230,20 @@ export function useCommunity() {
             posts: s.posts.filter((p) => p.authorId !== id),
           },
     );
+    void (supabase as any).from("community_listed_members").delete().eq("id", id);
   }, []);
 
   const addPost = useCallback((input: PostInput) => {
+    const id = uid();
+    const post = { ...input, id, image: input.image ?? "", channel: input.channel ?? "general", reactions: {}, time: Date.now() };
     setState((s) => ({
       ...s,
       posts: [
-        {
-          ...input,
-          id: uid(),
-          image: input.image ?? "",
-          channel: input.channel ?? "general",
-          reactions: {},
-          time: Date.now(),
-        },
+        post,
         ...s.posts,
       ],
     }));
+    void (supabase as any).from("community_posts").upsert({ id, data: (() => { const { id: _id, ...data } = post; return data; })() });
   }, []);
 
   const setStats = useCallback((stats: Stats) => {
