@@ -44,7 +44,8 @@ function Index() {
   const [view, setView] = useState<View>(() => {
     if (typeof window === "undefined") return "home";
     const saved = localStorage.getItem("streamcore:last-view") as View | null;
-    return saved && (saved === "home" || saved === "rules" || saved === "general" || saved === "creators" || saved === "live-now" || saved === "trending" || saved === "rankings" || saved === "announcements" || saved === "featured" || saved === "rising" || saved === "partners" || saved === "events" || saved === "analytics" || saved === "notifications" || saved === "messages" || saved === "admin" || saved === "me" || saved.startsWith("channel:")) ? saved : "home";
+    const migrated = saved === "general" ? "home" : saved;
+    return migrated && (migrated === "home" || migrated === "rules" || migrated === "general" || migrated === "creators" || migrated === "live-now" || migrated === "trending" || migrated === "rankings" || migrated === "announcements" || migrated === "featured" || migrated === "rising" || migrated === "partners" || migrated === "events" || migrated === "analytics" || migrated === "notifications" || migrated === "messages" || migrated === "admin" || migrated === "me" || migrated.startsWith("channel:")) ? migrated : "home";
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -321,12 +322,13 @@ function Index() {
           >
             ☰
           </button>
-          <button onClick={() => view === "general" && setChannelDetailsOpen(true)} className="flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default" disabled={view !== "general"} title={view === "general" ? "Open channel details" : undefined}>
+          {view !== "home" && <button onClick={() => view === "general" && setChannelDetailsOpen(true)} className="flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default" disabled={view !== "general"} title={view === "general" ? "Open channel details" : undefined}>
             <span className="text-xl text-muted-foreground">#</span>
             <strong className="truncate">
                {view === "home" ? "StreamCore" : view === "admin" ? "control-center" : view === "me" ? "my-profile" : view.startsWith("channel:") ? state.channels.find((channel) => `channel:${channel.id}` === view)?.name ?? "channel" : view.replaceAll("-", " ")}
             </strong>
-          </button>
+          </button>}
+          {view === "home" && <div className="hidden min-w-0 max-w-md flex-1 items-center rounded-lg border border-border bg-input/60 px-3 py-1.5 text-xs text-muted-foreground sm:flex"><span className="mr-2 text-sm">⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search creators, posts, clips, or communities..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground" /></div>}
           <button
             className="text-lg text-muted-foreground"
             aria-label="Show members"
