@@ -4,6 +4,7 @@ import { timeAgo, useCommunity, type Member, type PostInput } from "@/lib/commun
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
+import { ChannelDetails } from "@/components/community/ChannelDetails";
 import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
@@ -35,13 +36,14 @@ export const Route = createFileRoute("/")({
 type View = "general" | "creators" | "live-now" | "admin" | "me";
 
 function Index() {
-  const { state, addMember, removeMember, addPost, setStats } = useCommunity();
+  const { state, addMember, updateMember, removeMember, addPost, setStats, setCommunity } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
   const [view, setView] = useState<View>("general");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [channelDetailsOpen, setChannelDetailsOpen] = useState(false);
   const [profile, setProfile] = useState<Member | null>(null);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
@@ -113,9 +115,7 @@ function Index() {
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
       {/* Server rail */}
       <nav className="hidden w-[72px] shrink-0 flex-col items-center gap-2 bg-rail py-3 sm:flex">
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-primary text-sm font-extrabold text-primary-foreground">
-          SC
-        </div>
+        <CommunityMark community={state.community} size={48} />
         <div className="h-0.5 w-8 rounded bg-border" />
         {["NR", "PM", "KV", "+"].map((s) => (
           <div
@@ -134,7 +134,7 @@ function Index() {
         }`}
       >
         <div className="flex h-12 items-center justify-between border-b border-rail px-4 shadow-sm">
-          <strong className="truncate text-[15px]">StreamCore</strong>
+          <div className="flex min-w-0 items-center gap-2"><CommunityMark community={state.community} size={26} /><strong className="truncate text-[15px]">{state.community.name}</strong></div>
           <span className="h-2 w-2 shrink-0 rounded-full bg-online" />
         </div>
 
@@ -217,12 +217,12 @@ function Index() {
           >
             ☰
           </button>
-          <div className="flex min-w-0 items-center gap-1.5">
+          <button onClick={() => view === "general" && setChannelDetailsOpen(true)} className="flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default" disabled={view !== "general"} title={view === "general" ? "Open channel details" : undefined}>
             <span className="text-xl text-muted-foreground">#</span>
             <strong className="truncate">
               {view === "admin" ? "control-center" : view === "me" ? "my-profile" : view}
             </strong>
-          </div>
+          </button>
           <button
             className="text-lg text-muted-foreground"
             aria-label="Show members"
@@ -239,18 +239,18 @@ function Index() {
               <div className="space-y-4 px-4 py-5">
                 <section className="rounded-xl bg-popover p-5">
                   <p className="inline-block rounded-full bg-primary/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-primary">
-                    The home of streamers
+                    {state.community.tagline}
                   </p>
                   <h1 className="mt-3 text-3xl font-extrabold leading-tight">
-                    One community.
+                    {state.community.name}.
                     <br />
                     Every creator.
                   </h1>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    A showcase community for streamers, creators, teams, and fans.
+                    A community for streamers, creators, teams, and fans.
                   </p>
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <Stat value={state.stats.members} label="Members" />
+                    <Stat value={state.stats.members} label="Members" logo={state.community.logo} />
                     <Stat value={state.stats.online} label="Online" dot />
                     <Stat value={state.stats.rank} label="Rank by size" />
                   </div>
@@ -432,6 +432,8 @@ function Index() {
                 removeMember={removeMember}
                 addPost={addPost}
                 setStats={setStats}
+                setCommunity={setCommunity}
+                updateMember={updateMember}
                 notify={setToast}
                 crm={
                   <MembersCRM
@@ -499,7 +501,8 @@ function Index() {
         </div>
       </main>
 
-      <ProfileModal member={profile} onClose={() => setProfile(null)} />
+      <ProfileModal member={profile} onClose={() => setProfile(null)} isAdmin={isAdmin} />
+      {channelDetailsOpen && <ChannelDetails members={allMembers} posts={state.posts} onClose={() => setChannelDetailsOpen(false)} onPickMember={(member) => { setChannelDetailsOpen(false); setProfile(member); }} />}
 
       {toast && (
         <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-md bg-popover px-4 py-2 text-sm font-semibold shadow-elevated">
@@ -510,11 +513,16 @@ function Index() {
   );
 }
 
-function Stat({ value, label, dot }: { value: string; label: string; dot?: boolean }) {
+function CommunityMark({ community, size }: { community: { name: string; logo: string }; size: number }) {
+  return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
+}
+
+function Stat({ value, label, dot, logo }: { value: string; label: string; dot?: boolean; logo?: string }) {
   return (
     <div className="rounded-lg bg-background p-3">
       <p className="flex items-center justify-center gap-1.5 text-lg font-extrabold">
         {dot && <span className="h-2 w-2 rounded-full bg-online" />}
+        {logo && <img src={logo} alt="" className="h-5 w-5 rounded-full object-cover" />}
         {value}
       </p>
       <p className="mt-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">

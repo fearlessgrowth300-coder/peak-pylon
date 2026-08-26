@@ -41,6 +41,11 @@ export const BRAND_COLOR: Record<string, string> = {
   Other: "#4E5058",
 };
 
+const UPLOADED_LOGOS: Record<string, string> = {
+  Twitch: "/brand/twitch.png",
+  Instagram: "/brand/instagram.png",
+};
+
 export function BrandIcon({
   platform,
   size = 22,
@@ -52,6 +57,19 @@ export function BrandIcon({
 }) {
   const path = PATHS[platform];
   const color = BRAND_COLOR[platform] ?? BRAND_COLOR["Other"];
+  const uploadedLogo = UPLOADED_LOGOS[platform];
+
+  if (uploadedLogo && !plain) {
+    return (
+      <span
+        aria-hidden
+        className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-black"
+        style={{ width: size, height: size }}
+      >
+        <img src={uploadedLogo} alt="" className="h-full w-full object-contain" />
+      </span>
+    );
+  }
 
   if (!path) {
     return (
@@ -111,7 +129,7 @@ export function VerifiedCheck({ size = 16 }: { size?: number }) {
         d="M12 1.6l2.6 2.1 3.3-.3.9 3.2 2.9 1.7-1.3 3.1 1.3 3.1-2.9 1.7-.9 3.2-3.3-.3L12 22.4l-2.6-2.1-3.3.3-.9-3.2-2.9-1.7 1.3-3.1L2.3 9.5l2.9-1.7.9-3.2 3.3.3z"
       />
       <path
-        fill="#000000"
+        fill="#9146FF"
         d="M10.9 15.6l-3-3 1.3-1.3 1.7 1.7 4.1-4.1 1.3 1.3z"
       />
     </svg>

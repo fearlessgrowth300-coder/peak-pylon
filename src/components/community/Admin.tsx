@@ -1,6 +1,8 @@
 import { useState, type ReactNode, type FormEvent } from "react";
 import {
   readFileAsDataUrl,
+  type Community,
+  type Connection,
   type Member,
   type State,
   type PostInput,
@@ -15,6 +17,8 @@ export function AdminView({
   removeMember,
   addPost,
   setStats,
+  setCommunity,
+  updateMember,
   notify,
   crm,
 }: {
@@ -23,6 +27,8 @@ export function AdminView({
   removeMember: (id: string) => void;
   addPost: (post: PostInput) => void;
   setStats: (s: Stats) => void;
+  setCommunity: (community: Community) => void;
+  updateMember: (id: string, patch: Partial<Member>) => void;
   notify: (msg: string) => void;
   crm?: ReactNode;
 }) {
@@ -36,6 +42,14 @@ export function AdminView({
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [connectionPlatform, setConnectionPlatform] = useState("Instagram");
+  const [connectionLabel, setConnectionLabel] = useState("");
+  const [connectionUrl, setConnectionUrl] = useState("");
+  const [community, setLocalCommunity] = useState<Community>(state.community);
+  const [communityLogoFile, setCommunityLogoFile] = useState<File | null>(null);
+  const [communityBannerFile, setCommunityBannerFile] = useState<File | null>(null);
 
   const [postAuthor, setPostAuthor] = useState(state.members[0]?.id ?? "");
   const [postText, setPostText] = useState("");
@@ -49,11 +63,78 @@ export function AdminView({
       readFileAsDataUrl(avatarFile),
       readFileAsDataUrl(bannerFile),
     ]);
-    addMember({ ...form, avatar, banner });
+    const primary: Connection | undefined = form.link
+      ? {
+          id: "primary",
+          platform: form.platform,
+          label: form.handle.replace(/^@/, "") || form.name,
+          url: form.link,
+          verified: true,
+        }
+      : undefined;
+    const saved = {
+      ...form,
+      avatar: avatar || editingMember?.avatar || "",
+      banner: banner || editingMember?.banner || "",
+      connections: [...(primary ? [primary] : []), ...connections],
+    };
+    if (editingMember) {
+      updateMember(editingMember.id, saved);
+      notify("Member updated");
+    } else {
+      addMember(saved);
+      notify("Member added");
+    }
     setForm({ name: "", handle: "", link: "", bio: "", status: "online", platform: "Twitch" });
     setAvatarFile(null);
     setBannerFile(null);
-    notify("Member added");
+    setConnections([]);
+    setEditingMember(null);
+  }
+
+  async function submitCommunity(e: FormEvent) {
+    e.preventDefault();
+    const [logo, banner] = await Promise.all([
+      readFileAsDataUrl(communityLogoFile),
+      readFileAsDataUrl(communityBannerFile),
+    ]);
+    setCommunity({
+      ...community,
+      logo: logo || state.community.logo,
+      banner: banner || state.community.banner,
+    });
+    setCommunityLogoFile(null);
+    setCommunityBannerFile(null);
+    notify("Community appearance updated");
+  }
+
+  function beginEdit(member: Member) {
+    setEditingMember(member);
+    setForm({
+      name: member.name,
+      handle: member.handle,
+      link: member.link,
+      bio: member.bio,
+      status: member.status,
+      platform: member.platform,
+    });
+    setConnections((member.connections ?? []).filter((c) => c.id !== "primary"));
+  }
+
+  function addConnection() {
+    if (!connectionUrl.trim()) return notify("Add a connection URL first");
+    setConnections((items) => [
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        platform: connectionPlatform,
+        label: connectionLabel.trim() || connectionPlatform,
+        url: connectionUrl.trim(),
+        verified: true,
+      },
+    ]);
+    setConnectionLabel("");
+    setConnectionUrl("");
   }
 
   async function submitPost(e: FormEvent) {
@@ -81,8 +162,27 @@ export function AdminView({
         </span>
       </header>
 
+      <form onSubmit={submitCommunity} className="space-y-3 rounded-xl bg-popover p-4">
+        <h2 className="font-bold">01 · Community identity</h2>
+        <Field label="Community name">
+          <input required className={inputClass} value={community.name} onChange={(e) => setLocalCommunity({ ...community, name: e.target.value })} />
+        </Field>
+        <Field label="Tagline">
+          <input className={inputClass} value={community.tagline} onChange={(e) => setLocalCommunity({ ...community, tagline: e.target.value })} placeholder="The home of streamers" />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={communityLogoFile ? "Community logo ✓" : "Community logo"}>
+            <input type="file" accept="image/*" className={`${inputClass} file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 file:text-xs file:text-foreground`} onChange={(e) => setCommunityLogoFile(e.target.files?.[0] ?? null)} />
+          </Field>
+          <Field label={communityBannerFile ? "Community banner ✓" : "Community banner"}>
+            <input type="file" accept="image/*" className={`${inputClass} file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 file:text-xs file:text-foreground`} onChange={(e) => setCommunityBannerFile(e.target.files?.[0] ?? null)} />
+          </Field>
+        </div>
+        <button type="submit" className={`${buttonClass} w-full`}>Save community details</button>
+      </form>
+
       <form onSubmit={submitMember} className="space-y-3 rounded-xl bg-popover p-4">
-        <h2 className="font-bold">01 · Add a member</h2>
+        <h2 className="font-bold">02 · {editingMember ? "Edit member" : "Add a member"}</h2>
         <Field label="Creator name">
           <input
             required
@@ -137,7 +237,7 @@ export function AdminView({
               value={form.platform}
               onChange={(e) => setForm({ ...form, platform: e.target.value })}
             >
-              {["Twitch", "YouTube", "TikTok", "Kick", "Other"].map((p) => (
+              {["Twitch", "YouTube", "TikTok", "Instagram", "Spotify", "Kick", "Other"].map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </select>
@@ -161,13 +261,24 @@ export function AdminView({
             />
           </Field>
         </div>
+        <div className="space-y-2 rounded-lg bg-background p-3">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Additional connections</p>
+          <div className="grid grid-cols-2 gap-2">
+            <select className={inputClass} value={connectionPlatform} onChange={(e) => setConnectionPlatform(e.target.value)}>
+              {["Instagram", "TikTok", "YouTube", "Spotify", "Twitch", "Kick", "X", "Discord"].map((p) => <option key={p}>{p}</option>)}
+            </select>
+            <input className={inputClass} value={connectionLabel} onChange={(e) => setConnectionLabel(e.target.value)} placeholder="Username (optional)" />
+          </div>
+          <div className="flex gap-2"><input type="url" className={inputClass} value={connectionUrl} onChange={(e) => setConnectionUrl(e.target.value)} placeholder="https://..." /><button type="button" onClick={addConnection} className={ghostButtonClass}>Add</button></div>
+          {connections.map((c) => <div key={c.id} className="flex items-center justify-between text-xs"><span>{c.platform} · {c.label}</span><button type="button" className="text-destructive" onClick={() => setConnections((items) => items.filter((x) => x.id !== c.id))}>Remove</button></div>)}
+        </div>
         <button type="submit" className={`${buttonClass} w-full`}>
-          Add member
+          {editingMember ? "Save member" : "Add member"}
         </button>
       </form>
 
       <form onSubmit={submitPost} className="space-y-3 rounded-xl bg-popover p-4">
-        <h2 className="font-bold">02 · Publish a post</h2>
+        <h2 className="font-bold">03 · Publish a post</h2>
         <Field label="Display author">
           <select
             className={inputClass}
@@ -212,7 +323,7 @@ export function AdminView({
         }}
         className="space-y-3 rounded-xl bg-popover p-4"
       >
-        <h2 className="font-bold">03 · Public stats</h2>
+        <h2 className="font-bold">04 · Public stats</h2>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Members">
             <input
@@ -242,7 +353,7 @@ export function AdminView({
       </form>
 
       <div className="space-y-3 rounded-xl bg-popover p-4">
-        <h2 className="font-bold">04 · Manage members</h2>
+        <h2 className="font-bold">05 · Manage members</h2>
         <div className="space-y-2">
           {state.members.map((m) => (
             <div
@@ -256,7 +367,10 @@ export function AdminView({
                   {m.handle} · {m.status}
                 </p>
               </div>
+              <div className="flex gap-2">
+              <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
               <button
+                type="button"
                 onClick={() => {
                   if (state.members.length <= 1) return notify("Keep at least one profile");
                   removeMember(m.id);
@@ -266,6 +380,7 @@ export function AdminView({
               >
                 Remove
               </button>
+              </div>
             </div>
           ))}
         </div>
