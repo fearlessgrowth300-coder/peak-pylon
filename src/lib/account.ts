@@ -40,6 +40,7 @@ export type ProfileRow = {
   is_banned: boolean;
   restricted_until: string | null;
   created_at: string;
+  last_active_at: string;
   twitch_verified: boolean;
   social_links: SocialLink[];
 };
@@ -78,7 +79,7 @@ export function useAccounts() {
       byUser.set(r.user_id, list);
     }
     setAccounts(
-      ((profiles ?? []) as ProfileRow[]).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] })),
+      ((profiles ?? []) as unknown as ProfileRow[]).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] })),
     );
     setLoading(false);
   }, []);

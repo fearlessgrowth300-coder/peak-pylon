@@ -40,7 +40,7 @@ export function HomeDashboard({ onOpenView, onPickCreator }: HomeDashboardProps)
   const [challengeDismissed, setChallengeDismissed] = useState(false);
   const [followed, setFollowed] = useState(false);
 
-  const mainSpotlight = FEATURED_CREATORS[0];
+  const mainSpotlight = FEATURED_CREATORS[0]!;
   const otherFeatured = FEATURED_CREATORS.slice(1);
 
   return (

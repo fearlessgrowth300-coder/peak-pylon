@@ -342,7 +342,7 @@ export async function uploadCommunityMedia(file: File): Promise<string> {
   const path = `${auth.user.id}/${uid()}.${extension}`;
   const { error } = await supabase.storage.from("community-media").upload(path, file, {
     cacheControl: "31536000",
-    contentType: file.type || undefined,
+    contentType: file.type || "application/octet-stream",
     upsert: false,
   });
   if (error) throw error;
