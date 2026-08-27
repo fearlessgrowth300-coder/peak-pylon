@@ -29,8 +29,6 @@ export type Database = {
           platform: string
           restricted_until: string | null
           status: string
-          social_links: Json
-          twitch_verified: boolean
         }
         Insert: {
           avatar_url?: string
@@ -46,8 +44,6 @@ export type Database = {
           platform?: string
           restricted_until?: string | null
           status?: string
-          social_links?: Json
-          twitch_verified?: boolean
         }
         Update: {
           avatar_url?: string
@@ -63,8 +59,6 @@ export type Database = {
           platform?: string
           restricted_until?: string | null
           status?: string
-          social_links?: Json
-          twitch_verified?: boolean
         }
         Relationships: []
       }
