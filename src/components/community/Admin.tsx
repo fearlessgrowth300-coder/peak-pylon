@@ -27,6 +27,7 @@ export function AdminView({
   crm,
   addChannel,
   removeChannel,
+  generateClips,
 }: {
   state: State;
   addMember: (m: Omit<Member, "id">) => Promise<void>;
@@ -39,6 +40,7 @@ export function AdminView({
   crm?: ReactNode;
   addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
   removeChannel: (id: string) => void;
+  generateClips?: (member: Member) => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -70,6 +72,7 @@ export function AdminView({
   const [postAuthor, setPostAuthor] = useState(state.members[0]?.id ?? "");
   const [postText, setPostText] = useState("");
   const [postImage, setPostImage] = useState<File | null>(null);
+  const [postChannel, setPostChannel] = useState("general");
 
   const [stats, setLocalStats] = useState<Stats>(state.stats);
 
@@ -200,7 +203,7 @@ export function AdminView({
     if (!author) return;
     try {
       const image = postImage ? await uploadCommunityMedia(postImage) : "";
-      await addPost({ authorId: author, text: postText, image });
+      await addPost({ authorId: author, text: postText, image, channel: postChannel });
       setPostText("");
       setPostImage(null);
       notify("Post published");
@@ -371,6 +374,14 @@ export function AdminView({
             ))}
           </select>
         </Field>
+        <Field label="Publish location">
+          <select className={inputClass} value={postChannel} onChange={(e) => setPostChannel(e.target.value)}>
+            <option value="general"># general</option>
+            <option value="trending">Trending (admin only)</option>
+            <option value="clips"># clips</option>
+            {state.channels.filter((channel) => !["general", "clips"].includes(channel.id)).map((channel) => <option key={channel.id} value={channel.name}># {channel.name}</option>)}
+          </select>
+        </Field>
         <Field label="Post text">
           <textarea
             required
@@ -446,7 +457,8 @@ export function AdminView({
                   {m.handle} · {m.status}
                 </p>
               </div>
-               <div className="flex gap-2">
+               <div className="flex flex-wrap justify-end gap-2">
+               {generateClips && m.platform === "Twitch" && m.link && <button type="button" onClick={() => void generateClips(m)} className="shrink-0 rounded-md bg-primary/15 px-3 py-1.5 text-xs font-bold text-primary">Generate clips</button>}
                <button type="button" onClick={() => { const next = m.manualStatus === "online" || m.status === "online" ? "offline" : "online"; void updateMember(m.id, { manualStatus: next, status: next }).then(() => notify(`${m.name} set ${next}`)).catch(() => notify("Could not save member status")); }} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">{m.manualStatus === "online" || m.status === "online" ? "Set offline" : "Set online"}</button>
               <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
               <button

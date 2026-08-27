@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const input = z.object({ channelUrl: z.string().url() });
 const refreshInput = z.object({ channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url() })).max(50) });
+const clipsInput = z.object({ channelUrl: z.string().url(), first: z.number().int().min(1).max(20).optional() });
 const codeInput = z.object({ code: z.string().min(1) });
 
 function twitchRedirectUri() {
@@ -123,4 +124,22 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
       const liveBanner = stream?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720");
       return { id: channel.id, status: live.has(channel.login) ? "live" as const : "offline" as const, banner: liveBanner || userByLogin.get(channel.login)?.offline_image_url || "" };
     });
+  });
+
+/** Fetches public clips for an admin-managed Twitch channel. Credentials stay server-side. */
+export const getTwitchClips = createServerFn({ method: "POST" })
+  .validator(clipsInput)
+  .handler(async ({ data }) => {
+    const login = twitchLogin(data.channelUrl);
+    const { clientId, token } = await getAppToken();
+    const headers = { "Client-Id": clientId, Authorization: `Bearer ${token}` };
+    const userResponse = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, { headers });
+    if (!userResponse.ok) throw new Error("Twitch profile lookup failed");
+    const users = (await userResponse.json()) as { data?: Array<{ id: string; display_name: string; profile_image_url: string }> };
+    const user = users.data?.[0];
+    if (!user) throw new Error("Twitch channel not found");
+    const response = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${encodeURIComponent(user.id)}&first=${data.first ?? 6}`, { headers });
+    if (!response.ok) throw new Error("Twitch clips lookup failed");
+    const payload = (await response.json()) as { data?: Array<{ id: string; url: string; title: string; creator_name: string; thumbnail_url: string; view_count: number; created_at: string }> };
+    return (payload.data ?? []).map((clip) => ({ ...clip, broadcaster_name: user.display_name, broadcaster_avatar: user.profile_image_url }));
   });

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CLIPS, type ClipItem } from "@/lib/streamcore-data";
+import type { Member, Post } from "@/lib/community";
 import {
   Film,
   Play,
@@ -17,9 +18,11 @@ import {
 
 interface ClipsViewProps {
   onPickCreator?: (creator: { name: string; avatar: string }) => void;
+  communityPosts?: Post[];
+  members?: Map<string, Member>;
 }
 
-export function ClipsView({ onPickCreator }: ClipsViewProps) {
+export function ClipsView({ onPickCreator, communityPosts = [], members = new Map() }: ClipsViewProps) {
   const [activeFilter, setActiveFilter] = useState<string>("Trending");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [activeClipModal, setActiveClipModal] = useState<ClipItem | null>(null);
@@ -184,6 +187,22 @@ export function ClipsView({ onPickCreator }: ClipsViewProps) {
           })}
         </div>
       </section>
+
+      {communityPosts.length > 0 && <section className="space-y-3 rounded-2xl border border-white/[0.07] bg-[#101321] p-4">
+        <div><p className="text-xs font-black uppercase tracking-widest text-fuchsia-300">Community clip feed</p><p className="mt-1 text-sm text-zinc-400">Clips posted by creators and generated from connected Twitch channels.</p></div>
+        <div className="space-y-4">
+          {[...communityPosts].sort((a, b) => a.time - b.time).map((post) => {
+            const author = members.get(post.authorId);
+            return <article key={post.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
+              <img src={author?.avatar || "https://api.dicebear.com/9.x/initials/svg?seed=StreamCore"} alt="" className="h-10 w-10 rounded-full object-cover" />
+              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-white">{author?.name ?? "Community"}</strong><span className="text-xs text-zinc-500">{new Date(post.time).toLocaleString()}</span></div>
+              {post.text && <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">{post.text}</p>}
+              {post.image && <img src={post.image} alt="Clip thumbnail" className="mt-2 max-h-[32rem] w-full max-w-2xl rounded-xl object-cover" />}
+              {post.video && <video src={post.video} controls className="mt-2 max-h-[32rem] w-full max-w-2xl rounded-xl" />}</div>
+            </article>;
+          })}
+        </div>
+      </section>}
 
       {/* Interactive Clip Modal Player */}
       {activeClipModal && (

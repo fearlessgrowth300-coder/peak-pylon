@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DISCUSSIONS, TRENDING_TOPICS, FEATURED_CREATORS } from "@/lib/streamcore-data";
+import type { Member, Post } from "@/lib/community";
 import {
   Flame,
   MessageCircle,
@@ -15,9 +16,11 @@ import {
 
 interface TrendingViewProps {
   onPickCreator?: (creator: { name: string; avatar: string }) => void;
+  communityPosts?: Post[];
+  members?: Map<string, Member>;
 }
 
-export function TrendingView({ onPickCreator }: TrendingViewProps) {
+export function TrendingView({ onPickCreator, communityPosts = [], members = new Map() }: TrendingViewProps) {
   const [activeFilter, setActiveFilter] = useState<string>("All");
   const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
   const [savedPosts, setSavedPosts] = useState<Record<string, boolean>>({});
@@ -81,6 +84,13 @@ export function TrendingView({ onPickCreator }: TrendingViewProps) {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left Column: Posts Feed (2 cols) */}
         <div className="space-y-4 lg:col-span-2">
+          {[...communityPosts].sort((a, b) => b.time - a.time).map((post) => {
+            const author = members.get(post.authorId);
+            return <article key={post.id} className="rounded-2xl border border-indigo-500/30 bg-[#121524] p-5 shadow-lg">
+              <div className="flex items-center gap-3"><img src={author?.avatar || "https://api.dicebear.com/9.x/initials/svg?seed=StreamCore"} alt="" className="h-10 w-10 rounded-full object-cover" /><div><p className="text-sm font-bold text-white">{author?.name ?? "StreamCore"} <span className="ml-1 text-[10px] text-indigo-300">OWNER POST</span></p><p className="text-[11px] text-zinc-400">{new Date(post.time).toLocaleString()}</p></div><span className="ml-auto rounded-lg border border-indigo-500/30 bg-indigo-500/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-indigo-300">Update</span></div>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{post.text}</p>{post.image && <img src={post.image} alt="Trending post attachment" className="mt-4 max-h-80 w-full rounded-xl object-cover" />}<div className="mt-4 flex gap-5 border-t border-white/[0.06] pt-3 text-xs text-zinc-400"><button className="flex items-center gap-1.5 hover:text-rose-400"><Heart className="h-4 w-4"/> Like</button><button className="flex items-center gap-1.5 hover:text-white"><MessageCircle className="h-4 w-4"/> Comment</button><button className="flex items-center gap-1.5 hover:text-white"><Share2 className="h-4 w-4"/> Share</button></div>
+            </article>;
+          })}
           {filteredDiscussions.map((post) => {
             const isLiked = !!likedPosts[post.id];
             const isSaved = !!savedPosts[post.id];
