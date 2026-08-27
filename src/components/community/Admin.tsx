@@ -1,6 +1,7 @@
 import { useState, type ReactNode, type FormEvent } from "react";
 import {
   readFileAsDataUrl,
+  uploadCommunityMedia,
   type Community,
   type CommunityChannel,
   type Connection,
@@ -75,8 +76,8 @@ export function AdminView({
   async function submitMember(e: FormEvent) {
     e.preventDefault();
     const [avatar, banner] = await Promise.all([
-      readFileAsDataUrl(avatarFile),
-      readFileAsDataUrl(bannerFile),
+      avatarFile ? uploadCommunityMedia(avatarFile) : Promise.resolve(""),
+      bannerFile ? uploadCommunityMedia(bannerFile) : Promise.resolve(""),
     ]);
     const primary: Connection | undefined = form.link
       ? {
@@ -195,10 +196,10 @@ export function AdminView({
 
   async function submitPost(e: FormEvent) {
     e.preventDefault();
-    const image = await readFileAsDataUrl(postImage);
     const author = postAuthor || state.members[0]?.id;
     if (!author) return;
     try {
+      const image = postImage ? await uploadCommunityMedia(postImage) : "";
       await addPost({ authorId: author, text: postText, image });
       setPostText("");
       setPostImage(null);

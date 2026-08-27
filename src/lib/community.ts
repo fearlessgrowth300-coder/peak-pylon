@@ -65,6 +65,7 @@ export type State = {
 };
 
 const KEY = "streamcore-demo-v1";
+const POSTS_PAGE_SIZE = 30;
 
 export const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -150,7 +151,10 @@ export function defaultState(): State {
 export function useCommunity() {
   const [state, setState] = useState<State>(() => defaultState());
   const [hydrated, setHydrated] = useState(false);
+  const [hasOlderPosts, setHasOlderPosts] = useState(true);
+  const [loadingOlderPosts, setLoadingOlderPosts] = useState(false);
   const mutationVersion = useRef(0);
+  const oldestPostCreatedAt = useRef<string | null>(null);
 
   useEffect(() => {
     try {
@@ -179,29 +183,93 @@ export function useCommunity() {
     }
   }, [state, hydrated]);
 
-  // Shared community content: keep the owner-created directory and messages in
-  // Supabase so every signed-in account sees the same community.
+  // Shared community data is loaded once, then kept fresh through Realtime.
+  // Never poll the full posts table: media attachments make that both expensive
+  // and slow as the community grows.
   useEffect(() => {
     if (!hydrated) return;
     const db = supabase as any;
     let active = true;
-    const sync = async () => {
+    const mergePost = (incoming: Post) => {
+      setState((current) => ({
+        ...current,
+        posts: [...current.posts.filter((post) => post.id !== incoming.id), incoming]
+          .sort((left, right) => left.time - right.time),
+      }));
+    };
+    const loadInitial = async () => {
       const versionAtStart = mutationVersion.current;
       const [{ data: memberRows, error: memberError }, { data: postRows, error: postError }] = await Promise.all([
-        db.from("community_listed_members").select("id, data"),
-        db.from("community_posts").select("id, data").order("created_at", { ascending: true }),
+        db.from("community_listed_members").select("id, data").limit(100),
+        db.from("community_posts").select("id, data, created_at").order("created_at", { ascending: false }).limit(POSTS_PAGE_SIZE),
       ]);
+      if (!active || versionAtStart !== mutationVersion.current) return;
       // An empty result is meaningful: it means the owner deliberately removed
-      // the final member or post.  Never repopulate it from browser sample data.
-      if (!active || memberError || postError || versionAtStart !== mutationVersion.current) return;
-      const members = (memberRows ?? []).map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
-      const posts = (postRows ?? []).map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
-      setState((current) => ({ ...current, members, posts }));
+      // the final member or post. Never repopulate it from browser sample data.
+      if (!memberError) {
+        const members = (memberRows ?? []).map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
+        setState((current) => ({ ...current, members }));
+      }
+      if (!postError) {
+        const rows = postRows ?? [];
+        const posts = rows.map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
+        oldestPostCreatedAt.current = rows.at(-1)?.created_at ?? null;
+        setHasOlderPosts(rows.length === POSTS_PAGE_SIZE);
+        setState((current) => ({ ...current, posts: posts.sort((left, right) => left.time - right.time) }));
+      }
     };
-    void sync();
-    const timer = window.setInterval(() => void sync(), 12_000);
-    return () => { active = false; window.clearInterval(timer); };
+    void loadInitial();
+
+    const subscription = db
+      .channel("streamcore-community-data")
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_posts" }, (payload: any) => {
+        if (!active) return;
+        if (payload.eventType === "DELETE") {
+          setState((current) => ({ ...current, posts: current.posts.filter((post) => post.id !== payload.old.id) }));
+          return;
+        }
+        if (payload.new?.id && payload.new?.data) mergePost({ ...payload.new.data, id: payload.new.id } as Post);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_listed_members" }, (payload: any) => {
+        if (!active) return;
+        if (payload.eventType === "DELETE") {
+          setState((current) => ({ ...current, members: current.members.filter((member) => member.id !== payload.old.id) }));
+          return;
+        }
+        if (payload.new?.id && payload.new?.data) {
+          const incoming = { ...payload.new.data, id: payload.new.id } as Member;
+          setState((current) => ({ ...current, members: [...current.members.filter((member) => member.id !== incoming.id), incoming] }));
+        }
+      })
+      .subscribe();
+
+    return () => { active = false; void supabase.removeChannel(subscription); };
   }, [hydrated]);
+
+  const loadOlderPosts = useCallback(async () => {
+    if (loadingOlderPosts || !hasOlderPosts || !oldestPostCreatedAt.current) return;
+    setLoadingOlderPosts(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("community_posts")
+        .select("id, data, created_at")
+        .lt("created_at", oldestPostCreatedAt.current)
+        .order("created_at", { ascending: false })
+        .limit(POSTS_PAGE_SIZE);
+      if (error) throw error;
+      const rows = data ?? [];
+      if (rows.length) oldestPostCreatedAt.current = rows.at(-1)?.created_at ?? oldestPostCreatedAt.current;
+      setHasOlderPosts(rows.length === POSTS_PAGE_SIZE);
+      const older = rows.map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
+      setState((current) => ({
+        ...current,
+        posts: [...current.posts, ...older.filter((post) => !current.posts.some((currentPost) => currentPost.id === post.id))]
+          .sort((left, right) => left.time - right.time),
+      }));
+    } finally {
+      setLoadingOlderPosts(false);
+    }
+  }, [hasOlderPosts, loadingOlderPosts]);
 
   const addMember = useCallback(async (member: Omit<Member, "id">) => {
     const id = uid();
@@ -243,6 +311,9 @@ export function useCommunity() {
   }, []);
 
   const addPost = useCallback(async (input: PostInput) => {
+    if ([input.image, input.video].some((url) => url?.startsWith("data:"))) {
+      throw new Error("Media must be uploaded to Storage before publishing.");
+    }
     const id = uid();
     const post = { ...input, id, image: input.image ?? "", channel: input.channel ?? "general", reactions: {}, time: Date.now() };
     mutationVersion.current += 1;
@@ -302,6 +373,9 @@ export function useCommunity() {
     addChannel,
     removeChannel,
     toggleReaction,
+    loadOlderPosts,
+    hasOlderPosts,
+    loadingOlderPosts,
   };
 }
 

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { timeAgo, useCommunity, type Member, type Post, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
@@ -8,49 +8,9 @@ import { ChannelDetails } from "@/components/community/ChannelDetails";
 import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
-import { HomeDashboard } from "@/components/community/HomeDashboard";
-import { RightStatsPanel } from "@/components/community/RightStatsPanel";
-import { TrendingView } from "@/components/community/TrendingView";
-import { LiveNowView } from "@/components/community/LiveNowView";
-import { ClipsView } from "@/components/community/ClipsView";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { refreshTwitchStatuses } from "@/lib/twitch.functions";
-import {
-  Home as HomeIcon,
-  Flame,
-  Tv,
-  Film,
-  MessageSquare,
-  HelpCircle,
-  UserCheck,
-  Coffee,
-  Link2,
-  Headphones,
-  Users,
-  Trophy,
-  Star,
-  Zap,
-  Gem,
-  Calendar,
-  Megaphone,
-  User as UserIcon,
-  BarChart3,
-  Bell,
-  Mail,
-  Compass,
-  Shield,
-  Puzzle,
-  Search,
-  Settings,
-  ChevronDown,
-  Plus,
-  Disc,
-  CreditCard,
-  Menu,
-  Moon,
-  Sparkles,
-} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -74,57 +34,18 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type View =
-  | "home"
-  | "rules"
-  | "general"
-  | "support"
-  | "intro"
-  | "off-topic"
-  | "collab"
-  | "vc-lounge"
-  | "creators"
-  | "live-now"
-  | "clips"
-  | "trending"
-  | "rankings"
-  | "announcements"
-  | "featured"
-  | "rising"
-  | "partners"
-  | "events"
-  | "analytics"
-  | "notifications"
-  | "messages"
-  | "admin"
-  | "moderation"
-  | "integrations"
-  | "me"
-  | `channel:${string}`;
-
-interface NavItem {
-  id: View;
-  label: string;
-  icon: ReactNode;
-  badge?: string | number;
-  badgeColor?: string;
-}
-
-interface NavGroup {
-  group?: string;
-  items: NavItem[];
-}
+type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "me" | `channel:${string}`;
 
 function Index() {
-  const { state, addMember, updateMember, removeMember, addPost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction } = useCommunity();
+  const { state, addMember, updateMember, removeMember, addPost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
   const [view, setView] = useState<View>(() => {
     if (typeof window === "undefined") return "home";
     const saved = localStorage.getItem("streamcore:last-view") as View | null;
-    const migrated = (saved as string | null) === "general" ? ("home" as View) : saved;
-    return migrated && (migrated === "home" || migrated === "rules" || migrated === "general" || migrated === "creators" || migrated === "live-now" || migrated === "clips" || migrated === "trending" || migrated === "rankings" || migrated === "announcements" || migrated === "featured" || migrated === "rising" || migrated === "partners" || migrated === "events" || migrated === "analytics" || migrated === "notifications" || migrated === "messages" || migrated === "admin" || migrated === "moderation" || migrated === "integrations" || migrated === "me" || migrated.startsWith("channel:")) ? migrated : "home";
+    const migrated = saved === "general" ? "home" : saved;
+    return migrated && (migrated === "home" || migrated === "rules" || migrated === "general" || migrated === "creators" || migrated === "live-now" || migrated === "trending" || migrated === "rankings" || migrated === "announcements" || migrated === "featured" || migrated === "rising" || migrated === "partners" || migrated === "events" || migrated === "analytics" || migrated === "notifications" || migrated === "messages" || migrated === "admin" || migrated === "me" || migrated.startsWith("channel:")) ? migrated : "home";
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -145,6 +66,8 @@ function Index() {
   );
   const isAdmin = !!myAccount?.roles.includes("admin");
 
+  // A real signed-in account always posts as itself. Only the owner may select
+  // one of the community-managed showcase profiles for an editorial post.
   const postingAuthors = useMemo(() => {
     if (!myAccount) return [];
     const ownerProfile = accountToMember(myAccount);
@@ -172,65 +95,50 @@ function Index() {
 
   useEffect(() => {
     if (!userId) return;
-    const heartbeat = () => void supabase.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", userId).then(() => void refresh());
+    const heartbeat = () => void supabase.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", userId);
     heartbeat();
-    const timer = window.setInterval(heartbeat, 60_000);
+    const timer = window.setInterval(heartbeat, 5 * 60_000);
     return () => window.clearInterval(timer);
   }, [refresh, userId]);
 
-  // Sidebar navigation structure matching the exact reference screenshot
-  const navSections = useMemo((): NavGroup[] => {
-    return [
+  const channels = useMemo(() => {
+    const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
       {
+        group: "Explore",
         items: [
-          { id: "home", label: "Home", icon: <HomeIcon className="h-4 w-4" /> },
-          { id: "trending", label: "Trending", icon: <Flame className="h-4 w-4" /> },
-          { id: "live-now", label: "Live Now", icon: <Tv className="h-4 w-4" />, badge: "LIVE", badgeColor: "bg-rose-600 text-white" },
-          { id: "clips", label: "Clips", icon: <Film className="h-4 w-4" /> },
+          { id: "home", label: "Home", icon: "⌂" },
+          { id: "trending", label: "Trending", icon: "🔥" },
+          { id: "live-now", label: "Live now", icon: "●" },
+          { id: "creators", label: "Creator directory", icon: "✦" },
+          { id: "rankings", label: "Creator rankings", icon: "🏆" },
+          { id: "announcements", label: "Announcements", icon: "📣" },
         ],
       },
       {
-        group: "COMMUNITY",
+        group: "Creator network",
         items: [
-          { id: "general", label: "General", icon: <MessageSquare className="h-4 w-4" /> },
-          { id: "support", label: "Support", icon: <HelpCircle className="h-4 w-4" /> },
-          { id: "intro", label: "Introduce Yourself", icon: <UserCheck className="h-4 w-4" /> },
-          { id: "off-topic", label: "Off Topic", icon: <Coffee className="h-4 w-4" /> },
-          { id: "collab", label: "Collaboration", icon: <Link2 className="h-4 w-4" /> },
-          { id: "vc-lounge", label: "VC Lounge", icon: <Headphones className="h-4 w-4" /> },
+          { id: "featured", label: "Featured creators", icon: "⭐" },
+          { id: "rising", label: "Rising creators", icon: "🚀" },
+          { id: "partners", label: "Partners", icon: "💎" },
+          { id: "events", label: "Events", icon: "📅" },
         ],
       },
       {
-        group: "CREATOR NETWORK",
+        group: "Community spaces",
         items: [
-          { id: "creators", label: "Creator Directory", icon: <Users className="h-4 w-4" /> },
-          { id: "rankings", label: "Creator Rankings", icon: <Trophy className="h-4 w-4" /> },
-          { id: "featured", label: "Featured Creators", icon: <Star className="h-4 w-4" /> },
-          { id: "rising", label: "Rising Creators", icon: <Zap className="h-4 w-4" /> },
-          { id: "partners", label: "Partners", icon: <Gem className="h-4 w-4" /> },
-          { id: "events", label: "Events", icon: <Calendar className="h-4 w-4" /> },
-          { id: "announcements", label: "Announcements", icon: <Megaphone className="h-4 w-4" /> },
-        ],
-      },
-      {
-        group: "YOUR SPACE",
-        items: [
-          { id: "me", label: "My Profile", icon: <UserIcon className="h-4 w-4" /> },
-          { id: "analytics", label: "Creator Analytics", icon: <BarChart3 className="h-4 w-4" /> },
-          { id: "notifications", label: "Notifications", icon: <Bell className="h-4 w-4" />, badge: 12, badgeColor: "bg-rose-600 text-white" },
-          { id: "messages", label: "Messages", icon: <Mail className="h-4 w-4" />, badge: 5, badgeColor: "bg-rose-600 text-white" },
-        ],
-      },
-      {
-        group: "ADMIN",
-        items: [
-          { id: "admin", label: "Creator Center", icon: <Compass className="h-4 w-4" /> },
-          { id: "moderation", label: "Moderation", icon: <Shield className="h-4 w-4" /> },
-          { id: "integrations", label: "Integrations", icon: <Puzzle className="h-4 w-4" /> },
+          { id: "rules", label: "rules", icon: "#" },
+          { id: "general", label: "general", icon: "#" },
+          ...state.channels.filter((channel) => channel.id !== "rules").map((channel) => ({ id: `channel:${channel.id}` as View, label: channel.name, icon: "#" })),
         ],
       },
     ];
-  }, []);
+    if (myAccount)
+      groups.push({ group: "Your space", items: [{ id: "me", label: "My profile", icon: "@" }, { id: "analytics", label: "Creator analytics", icon: "◫" }, { id: "notifications", label: "Notifications", icon: "🔔" }, { id: "messages", label: "Messages", icon: "✉" }] });
+    if (isAdmin) {
+      groups.push({ group: "Admin", items: [{ id: "admin", label: "Control center", icon: "⚙" }, { id: "moderation", label: "Moderation", icon: "🛡" }, { id: "integrations", label: "Integrations", icon: "⌁" }] });
+    }
+    return groups;
+  }, [isAdmin, myAccount, state.channels]);
 
   useEffect(() => {
     if (localStorage.getItem("streamcore:open-rules") === "1") {
@@ -308,319 +216,257 @@ function Index() {
     setToast("Signed out");
   }
 
-  const handlePickCreator = (c: { name: string; avatar: string }) => {
-    const m = allMembers.find((item) => item.name.toLowerCase() === c.name.toLowerCase()) ?? {
-      id: c.name,
-      name: c.name,
-      handle: `@${c.name.toLowerCase()}`,
-      avatar: c.avatar,
-      status: "online" as const,
-      platform: "Twitch",
-      bio: "Featured creator on StreamCore network.",
-      link: "https://twitch.tv",
-      banner: "",
-    };
-    setProfile(m);
-  };
-
   return (
-    <div className="flex h-dvh overflow-hidden bg-[#0c0e17] text-white">
-      {/* 1. Left Navigation Sidebar */}
+    <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+      {/* Server rail */}
+      <nav className="hidden w-[72px] shrink-0 flex-col items-center gap-2 bg-rail py-3 sm:flex">
+        <CommunityMark community={state.community} size={48} />
+        <div className="h-0.5 w-8 rounded bg-border" />
+        {["NR", "PM", "KV", "+"].map((s) => (
+          <div
+            key={s}
+            className="grid h-12 w-12 place-items-center rounded-3xl bg-accent text-xs font-bold text-muted-foreground transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground"
+          >
+            {s}
+          </div>
+        ))}
+      </nav>
+
+      {/* Channel sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 flex-col border-r border-white/[0.06] bg-[#0c0e17] transition-transform md:static md:flex md:translate-x-0 ${
-          sidebarOpen ? "flex translate-x-0 shadow-2xl" : "flex -translate-x-full"
+        className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 flex-col bg-sidebar transition-transform md:static md:flex md:translate-x-0 ${
+          sidebarOpen ? "flex translate-x-0" : "flex -translate-x-full"
         }`}
       >
-        {/* Brand Header */}
-        <div className="flex h-14 items-center justify-between border-b border-white/[0.06] px-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 shadow-md">
-              <Disc className="h-4 w-4 text-white" />
-            </div>
-            <strong className="text-sm font-black tracking-wider text-white">
-              STREAMCORE
-            </strong>
-          </div>
-          <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+        <div className="flex h-12 items-center justify-between border-b border-rail px-4 shadow-sm">
+          <div className="flex min-w-0 items-center gap-2"><CommunityMark community={state.community} size={26} /><strong className="truncate text-[15px]">{state.community.name}</strong></div>
+          <span className="h-2 w-2 shrink-0 rounded-full bg-online" />
         </div>
 
-        {/* Scrollable Navigation Groups */}
-        <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3 scrollbar-none">
-          {navSections.map((group, groupIdx) => (
-            <div key={groupIdx} className="space-y-1">
-              {group.group && (
-                <p className="px-2 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                  {group.group}
-                </p>
-              )}
-              {group.items.map((item) => {
-                const isActive = view === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      setView(item.id);
-                      setSidebarOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs font-semibold transition-all ${
-                      isActive
-                        ? "bg-[#5c54e5] text-white shadow-md shadow-indigo-600/30"
-                        : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className={isActive ? "text-white" : "text-zinc-400"}>
-                        {item.icon}
-                      </span>
-                      <span className="truncate">{item.label}</span>
-                    </div>
+        <div className="p-3">
+          <button
+            onClick={() => setToast("Invite link copied")}
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold hover:bg-accent/70"
+          >
+            Invite
+          </button>
+        </div>
 
-                    {item.badge && (
-                      <span
-                        className={`rounded-full px-1.5 py-0.5 text-[9px] font-extrabold ${item.badgeColor}`}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+        <div className="flex-1 overflow-y-auto px-2 pb-4">
+          {channels.map((group) => (
+            <div key={group.group} className="mb-3">
+              <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                {group.group}
+              </p>
+              {group.items.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setView(c.id);
+                    setSidebarOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[15px] transition-colors ${
+                    view === c.id
+                      ? "bg-accent font-semibold text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="text-lg text-muted-foreground">{c.icon}</span>
+                  <span className="truncate">{c.label}</span>
+                </button>
+              ))}
             </div>
           ))}
         </div>
 
-        {/* Bottom Sidebar Card & Create Post Button */}
-        <div className="border-t border-white/[0.06] p-3 space-y-2.5 bg-[#0c0e17]">
-          {/* Level 100 / XP Card */}
-          <div className="rounded-xl border border-white/[0.06] bg-[#141727] p-2.5 shadow-inner">
-            <div className="flex items-center justify-between text-[11px] font-bold">
-              <span className="text-zinc-300">STREAMCORE</span>
-              <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[9px] font-black text-indigo-300">
-                Lv. 100
-              </span>
-            </div>
-
-            {/* Thumbnail artwork */}
-            <div className="relative mt-2 h-14 w-full overflow-hidden rounded-lg bg-indigo-950/60">
-              <img
-                src="https://images.unsplash.com/photo-1542751371-adc38448a05e?w=300&auto=format&fit=crop&q=80"
-                alt="Community Level"
-                className="h-full w-full object-cover opacity-70"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#141727] via-transparent to-transparent" />
-            </div>
-
-            <div className="mt-2 flex items-center justify-between text-[10px] text-zinc-400">
-              <span>Community Power</span>
-              <span className="font-bold text-zinc-200">1,250,000 XP</span>
-            </div>
-            {/* XP Bar */}
-            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full w-4/5 rounded-full bg-gradient-to-r from-indigo-500 to-fuchsia-500" />
-            </div>
-          </div>
-
-          {/* Create Post Button */}
+        {myAccount ? (
           <button
             onClick={() => {
-              if (myAccount) setView("general");
-              else void navigate({ to: "/auth" });
+              setView("me");
+              setSidebarOpen(false);
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#5c54e5] py-2 text-xs font-bold text-white shadow-md shadow-indigo-600/30 transition-all hover:bg-[#6c64f5]"
+            className="flex w-full items-center gap-2 bg-rail px-3 py-2 text-left hover:bg-rail/70"
           >
-            <Plus className="h-3.5 w-3.5" />
-            Create Post
+            <Avatar member={accountToMember(myAccount)} size={32} />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{myAccount.display_name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {ROLE_META[topRole(myAccount.roles)].label}
+              </p>
+            </div>
           </button>
-        </div>
+        ) : (
+          <button
+            onClick={() => void navigate({ to: "/auth" })}
+            className="m-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
+          >
+            Sign in / Join community
+          </button>
+        )}
       </aside>
 
-      {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/70 md:hidden backdrop-blur-xs"
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* 2. Main Content Area */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#0c0e17]">
-        {/* Top Header Bar */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#0c0e17] px-4">
-          <div className="flex items-center gap-3">
-            <button
-              className="text-zinc-400 hover:text-white md:hidden"
-              aria-label="Open sidebar"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-
-            {/* Search Bar */}
-            <div className="relative hidden w-80 items-center sm:flex">
-              <Search className="absolute left-3 h-3.5 w-3.5 text-zinc-400" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search creators, posts, clips, or communities..."
-                className="w-full rounded-xl border border-white/[0.06] bg-[#121524] py-1.5 pl-9 pr-3 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-
-          {/* Right Action Icons & Profile Pill */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setView("notifications")}
-              className="relative rounded-lg p-2 text-zinc-400 hover:bg-white/[0.05] hover:text-white"
-            >
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-600 text-[8px] font-bold text-white">
-                12
-              </span>
-            </button>
-
-            <button
-              onClick={() => setView("messages")}
-              className="relative rounded-lg p-2 text-zinc-400 hover:bg-white/[0.05] hover:text-white"
-            >
-              <Mail className="h-4 w-4" />
-              <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-600 text-[8px] font-bold text-white">
-                3
-              </span>
-            </button>
-
-            <button
-              onClick={() => setView("admin")}
-              className="rounded-lg p-2 text-zinc-400 hover:bg-white/[0.05] hover:text-white"
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-
-            <button
-              onClick={() => setToast("Theme settings updated")}
-              className="rounded-lg p-2 text-zinc-400 hover:bg-white/[0.05] hover:text-white"
-            >
-              <Moon className="h-4 w-4" />
-            </button>
-
-            {/* Profile Dropdown Pill */}
-            <button
-              onClick={() => (myAccount ? setView("me") : void navigate({ to: "/auth" }))}
-              className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-[#121524] px-2.5 py-1.5 transition-colors hover:bg-white/[0.08]"
-            >
-              <div className="relative">
-                <img
-                  src={myAccount?.avatar_url || "https://images.unsplash.com/photo-1566492031773-4f4e44671857?w=100&auto=format&fit=crop&q=80"}
-                  alt="Plutoforce"
-                  className="h-6 w-6 rounded-full object-cover"
-                />
-                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[#121524] bg-emerald-500" />
-              </div>
-              <div className="text-left leading-tight hidden sm:block">
-                <p className="text-xs font-bold text-white">
-                  {myAccount?.display_name || "Plutoforce"}
-                </p>
-                <p className="text-[10px] text-zinc-400">
-                  {myAccount ? ROLE_META[topRole(myAccount.roles)].label : "Owner"}
-                </p>
-              </div>
-              <ChevronDown className="h-3 w-3 text-zinc-400" />
-            </button>
-          </div>
+      {/* Main */}
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-rail bg-background px-3 shadow-sm">
+          <button
+            className="text-xl text-muted-foreground md:hidden"
+            aria-label="Open channels"
+            onClick={() => setSidebarOpen(true)}
+          >
+            ☰
+          </button>
+          {view !== "home" && <button onClick={() => view === "general" && setChannelDetailsOpen(true)} className="flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default" disabled={view !== "general"} title={view === "general" ? "Open channel details" : undefined}>
+            <span className="text-xl text-muted-foreground">#</span>
+            <strong className="truncate">
+               {view === "home" ? "StreamCore" : view === "admin" ? "control-center" : view === "me" ? "my-profile" : view.startsWith("channel:") ? state.channels.find((channel) => `channel:${channel.id}` === view)?.name ?? "channel" : view.replaceAll("-", " ")}
+            </strong>
+          </button>}
+          {view === "home" && <div className="hidden min-w-0 max-w-md flex-1 items-center rounded-lg border border-border bg-input/60 px-3 py-1.5 text-xs text-muted-foreground sm:flex"><span className="mr-2 text-sm">⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search creators, posts, clips, or communities..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground" /></div>}
+          <button
+            className="text-lg text-muted-foreground"
+            aria-label="Show members"
+            onClick={() => setMembersOpen((v) => !v)}
+          >
+            ◉
+          </button>
         </header>
 
-        {/* 3. Main Center + Right Widget Panels */}
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* Center Feed Area */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto">
-            {view === "home" && (
-              <HomeDashboard
-                onOpenView={(v) => setView(v as View)}
-                onPickCreator={handlePickCreator}
-              />
-            )}
-
-            {view === "trending" && (
-              <TrendingView onPickCreator={handlePickCreator} />
-            )}
-
-            {view === "live-now" && (
-              <LiveNowView onPickCreator={handlePickCreator} />
-            )}
-
-            {view === "clips" && (
-              <ClipsView onPickCreator={handlePickCreator} />
-            )}
-
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col">
+          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
+            {view === "home" && <HomeDashboard state={state} liveMembers={liveMembers} members={allMembers} posts={state.posts} onPick={setProfile} onOpen={setView} />}
             {view === "general" && (
-              <div className="space-y-4 px-4 py-5 max-w-4xl mx-auto">
+              <div className="space-y-4 px-4 py-5">
                 <section
-                  className="relative overflow-hidden rounded-2xl bg-[#121524] bg-cover bg-center p-6 border border-white/[0.06]"
+                  className="relative overflow-hidden rounded-xl bg-popover bg-cover bg-center p-5"
                   style={state.community.banner ? { backgroundImage: `linear-gradient(rgba(24,25,28,.72), rgba(24,25,28,.88)), url(${state.community.banner})` } : undefined}
                 >
                   <div className="relative z-10">
-                    <p className="inline-block rounded-full bg-indigo-500/20 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-indigo-400 border border-indigo-500/30">
-                      {state.community.tagline}
-                    </p>
-                    <h1 className="mt-3 text-3xl font-extrabold leading-tight text-white">
-                      {state.community.name}.
-                      <br />
-                      Every creator.
-                    </h1>
-                    <p className="mt-2 text-sm text-zinc-400">
-                      A community for streamers, creators, teams, and fans.
-                    </p>
+                  <p className="inline-block rounded-full bg-primary/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-primary">
+                    {state.community.tagline}
+                  </p>
+                  <h1 className="mt-3 text-3xl font-extrabold leading-tight">
+                    {state.community.name}.
+                    <br />
+                    Every creator.
+                  </h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    A community for streamers, creators, teams, and fans.
+                  </p>
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                    <Stat value={state.stats.members} label="Members" logo={state.community.logo} />
+                    <Stat value={state.stats.online} label="Online" dot />
+                    <Stat value={state.stats.rank} label="Rank by size" />
+                  </div>
+                  <p className="mt-2 text-center text-xs text-muted-foreground">
+                    <strong className="text-foreground">
+                      {realMembers.length.toLocaleString()}
+                    </strong>{" "}
+                    verified streamer accounts have joined with a real login.
+                  </p>
                   </div>
                 </section>
 
-                <div className="space-y-1">
+                <LiveStories members={liveMembers.filter((member) => member.status === "live")} onPick={setProfile} />
+
+                <div className="space-y-0.5">
+                  {hasOlderPosts && (
+                    <button
+                      onClick={() => void loadOlderPosts()}
+                      disabled={loadingOlderPosts}
+                      className="mx-auto mb-3 block rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60"
+                    >
+                      {loadingOlderPosts ? "Loading messages…" : "Load earlier messages"}
+                    </button>
+                  )}
                   {[...state.posts.filter((post) => !post.channel || post.channel === "general")]
                     .sort((a, b) => a.time - b.time)
                     .map((p) => {
                       const m = memberById.get(p.authorId);
+                      const parent = p.replyToId
+                        ? state.posts.find((x) => x.id === p.replyToId)
+                        : undefined;
+                      const parentAuthor = parent
+                        ? memberById.get(parent.authorId)
+                        : undefined;
                       return (
                         <article
                           key={p.id}
-                          className="group rounded-xl px-3 py-2.5 hover:bg-white/[0.03] transition-colors"
+                          className="group rounded-md px-1 py-2 hover:bg-accent/25"
                         >
-                          <div className="flex gap-3">
+                          {parent && (
+                            <div className="mb-1 flex min-w-0 items-center gap-2 pl-12 text-xs text-muted-foreground">
+                              <span>↰</span>
+                              <span className="truncate">
+                                <strong className="text-primary">
+                                  {parentAuthor?.name ?? "Community"}
+                                </strong>{" "}
+                                {parent.text || parent.sticker || "attachment"}
+                              </span>
+                            </div>
+                          )}
+                          <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
                             <button onClick={() => m && setProfile(m)}>
                               <Avatar
-                                member={m ?? { name: "Community", avatar: "", status: "offline" }}
+                                member={
+                                  m ?? { name: "Community", avatar: "", status: "offline" }
+                                }
                                 size={40}
                                 showStatus={false}
                               />
                             </button>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <button
                                   onClick={() => m && setProfile(m)}
-                                  className="font-bold text-sm text-white hover:underline"
+                                  className="font-semibold hover:underline"
                                 >
                                   {m?.name ?? "Community"}
                                 </button>
-                                {m?.role === "admin" && (
-                                  <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-bold text-indigo-400">
-                                    👑 ADMIN
-                                  </span>
-                                )}
-                                <span className="text-xs text-zinc-500">
+                                {m?.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
+                                <span className="text-xs text-muted-foreground">
                                   {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>
+                                <button
+                                  onClick={() =>
+                                    setReplyTo({ id: p.id, name: m?.name ?? "Community" })
+                                  }
+                                  className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+                                >
+                                  Reply
+                                </button>
                               </div>
                               {p.text && (
-                                <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
+                                <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">
                                   {p.text}
                                 </p>
+                              )}
+                              {p.sticker && (
+                                <p className="mt-1 text-5xl leading-none">{p.sticker}</p>
                               )}
                               {p.image && (
                                 <img
                                   src={p.image}
                                   alt="Community post attachment"
                                   loading="lazy"
-                                  className="mt-2 max-h-80 rounded-xl object-cover"
+                                  className="mt-2 max-h-80 rounded-lg object-cover"
                                 />
                               )}
+                              {p.video && (
+                                <video
+                                  src={p.video}
+                                  controls
+                                  className="mt-2 max-h-80 w-full rounded-lg"
+                                />
+                              )}
+                              <MessageActions post={p} member={m} isAdmin={isAdmin} onReply={() => setReplyTo({ id: p.id, name: m?.name ?? "Community" })} onReact={toggleReaction} onDelete={removePost} onRemoveMember={async () => { if (m?.real) await removeFromCommunity(m.id); else if (m) await removeMember(m.id); }} />
                             </div>
                           </div>
                         </article>
@@ -632,47 +478,61 @@ function Index() {
 
             {view === "rules" && <RulesChannel rules={state.community.rules} onContinue={() => setView("general")} />}
 
-            {(view === "creators" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations" || view === "support" || view === "intro" || view === "off-topic" || view === "collab" || view === "vc-lounge") && (
-              <div className="space-y-4 px-4 py-5 max-w-6xl mx-auto">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-400">
-                      STREAMCORE NETWORK
-                    </p>
-                    <h1 className="text-xl font-extrabold text-white capitalize">
-                      {view.replaceAll("-", " ")}
-                    </h1>
-                  </div>
+            {view.startsWith("channel:") && (() => {
+              const channel = state.channels.find((item) => `channel:${item.id}` === view);
+              return channel ? <CustomChannel name={channel.name} topic={channel.topic} posts={state.posts.filter((post) => post.channel === channel.id || post.channel === channel.name)} members={memberById} onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })} onReact={toggleReaction} /> : null;
+            })()}
+
+            {(view === "creators" || view === "live-now" || view === "trending" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
+              <div className="space-y-4 px-4 py-5">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                    Creator directory
+                  </p>
+                  <h1 className="text-xl font-extrabold">
+                    {view === "live-now" ? "Live & online now" : view === "creators" ? "Meet the community" : view.replaceAll("-", " ")}
+                  </h1>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {filtered.map((m) => (
+                {(view === "creators" || view === "featured" || view === "rising" || view === "partners") && (
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search creators"
+                    className="w-full rounded-md bg-input px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                )}
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {(view === "live-now" ? liveMembers : view === "featured" ? allMembers.slice(0, 6) : view === "rising" ? allMembers.slice().reverse().slice(0, 6) : view === "partners" ? allMembers.filter((m) => m.role === "partner" || m.role === "admin") : filtered).map((m) => (
                     <button
                       key={m.id}
                       onClick={() => setProfile(m)}
-                      className="overflow-hidden rounded-2xl bg-[#121524] border border-white/[0.06] text-left transition-all hover:border-indigo-500/50 hover:bg-[#161a2c]"
+                      className="overflow-hidden rounded-xl bg-popover text-left transition-colors hover:bg-accent/40"
                     >
                       <div
-                        className="h-16 bg-indigo-900/40 bg-cover bg-center"
+                        className="h-16 bg-primary/50 bg-cover bg-center"
                         style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined}
                       />
                       <div className="-mt-6 p-4">
-                        <div className="w-fit rounded-full border-4 border-[#121524]">
+                        <div className="w-fit rounded-full border-4 border-popover">
                           <Avatar member={m} size={48} />
                         </div>
-                        <p className="mt-2 truncate font-bold text-white">{m.name}</p>
-                        <p className="truncate text-xs text-zinc-400">{m.handle}</p>
-                        <p className="mt-2 line-clamp-2 text-xs text-zinc-400">
+                        <p className="mt-2 truncate font-bold">{m.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{m.handle}</p>
+                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
                           {m.bio || "Community creator profile."}
                         </p>
                         <div className="mt-3 flex items-center justify-between text-xs">
-                          <span className="rounded bg-white/[0.06] px-2 py-1 font-semibold text-zinc-300">
+                          <span className="rounded bg-accent px-2 py-1 font-semibold">
                             {m.platform}
                           </span>
-                          <span className="text-indigo-400 font-semibold">Open profile →</span>
+                          <span className="text-muted-foreground">Open profile →</span>
                         </div>
                       </div>
                     </button>
                   ))}
+                  {(view === "live-now" ? liveMembers : filtered).length === 0 && (
+                    <p className="text-sm text-muted-foreground">Nothing to show yet. This space will fill as your network grows.</p>
+                  )}
                 </div>
               </div>
             )}
@@ -708,39 +568,58 @@ function Index() {
                 }
               />
             )}
-
-            {view === "general" && (
-              <div className="p-4 max-w-4xl mx-auto">
-                <Composer
-                  authors={postingAuthors}
-                  authorId={selectedChatAuthor}
-                  setAuthorId={setChatAuthor}
-                  replyTo={replyTo}
-                  clearReply={() => setReplyTo(null)}
-                  onSend={(post: PostInput) => addPost(post)}
-                  onTyping={broadcastTyping}
-                />
-              </div>
-            )}
+          </div>
+          {view === "general" && (
+            <Composer
+              authors={postingAuthors}
+              authorId={selectedChatAuthor}
+              setAuthorId={setChatAuthor}
+              replyTo={replyTo}
+              clearReply={() => setReplyTo(null)}
+              onSend={(post: PostInput) => addPost(post)}
+              onTyping={broadcastTyping}
+            />
+          )}
+          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.name })} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
+          {typingName && <div className="pointer-events-none absolute bottom-16 left-4 text-xs text-muted-foreground"><strong>{typingName}</strong> is typing…</div>}
           </div>
 
-          {/* Right Widgets Panel - visible on Home view */}
-          {view === "home" && (
-            <div className="hidden xl:block">
-              <RightStatsPanel
-                onOpenView={(v) => setView(v as View)}
-                onPickCreator={handlePickCreator}
-              />
-            </div>
-          )}
+          {/* Member list */}
+          <aside
+            className={`${membersOpen ? "block" : "hidden"} w-60 shrink-0 overflow-y-auto bg-sidebar p-3 max-md:fixed max-md:inset-y-12 max-md:right-0 max-md:z-40 max-md:w-64 max-md:shadow-elevated`}
+          >
+            <button
+              onClick={() =>
+                myAccount ? setView("me") : void navigate({ to: "/auth" })
+              }
+              className="mb-3 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85"
+            >
+              {myAccount ? "Manage your channel" : "Get your channel approved"}
+            </button>
+            <button
+              onClick={() => setToast("Invite link copied")}
+              className="mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold hover:bg-accent/70"
+            >
+              + Invite members
+            </button>
+
+            <MemberGroup title={`Admin — ${adminMembers.length}`} list={adminMembers} onPick={setProfile} admin />
+            <MemberGroup title={`Online — ${online.length}`} list={online} onPick={setProfile} />
+            <MemberGroup
+              title={`Offline — ${offline.length}`}
+              list={offline}
+              onPick={setProfile}
+              dim
+            />
+          </aside>
         </div>
-      </div>
+      </main>
 
       <ProfileModal member={profile} onClose={() => setProfile(null)} isAdmin={isAdmin} />
       {channelDetailsOpen && <ChannelDetails members={allMembers} posts={state.posts} onClose={() => setChannelDetailsOpen(false)} onPickMember={(member) => { setChannelDetailsOpen(false); setProfile(member); }} />}
 
       {toast && (
-        <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-2xl">
+        <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-md bg-popover px-4 py-2 text-sm font-semibold shadow-elevated">
           {toast}
         </div>
       )}
@@ -748,32 +627,115 @@ function Index() {
   );
 }
 
+function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: { state: ReturnType<typeof useCommunity>["state"]; liveMembers: Member[]; members: Member[]; posts: Post[]; onPick: (member: Member) => void; onOpen: (view: View) => void }) {
+  const trending = [...posts].sort((a, b) => b.time - a.time).slice(0, 3);
+  const creators = members.slice(0, 3);
+  const clips = posts.filter((post) => post.image || post.video).slice(0, 4);
+  const activity = { online: liveMembers.length || 86_421, active: Math.max(members.length, 12_482), streams: liveMembers.filter((m) => m.status === "live").length || 3_821, posts: posts.length || 18_421 };
+  return <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 lg:px-7">
+    <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-[radial-gradient(circle_at_top_right,_oklch(0.577_0.209_273.9_/_0.42),_transparent_44%),linear-gradient(135deg,_oklch(0.25_0.018_270),_oklch(0.17_0.015_270))] p-6 lg:p-9">
+      <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/25 blur-3xl" />
+      <div className="relative max-w-3xl"><p className="text-xs font-black tracking-[0.25em] text-primary">STREAMCORE</p><h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">One network.<br />Millions of creators.</h1><p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">A premium creator network built for discovery, collaboration, and the conversations that move culture.</p><div className="mt-6 flex flex-wrap gap-3"><button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-elevated">Explore creators</button><button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold backdrop-blur hover:bg-accent">Watch live now</button></div></div>
+      <div className="relative mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-4">{[[state.stats.members,"Members"],[activity.online.toLocaleString(),"Online now"],[activity.active.toLocaleString(),"Active today"],[activity.streams.toLocaleString(),"Streams live"]].map(([value,label]) => <div key={label} className="bg-background/45 px-4 py-4 backdrop-blur"><p className="text-lg font-black sm:text-2xl">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p></div>)}</div>
+      <p className="relative mt-3 text-xs text-muted-foreground">Live activity is based on current community data. Network totals are display statistics until live analytics are connected.</p>
+    </section>
+
+    <section className="rounded-2xl border border-border bg-popover p-4"><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-live">● LIVE NOW</p><h2 className="text-xl font-extrabold">Streamers live in the network</h2></div><button onClick={() => onOpen("live-now")} className="text-sm font-bold text-primary">View all →</button></div><div className="flex gap-3 overflow-x-auto pb-1">{liveMembers.filter((m) => m.status === "live").slice(0, 6).map((m) => <button key={m.id} onClick={() => onPick(m)} className="w-40 shrink-0 overflow-hidden rounded-xl bg-background text-left hover:ring-2 hover:ring-primary"><div className="h-16 bg-primary/30 bg-cover bg-center" style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined} /><div className="relative -mt-5 px-3 pb-3"><Avatar member={m} size={42} showStatus={false} /><p className="mt-2 truncate text-sm font-bold">{m.name}</p><p className="mt-0.5 text-xs text-live">● LIVE · {m.platform}</p></div></button>)}{!liveMembers.filter((m) => m.status === "live").length && <p className="px-2 py-6 text-sm text-muted-foreground">Live creator cards will appear here automatically.</p>}</div></section>
+
+    <div className="grid gap-5 xl:grid-cols-[1.35fr_.85fr]"><section className="rounded-2xl border border-border bg-popover p-4"><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING RIGHT NOW</p><h2 className="text-xl font-extrabold">What creators are talking about</h2></div><button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary">Open feed →</button></div><div className="space-y-2">{trending.map((post) => { const author = members.find((m) => m.id === post.authorId); return <article key={post.id} className="rounded-xl bg-background p-3"><div className="flex gap-3"><Avatar member={author ?? { name:"Community",avatar:"",status:"offline" }} size={36} showStatus={false}/><div className="min-w-0"><p className="text-sm font-bold">{author?.name ?? "Community"} <span className="font-normal text-muted-foreground">· {timeAgo(post.time)}</span></p><p className="mt-1 line-clamp-2 text-sm">{post.text || post.sticker || "Shared a new creator moment."}</p><p className="mt-2 text-xs font-semibold text-muted-foreground">{Object.values(post.reactions ?? {}).reduce((a,b) => a+b, 0)} reactions · Community discussion</p></div></div></article>; })}{!trending.length && <p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">Fresh creator conversations will show up here.</p>}</div></section>
+    <section className="rounded-2xl border border-border bg-popover p-4"><p className="text-xs font-black tracking-widest text-primary">🌟 RISING CREATORS</p><h2 className="mt-1 text-xl font-extrabold">Creators building momentum</h2><div className="mt-3 space-y-2">{creators.map((m,index) => <button key={m.id} onClick={() => onPick(m)} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent"><span className="w-4 text-xs font-black text-primary">{index+1}</span><Avatar member={m} size={34}/><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{m.name}</span><span className="block truncate text-xs text-muted-foreground">{m.platform} creator</span></span><span className="text-xs font-black text-online">+{42-index*9}%</span></button>)}</div><button onClick={() => onOpen("rising")} className="mt-3 w-full rounded-xl bg-accent py-2 text-sm font-bold hover:bg-accent/70">Discover rising creators</button></section></div>
+
+    <div className="grid gap-5 lg:grid-cols-2"><section className="rounded-2xl border border-border bg-popover p-4"><div className="flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-pink-400">🎬 TRENDING CLIPS</p><h2 className="text-xl font-extrabold">Highlights from the network</h2></div><button onClick={() => onOpen("channel:clips")} className="text-sm font-bold text-primary">Browse clips →</button></div><div className="mt-3 grid grid-cols-2 gap-2">{clips.slice(0,4).map((post) => <div key={post.id} className="aspect-video overflow-hidden rounded-xl bg-accent">{post.image ? <img src={post.image} alt="Creator clip" className="h-full w-full object-cover"/> : post.video ? <video src={post.video} className="h-full w-full object-cover"/> : null}</div>)}{!clips.length && <div className="col-span-2 rounded-xl bg-background p-5 text-sm text-muted-foreground">Clips posted by creators will appear here.</div>}</div></section><section className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-emerald-400">🤝 CREATOR NETWORK</p><h2 className="mt-1 text-xl font-extrabold">Built for creators helping creators</h2><div className="mt-5 grid grid-cols-2 gap-3"><Metric value={members.length.toLocaleString()} label="Creators connected"/><Metric value={activity.posts.toLocaleString()} label="Posts today"/><Metric value="8,420" label="Collaborations this month"/><Metric value="24/7" label="Global activity"/></div><button onClick={() => onOpen("events")} className="mt-5 rounded-xl border border-primary/50 px-4 py-2 text-sm font-bold text-primary hover:bg-primary hover:text-primary-foreground">Explore creator events</button></section></div>
+    <section className="grid gap-5 lg:grid-cols-2"><div className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-primary">◌ TOP CATEGORIES</p><h2 className="mt-1 text-xl font-extrabold">Where the network is watching</h2><div className="mt-4 flex items-center gap-6"><div className="h-28 w-28 rounded-full bg-[conic-gradient(oklch(0.577_0.209_273.9)_0_45%,oklch(0.637_0.215_24.7)_45%_68%,oklch(0.637_0.155_152.3)_68%_85%,oklch(0.801_0.151_80.5)_85%)] p-7"><div className="h-full w-full rounded-full bg-popover"/></div><div className="space-y-2 text-xs"><p>🔴 Just Chatting <strong className="ml-3 text-online">45%</strong></p><p>🔵 Gaming <strong className="ml-3 text-online">32%</strong></p><p>🟣 Music <strong className="ml-3 text-online">13%</strong></p><p>🟡 IRL <strong className="ml-3 text-online">7%</strong></p></div></div></div><div className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p><h2 className="mt-1 text-xl font-extrabold">What’s happening in StreamCore</h2><div className="mt-4 space-y-2">{["Creator Challenge — Spring 2024","Partner program applications open","Community update — new features"].map((item) => <button key={item} onClick={() => onOpen("announcements")} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold hover:bg-accent"><span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary">✦</span><span className="min-w-0 flex-1 truncate">{item}<small className="mt-1 block text-xs font-normal text-muted-foreground">StreamCore Staff · recently</small></span><span className="text-muted-foreground">→</span></button>)}</div></div></section>
+    <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between"><div><h2 className="text-xl font-extrabold">Join the world’s most active creator community</h2><p className="mt-1 text-sm text-muted-foreground">Connect, collaborate, and grow together with millions of creators.</p></div><button onClick={() => onOpen("creators")} className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground sm:mt-0">Invite your friends</button></section>
+    <footer className="grid gap-6 border-t border-border pt-6 text-xs text-muted-foreground sm:grid-cols-4"><div><p className="font-black tracking-widest text-foreground">◈ STREAMCORE</p><p className="mt-2">The world’s largest creator community. Connect, collaborate, and grow together.</p></div><div><p className="font-bold text-foreground">COMMUNITY</p><p className="mt-2">Guidelines</p><p>Rules</p><p>Support</p></div><div><p className="font-bold text-foreground">CREATOR</p><p className="mt-2">Apply for Partner</p><p>Creator resources</p><p>Brand assets</p></div><div><p className="font-bold text-foreground">LEGAL</p><p className="mt-2">Terms of Service</p><p>Privacy Policy</p><p>Community Rules</p></div></footer>
+  </div>;
+}
+
+function Metric({ value, label }: { value: string; label: string }) { return <div className="rounded-xl bg-background p-3"><p className="text-lg font-black">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p></div>; }
+
+function MessageActions({ post, member, isAdmin, onReply, onReact, onDelete, onRemoveMember }: { post: Post; member?: Member; isAdmin: boolean; onReply: () => void; onReact: (id: string, emoji: string) => void; onDelete: (id: string) => Promise<void>; onRemoveMember: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const hold = useRef<number | null>(null);
+  const start = () => { hold.current = window.setTimeout(() => setOpen(true), 550); };
+  const cancel = () => { if (hold.current) window.clearTimeout(hold.current); };
+  return <div className="relative mt-2" onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onContextMenu={(event) => { event.preventDefault(); setOpen(true); }}>
+    {open && <div className="absolute bottom-7 left-0 z-20 flex items-center gap-1 rounded-lg bg-popover p-1 shadow-elevated">
+      {[["👍", "Like"], ["❤️", "Love"], ["😂", "Laugh"], ["😮", "Wow"], ["😢", "Sad"], ["😡", "Angry"]].map(([emoji, label]) => <button key={emoji} title={label} onClick={() => { onReact(post.id, emoji); setOpen(false); }} className="rounded px-2 py-1 text-lg hover:bg-accent">{emoji}</button>)}
+      <button onClick={() => { onReply(); setOpen(false); }} className="rounded px-2 py-1 text-xs font-semibold hover:bg-accent">Reply</button>
+      {isAdmin && <><button onClick={() => void onDelete(post.id).then(() => setOpen(false))} className="rounded px-2 py-1 text-xs font-semibold text-destructive hover:bg-accent">Delete</button>{member?.role !== "admin" && <button onClick={() => void onRemoveMember().then(() => setOpen(false))} className="rounded px-2 py-1 text-xs font-semibold text-destructive hover:bg-accent">Remove member</button>}</>}
+    </div>}
+    {Object.entries(post.reactions ?? {}).filter(([, count]) => count > 0).map(([emoji, count]) => <span key={emoji} className="mr-1 rounded bg-accent px-2 py-1 text-xs">{emoji} {count}</span>)}
+  </div>;
+}
+
+function CommunityMark({ community, size }: { community: { name: string; logo: string }; size: number }) {
+  return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
+}
+
 function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => void }) {
+  return <div className="mx-auto max-w-2xl space-y-4 px-4 py-8"><section className="rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #rules!</h1><p className="mt-2 text-sm text-muted-foreground">Please read these rules before taking part in the community.</p></section><section className="space-y-3 rounded-xl bg-popover p-5"><h2 className="font-bold">Community rules</h2><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">{rules.split("\n").filter(Boolean).map((rule) => <li key={rule}>{rule}</li>)}</ol><button onClick={onContinue} className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85">I have read the rules — Continue to #general</button></section></div>;
+}
+
+function CustomChannel({ name, topic, posts, members, onReply, onReact }: { name: string; topic: string; posts: Post[]; members: Map<string, Member>; onReply: (post: { id: string; authorId: string }) => void; onReact: (id: string, emoji: string) => void }) {
+  return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{post.text}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<MessageActions post={post} member={member} isAdmin={false} onReact={onReact} onReply={() => onReply({ id: post.id, authorId: post.authorId })} onDelete={async () => {}} onRemoveMember={async () => {}} /></div></div></article>; })}</div>;
+}
+
+function LiveStories({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
+  if (!members.length) return null;
+  return <section className="rounded-xl bg-popover p-3"><p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-live">Live now</p><div className="flex gap-3 overflow-x-auto pb-1">{members.map((member) => <button key={member.id} onClick={() => onPick(member)} className="group flex w-16 shrink-0 flex-col items-center gap-1"><span className="relative rounded-full border-2 border-live p-0.5"><Avatar member={member} size={50} showStatus={false} /><span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded bg-live px-1 text-[8px] font-extrabold text-white">LIVE</span></span><span className="w-full truncate pt-1 text-xs font-semibold group-hover:underline">{member.name}</span></button>)}</div></section>;
+}
+
+function Stat({ value, label, dot, logo }: { value: string; label: string; dot?: boolean; logo?: string }) {
   return (
-    <div className="mx-auto max-w-2xl space-y-4 px-4 py-8">
-      <section className="rounded-2xl bg-[#121524] p-6 border border-white/[0.06]">
-        <span className="grid h-12 w-12 place-items-center rounded-full bg-indigo-600/20 text-3xl text-indigo-400">
-          #
-        </span>
-        <h1 className="mt-4 text-2xl font-extrabold text-white">Welcome to #rules!</h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          Please read these rules before taking part in the community.
-        </p>
-      </section>
-      <section className="space-y-3 rounded-2xl bg-[#121524] p-5 border border-white/[0.06]">
-        <h2 className="font-bold text-white">Community rules</h2>
-        <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-zinc-400">
-          {rules.split("\n").filter(Boolean).map((rule) => (
-            <li key={rule}>{rule}</li>
-          ))}
-        </ol>
+    <div className="rounded-lg bg-background p-3">
+      <p className="flex items-center justify-center gap-1.5 text-lg font-extrabold">
+        {dot && <span className="h-2 w-2 rounded-full bg-online" />}
+        {logo && <img src={logo} alt="" className="h-5 w-5 rounded-full object-cover" />}
+        {value}
+      </p>
+      <p className="mt-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function MemberGroup({
+  title,
+  list,
+  onPick,
+  dim,
+  admin,
+}: {
+  title: string;
+  list: Member[];
+  onPick: (m: Member) => void;
+  dim?: boolean;
+  admin?: boolean;
+}) {
+  if (!list.length) return null;
+  return (
+    <div className="mb-4">
+      <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </p>
+      {list.map((m) => (
         <button
-          onClick={onContinue}
-          className="mt-2 rounded-xl bg-[#5c54e5] px-4 py-2 text-xs font-bold text-white hover:bg-[#6c64f5]"
+          key={m.id}
+          onClick={() => onPick(m)}
+          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/50 ${dim ? "opacity-50" : ""}`}
         >
-          I have read the rules — Continue to #general
+          <Avatar member={m} size={32} />
+          <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+            {m.name}
+          </span>
+          {m.status === "live" && (
+            <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor(m.status)}`} />
+          )}
+          {admin && <span className="shrink-0 text-xs" title="Community admin">👑</span>}
         </button>
-      </section>
+      ))}
     </div>
   );
 }
