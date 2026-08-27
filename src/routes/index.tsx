@@ -123,7 +123,7 @@ function Index() {
   const [view, setView] = useState<View>(() => {
     if (typeof window === "undefined") return "home";
     const saved = localStorage.getItem("streamcore:last-view") as View | null;
-    const migrated = saved === "general" ? "home" : saved;
+    const migrated = (saved as string | null) === "general" ? ("home" as View) : saved;
     return migrated && (migrated === "home" || migrated === "rules" || migrated === "general" || migrated === "creators" || migrated === "live-now" || migrated === "clips" || migrated === "trending" || migrated === "rankings" || migrated === "announcements" || migrated === "featured" || migrated === "rising" || migrated === "partners" || migrated === "events" || migrated === "analytics" || migrated === "notifications" || migrated === "messages" || migrated === "admin" || migrated === "moderation" || migrated === "integrations" || migrated === "me" || migrated.startsWith("channel:")) ? migrated : "home";
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);

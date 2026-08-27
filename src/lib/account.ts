@@ -40,6 +40,7 @@ export type ProfileRow = {
   is_banned: boolean;
   restricted_until: string | null;
   created_at: string;
+  last_active_at: string;
   twitch_verified: boolean;
   social_links: SocialLink[];
 };
