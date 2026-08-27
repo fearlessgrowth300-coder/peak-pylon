@@ -8,8 +8,6 @@ import { ChannelDetails } from "@/components/community/ChannelDetails";
 import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
-import { LiveNowView } from "@/components/community/LiveNowView";
-import { TrendingView } from "@/components/community/TrendingView";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
@@ -502,15 +500,9 @@ function Index() {
 
             {view === "rules" && <RulesChannel rules={state.community.rules} onContinue={() => setView("general")} />}
 
-            {view === "live-now" && <LiveNowView onPickCreator={(creator) => {
-              const found = allMembers.find((member) => member.name.toLowerCase() === creator.name.toLowerCase() || member.avatar === creator.avatar);
-              if (found) setProfile(found);
-            }} />}
+            {view === "live-now" && <LiveNowCommunityView members={liveMembers} onPick={setProfile} />}
 
-            {view === "trending" && <TrendingView communityPosts={state.posts.filter((post) => post.channel === "trending")} members={memberById} onPickCreator={(creator) => {
-              const found = allMembers.find((member) => member.name.toLowerCase() === creator.name.toLowerCase() || member.avatar === creator.avatar);
-              if (found) setProfile(found);
-            }} />}
+            {view === "trending" && <TrendingCommunityView posts={state.posts.filter((post) => post.channel === "trending")} members={memberById} onPick={setProfile} />}
 
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
@@ -685,6 +677,14 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
     <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between"><div><h2 className="text-xl font-extrabold">Join the world’s most active creator community</h2><p className="mt-1 text-sm text-muted-foreground">Connect, collaborate, and grow together with millions of creators.</p></div><button onClick={() => onOpen("creators")} className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground sm:mt-0">Invite your friends</button></section>
     <footer className="grid gap-6 border-t border-border pt-6 text-xs text-muted-foreground sm:grid-cols-4"><div><p className="font-black tracking-widest text-foreground">◈ STREAMCORE</p><p className="mt-2">The world’s largest creator community. Connect, collaborate, and grow together.</p></div><div><p className="font-bold text-foreground">COMMUNITY</p><p className="mt-2">Guidelines</p><p>Rules</p><p>Support</p></div><div><p className="font-bold text-foreground">CREATOR</p><p className="mt-2">Apply for Partner</p><p>Creator resources</p><p>Brand assets</p></div><div><p className="font-bold text-foreground">LEGAL</p><p className="mt-2">Terms of Service</p><p>Privacy Policy</p><p>Community Rules</p></div></footer>
   </div>;
+}
+
+function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
+  return <div className="space-y-6 px-4 py-6"><header><h1 className="text-3xl font-black">🔴 LIVE NOW</h1><p className="mt-1 text-sm text-muted-foreground">Creators currently live from your community.</p></header><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{members.map((member) => <button key={member.id} onClick={() => onPick(member)} className="overflow-hidden rounded-2xl border border-border bg-popover text-left hover:border-primary"><div className="h-44 bg-accent bg-cover bg-center" style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}><span className="m-3 inline-block rounded bg-destructive px-2 py-1 text-xs font-black text-white">LIVE</span></div><div className="p-4"><div className="flex items-center gap-3"><Avatar member={member} size={44}/><div><p className="font-bold">{member.name}</p><p className="text-xs text-muted-foreground">{member.handle}</p></div></div><p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{member.bio || "Live community creator"}</p></div></button>)}</div>{!members.length && <p className="text-sm text-muted-foreground">No community creators are live right now.</p>}</div>;
+}
+
+function TrendingCommunityView({ posts, members, onPick }: { posts: Post[]; members: Map<string, Member>; onPick: (member: Member) => void }) {
+  return <div className="space-y-5 px-4 py-6"><header><h1 className="text-3xl font-black">🔥 TRENDING</h1><p className="mt-1 text-sm text-muted-foreground">Admin announcements and conversations across the community.</p></header><div className="space-y-4">{posts.map((post) => { const author = members.get(post.authorId); return <article key={post.id} className="rounded-2xl border border-border bg-popover p-5"><button onClick={() => author && onPick(author)} className="flex items-center gap-3 text-left"><Avatar member={author ?? { name: "Community", avatar: "", status: "offline" }} size={42}/><span><strong>{author?.name ?? "Community"}</strong><span className="ml-2 text-xs text-muted-foreground">{new Date(post.time).toLocaleString()}</span></span></button><p className="mt-4 whitespace-pre-wrap text-base leading-relaxed">{post.text}</p>{post.image && <img src={post.image} alt="Trending attachment" className="mt-4 max-h-96 w-full rounded-xl object-cover"/>}<div className="mt-4 flex gap-5 border-t border-border pt-3 text-sm text-muted-foreground"><span>♡ Like</span><span>◌ Comment</span><span>↗ Share</span></div></article>; })}</div>{!posts.length && <p className="text-sm text-muted-foreground">No admin trending posts yet.</p>}</div>;
 }
 
 function Metric({ value, label }: { value: string; label: string }) { return <div className="rounded-xl bg-background p-3"><p className="text-lg font-black">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p></div>; }
