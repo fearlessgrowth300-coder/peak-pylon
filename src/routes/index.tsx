@@ -10,6 +10,9 @@ import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
 import { HomeDashboard } from "@/components/community/HomeDashboard";
 import { RightStatsPanel } from "@/components/community/RightStatsPanel";
+import { TrendingView } from "@/components/community/TrendingView";
+import { LiveNowView } from "@/components/community/LiveNowView";
+import { ClipsView } from "@/components/community/ClipsView";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { refreshTwitchStatuses } from "@/lib/twitch.functions";
@@ -305,6 +308,21 @@ function Index() {
     setToast("Signed out");
   }
 
+  const handlePickCreator = (c: { name: string; avatar: string }) => {
+    const m = allMembers.find((item) => item.name.toLowerCase() === c.name.toLowerCase()) ?? {
+      id: c.name,
+      name: c.name,
+      handle: `@${c.name.toLowerCase()}`,
+      avatar: c.avatar,
+      status: "online" as const,
+      platform: "Twitch",
+      bio: "Featured creator on StreamCore network.",
+      link: "https://twitch.tv",
+      banner: "",
+    };
+    setProfile(m);
+  };
+
   return (
     <div className="flex h-dvh overflow-hidden bg-[#0c0e17] text-white">
       {/* 1. Left Navigation Sidebar */}
@@ -437,7 +455,7 @@ function Index() {
               <Menu className="h-5 w-5" />
             </button>
 
-            {/* Search Bar matching the design */}
+            {/* Search Bar */}
             <div className="relative hidden w-80 items-center sm:flex">
               <Search className="absolute left-3 h-3.5 w-3.5 text-zinc-400" />
               <input
@@ -485,7 +503,7 @@ function Index() {
               <Moon className="h-4 w-4" />
             </button>
 
-            {/* Profile Dropdown Pill (Plutoforce - Owner) */}
+            {/* Profile Dropdown Pill */}
             <button
               onClick={() => (myAccount ? setView("me") : void navigate({ to: "/auth" }))}
               className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-[#121524] px-2.5 py-1.5 transition-colors hover:bg-white/[0.08]"
@@ -518,21 +536,20 @@ function Index() {
             {view === "home" && (
               <HomeDashboard
                 onOpenView={(v) => setView(v as View)}
-                onPickCreator={(c) => {
-                  const m = allMembers.find((item) => item.name.toLowerCase() === c.name.toLowerCase()) ?? {
-                    id: c.name,
-                    name: c.name,
-                    handle: `@${c.name.toLowerCase()}`,
-                    avatar: c.avatar,
-                    status: "online" as const,
-                    platform: "Twitch",
-                    bio: "Featured creator on StreamCore network.",
-                    link: "https://twitch.tv",
-                    banner: "",
-                  };
-                  setProfile(m);
-                }}
+                onPickCreator={handlePickCreator}
               />
+            )}
+
+            {view === "trending" && (
+              <TrendingView onPickCreator={handlePickCreator} />
+            )}
+
+            {view === "live-now" && (
+              <LiveNowView onPickCreator={handlePickCreator} />
+            )}
+
+            {view === "clips" && (
+              <ClipsView onPickCreator={handlePickCreator} />
             )}
 
             {view === "general" && (
@@ -615,7 +632,7 @@ function Index() {
 
             {view === "rules" && <RulesChannel rules={state.community.rules} onContinue={() => setView("general")} />}
 
-            {(view === "creators" || view === "live-now" || view === "clips" || view === "trending" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations" || view === "support" || view === "intro" || view === "off-topic" || view === "collab" || view === "vc-lounge") && (
+            {(view === "creators" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations" || view === "support" || view === "intro" || view === "off-topic" || view === "collab" || view === "vc-lounge") && (
               <div className="space-y-4 px-4 py-5 max-w-6xl mx-auto">
                 <div className="flex items-center justify-between">
                   <div>
@@ -712,20 +729,7 @@ function Index() {
             <div className="hidden xl:block">
               <RightStatsPanel
                 onOpenView={(v) => setView(v as View)}
-                onPickCreator={(c) => {
-                  const m = allMembers.find((item) => item.name.toLowerCase() === c.name.toLowerCase()) ?? {
-                    id: c.name,
-                    name: c.name,
-                    handle: `@${c.name.toLowerCase()}`,
-                    avatar: c.avatar,
-                    status: "online" as const,
-                    platform: "Twitch",
-                    bio: "Featured creator on StreamCore network.",
-                    link: "https://twitch.tv",
-                    banner: "",
-                  };
-                  setProfile(m);
-                }}
+                onPickCreator={handlePickCreator}
               />
             </div>
           )}
