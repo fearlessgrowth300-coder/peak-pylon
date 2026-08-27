@@ -8,6 +8,8 @@ import { ChannelDetails } from "@/components/community/ChannelDetails";
 import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
+import { LiveNowView } from "@/components/community/LiveNowView";
+import { TrendingView } from "@/components/community/TrendingView";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
@@ -500,12 +502,22 @@ function Index() {
 
             {view === "rules" && <RulesChannel rules={state.community.rules} onContinue={() => setView("general")} />}
 
+            {view === "live-now" && <LiveNowView onPickCreator={(creator) => {
+              const found = allMembers.find((member) => member.name.toLowerCase() === creator.name.toLowerCase() || member.avatar === creator.avatar);
+              if (found) setProfile(found);
+            }} />}
+
+            {view === "trending" && <TrendingView communityPosts={state.posts.filter((post) => post.channel === "trending")} members={memberById} onPickCreator={(creator) => {
+              const found = allMembers.find((member) => member.name.toLowerCase() === creator.name.toLowerCase() || member.avatar === creator.avatar);
+              if (found) setProfile(found);
+            }} />}
+
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
               return channel ? <CustomChannel name={channel.name} topic={channel.topic} posts={state.posts.filter((post) => post.channel === channel.id || post.channel === channel.name)} members={memberById} onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })} onReact={toggleReaction} /> : null;
             })()}
 
-            {(view === "creators" || view === "live-now" || view === "trending" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
+            {(view === "creators" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
               <div className="space-y-4 px-4 py-5">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
