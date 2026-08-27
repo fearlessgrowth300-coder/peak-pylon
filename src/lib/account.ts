@@ -78,7 +78,7 @@ export function useAccounts() {
       byUser.set(r.user_id, list);
     }
     setAccounts(
-      ((profiles ?? []) as ProfileRow[]).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] })),
+      ((profiles ?? []) as unknown as ProfileRow[]).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] })),
     );
     setLoading(false);
   }, []);

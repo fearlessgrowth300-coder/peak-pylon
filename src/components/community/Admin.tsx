@@ -93,7 +93,7 @@ export function AdminView({
       banner: banner || autoBanner || editingMember?.banner || "",
       connections: [...(primary ? [primary] : []), ...connections],
        joined: new Date(`${form.joined}T12:00:00`).getTime() || Date.now(),
-       manualStatus: form.status === "offline" ? "offline" : "online",
+       manualStatus: (form.status === "offline" ? "offline" : "online") as "online" | "offline",
     };
     if (editingMember) {
       try {
@@ -165,7 +165,7 @@ export function AdminView({
         handle: metadata.handle || current.handle,
         bio: metadata.bio || current.bio,
         platform: metadata.platform,
-        status: "status" in metadata ? metadata.status : current.status,
+        status: ("status" in metadata ? metadata.status : current.status) as typeof current.status,
       }));
       if (metadata.avatar && !avatarFile) setAutoAvatar(metadata.avatar);
       if (metadata.banner && !bannerFile) setAutoBanner(metadata.banner);
