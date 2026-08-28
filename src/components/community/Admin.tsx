@@ -89,7 +89,7 @@ export function AdminView({
   const [connectionPlatform, setConnectionPlatform] = useState("Instagram");
   const [connectionLabel, setConnectionLabel] = useState("");
   const [connectionUrl, setConnectionUrl] = useState("");
-  const [community, setLocalCommunity] = useState<Community>(state.community);
+  const [community, setLocalCommunity] = useState<Community>(() => state?.community ?? { name: "StreamCore", logo: "", banner: "", tagline: "The home of streamers", rules: "" });
   const [communityLogoFile, setCommunityLogoFile] = useState<File | null>(null);
   const [communityBannerFile, setCommunityBannerFile] = useState<File | null>(null);
   const [autoFilling, setAutoFilling] = useState(false);
@@ -100,12 +100,12 @@ export function AdminView({
   const [channelType, setChannelType] = useState<CommunityChannel["type"]>("text");
   const [channelAllowsChat, setChannelAllowsChat] = useState(true);
 
-  const [postAuthor, setPostAuthor] = useState(state.members[0]?.id ?? "");
+  const [postAuthor, setPostAuthor] = useState(() => state?.members?.[0]?.id ?? "");
   const [postText, setPostText] = useState("");
   const [postImage, setPostImage] = useState<File | null>(null);
   const [postChannel, setPostChannel] = useState("general");
 
-  const [stats, setLocalStats] = useState<Stats>(state.stats);
+  const [stats, setLocalStats] = useState<Stats>(() => state?.stats ?? { members: "21", online: "18", rank: "#1" });
 
   const [geminiKeysText, setLocalGeminiKeysText] = useState(() => getGeminiApiKeys().join("\n"));
   const [geminiModel, setLocalGeminiModel] = useState(() => getGeminiModel());

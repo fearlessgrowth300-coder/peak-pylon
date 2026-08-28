@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { timeAgo, uploadCommunityMedia, useCommunity, type Member, type Post, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
-import { Avatar, ghostButtonClass, statusColor } from "@/components/community/Bits";
+import { Avatar, ghostButtonClass, statusColor, ErrorBoundary } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
 import { ChannelDetails } from "@/components/community/ChannelDetails";
 import { AdminView } from "@/components/community/Admin";
@@ -825,28 +825,30 @@ function Index() {
             )}
 
             {view === "admin" && isAdmin && (
-              <AdminView
-                state={state}
-                addMember={addMember}
-                removeMember={removeMember}
-                addPost={addPost}
-                setStats={setStats}
-                setCommunity={setCommunity}
-                updateMember={updateMember}
-                notify={setToast}
-                addChannel={addChannel}
-                removeChannel={removeChannel}
-                generateClips={generateManagedMemberClips}
-                triggerActiveChatMessage={triggerActiveChatMessageRound}
-                crm={
-                  <MembersCRM
-                    accounts={accounts}
-                    isAdmin={isAdmin}
-                    refresh={refresh}
-                    notify={setToast}
-                  />
-                }
-              />
+              <ErrorBoundary fallbackTitle="Control Center error">
+                <AdminView
+                  state={state}
+                  addMember={addMember}
+                  removeMember={removeMember}
+                  addPost={addPost}
+                  setStats={setStats}
+                  setCommunity={setCommunity}
+                  updateMember={updateMember}
+                  notify={setToast}
+                  addChannel={addChannel}
+                  removeChannel={removeChannel}
+                  generateClips={generateManagedMemberClips}
+                  triggerActiveChatMessage={triggerActiveChatMessageRound}
+                  crm={
+                    <MembersCRM
+                      accounts={accounts}
+                      isAdmin={isAdmin}
+                      refresh={refresh}
+                      notify={setToast}
+                    />
+                  }
+                />
+              </ErrorBoundary>
             )}
           </div>
           {view === "general" && (

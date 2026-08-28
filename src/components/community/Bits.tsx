@@ -61,3 +61,46 @@ export const buttonClass =
 
 export const ghostButtonClass =
   "inline-flex items-center justify-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-accent/70";
+
+import { Component } from "react";
+
+export class ErrorBoundary extends Component<
+  { children: ReactNode; fallbackTitle?: string },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode; fallbackTitle?: string }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("ErrorBoundary caught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-xl border border-destructive/30 bg-popover p-6 text-center space-y-3">
+          <p className="text-base font-bold text-destructive">
+            {this.props.fallbackTitle || "Something went wrong in this section"}
+          </p>
+          <p className="text-xs text-muted-foreground font-mono">
+            {this.state.error?.message || "An unexpected error occurred."}
+          </p>
+          <button
+            type="button"
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className={buttonClass}
+          >
+            Try reloading section
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
