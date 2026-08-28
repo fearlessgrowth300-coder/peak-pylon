@@ -22,6 +22,11 @@ import {
   getGeminiModel,
 } from "@/lib/gemini";
 import { saveCustomSticker, isStickerSaved, COMMUNITY_STICKERS } from "@/lib/stickers";
+import {
+  notifyRealMemberOfReply,
+  notifyRealMembersOfAnnouncement,
+  notifyRealMembersOfStreamerLive,
+} from "@/lib/notifications";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -444,9 +449,26 @@ function Index() {
     const currentPosts = postsRef.current;
     const currentMemberById = memberByIdRef.current;
 
+    // Isolate real signed-up users with authentic emails:
+    // AI simulation will NEVER fake a post on behalf of a real user
+    const realUserIds = new Set(
+      accounts
+        .filter((a) => a.email && !a.is_banned)
+        .map((a) => a.id.toLowerCase())
+    );
+
+    // Only online & live simulated streamer members are eligible to speak
+    const onlineSimulatedSpeakers = currentMembers.filter((m) => {
+      if (realUserIds.has(m.id.toLowerCase())) return false;
+      return m.status !== "offline";
+    });
+
+    const speakerPool = onlineSimulatedSpeakers.length >= 2 ? onlineSimulatedSpeakers : currentMembers.filter((m) => !realUserIds.has(m.id.toLowerCase()));
+    if (speakerPool.length < 1) return;
+
     const recentGeneralPosts = currentPosts
       .filter((p) => !p.channel || p.channel === (config.channel || "general"))
-      .slice(0, 8)
+      .slice(0, 10)
       .map((p) => ({
         id: p.id,
         authorId: p.authorId,
@@ -456,7 +478,7 @@ function Index() {
       }));
 
     const result = await generateActiveChatMessage({
-      members: currentMembers.map((m) => ({
+      members: speakerPool.map((m) => ({
         id: m.id,
         name: m.name,
         handle: m.handle,
@@ -472,6 +494,12 @@ function Index() {
 
     if (!result) return;
 
+    // Double check: ensure AI did not impersonate a real signed-up user
+    if (realUserIds.has(result.authorId.toLowerCase())) {
+      const fallbackSpeaker = speakerPool[0];
+      if (fallbackSpeaker) result.authorId = fallbackSpeaker.id;
+    }
+
     const chosenAuthor = currentMemberById.get(result.authorId) || currentMembers.find((m) => m.id === result.authorId);
     const authorDisplayName = chosenAuthor?.name || "Streamer";
 
@@ -483,8 +511,8 @@ function Index() {
       payload: { userId: result.authorId, name: authorDisplayName, typing: true },
     });
 
-    // Wait 1.8s for realistic typing animation
-    await new Promise((r) => setTimeout(r, 1800));
+    // Wait 2.2s for realistic typing animation
+    await new Promise((r) => setTimeout(r, 2200));
 
     // Clear typing
     setTypingName(null);
@@ -513,6 +541,23 @@ function Index() {
       replyToId: result.replyToId,
       reactions: initialReactions,
     });
+
+    // If reply was sent to a real member with email, send Resend email alert
+    if (result.replyToId) {
+      const parentMsg = currentPosts.find((p) => p.id === result.replyToId);
+      if (parentMsg) {
+        const parentAcc = accounts.find((a) => a.id.toLowerCase() === parentMsg.authorId.toLowerCase());
+        if (parentAcc?.email) {
+          void notifyRealMemberOfReply({
+            recipientEmail: parentAcc.email,
+            parentAuthorName: parentAcc.display_name || parentAcc.handle || "Streamer",
+            replyAuthorName: authorDisplayName,
+            replyText: result.text || "Sent a sticker",
+            communityName: state.community.name,
+          });
+        }
+      }
+    }
 
     if (result.reactions?.postId && result.reactions?.emoji) {
       void toggleReaction(result.reactions.postId, result.reactions.emoji);
@@ -944,6 +989,18 @@ function Index() {
               </ErrorBoundary>
             )}
           </div>
+          {typingName && (view === "general" || view.startsWith("channel:")) && (
+            <div className="flex items-center gap-2 px-4 py-1.5 text-xs text-muted-foreground bg-background/95 border-t border-border/40 backdrop-blur-md transition-all">
+              <span className="flex gap-1 items-center">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" />
+              </span>
+              <span>
+                <strong className="text-foreground">{typingName}</strong> is typing…
+              </span>
+            </div>
+          )}
           {view === "general" && (
             <Composer
               authors={postingAuthors}
@@ -956,7 +1013,6 @@ function Index() {
             />
           )}
           {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.name })} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
-          {typingName && <div className="pointer-events-none absolute bottom-16 left-4 text-xs text-muted-foreground"><strong>{typingName}</strong> is typing…</div>}
           </div>
 
           {/* Member list */}

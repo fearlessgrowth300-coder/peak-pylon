@@ -26,6 +26,12 @@ import {
   setActiveChatConfig,
   type ActiveChatConfig,
 } from "@/lib/gemini";
+import {
+  getResendNotificationConfig,
+  saveResendNotificationConfig,
+  sendResendEmail,
+  type ResendNotificationConfig,
+} from "@/lib/notifications";
 
 export function AdminView({
   state,
@@ -113,6 +119,9 @@ export function AdminView({
   const [geminiStatus, setGeminiStatus] = useState<string | null>(null);
   const [activeChatConfig, setLocalActiveChatConfig] = useState<ActiveChatConfig>(() => getActiveChatConfig());
   const [generatingActiveChat, setGeneratingActiveChat] = useState(false);
+  const [resendConfig, setLocalResendConfig] = useState<ResendNotificationConfig>(() => getResendNotificationConfig());
+  const [testingResend, setTestingResend] = useState(false);
+  const [testEmailTarget, setTestEmailTarget] = useState("");
 
   async function submitMember(e: FormEvent) {
     e.preventDefault();
@@ -748,8 +757,10 @@ export function AdminView({
                 }}
                 className={inputClass}
               >
-                <option value={20}>Every 20 seconds (Ultra Active)</option>
-                <option value={30}>Every 30 seconds (High Activity)</option>
+                <option value={8}>Every 8-10 seconds (Hyper Active ⚡)</option>
+                <option value={15}>Every 15 seconds (High Activity)</option>
+                <option value={20}>Every 20 seconds</option>
+                <option value={30}>Every 30 seconds</option>
                 <option value={60}>Every 1 minute (Recommended)</option>
                 <option value={120}>Every 2 minutes</option>
                 <option value={300}>Every 5 minutes</option>
@@ -770,6 +781,153 @@ export function AdminView({
                 <option value="clips"># clips</option>
               </select>
             </Field>
+          </div>
+        </div>
+      </div>
+
+      {/* 09 · Resend Email Notifications for Real Streamers */}
+      <div className="space-y-4 rounded-xl bg-popover p-5 border border-border shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-foreground">09 · Resend Email Notifications for Real Streamers</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Automatically dispatches email notifications to verified real creators who signed up with their email (replies, announcements, new clips, live alerts).
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${resendConfig.apiKey ? "bg-online/20 text-online" : "bg-muted text-muted-foreground"}`}>
+            {resendConfig.apiKey ? "✉️ Resend Active" : "⚪ Key Not Configured"}
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Resend API Key">
+              <input
+                type="password"
+                placeholder="re_xxxxxxxxxxxxxx"
+                value={resendConfig.apiKey}
+                onChange={(e) => {
+                  const updated = { ...resendConfig, apiKey: e.target.value };
+                  setLocalResendConfig(updated);
+                  saveResendNotificationConfig(updated);
+                }}
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Sender 'From' Address">
+              <input
+                type="text"
+                placeholder="StreamCore Alerts <onboarding@resend.dev>"
+                value={resendConfig.fromEmail}
+                onChange={(e) => {
+                  const updated = { ...resendConfig, fromEmail: e.target.value };
+                  setLocalResendConfig(updated);
+                  saveResendNotificationConfig(updated);
+                }}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 pt-1">
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resendConfig.notifyRepliesAndMentions}
+                onChange={(e) => {
+                  const updated = { ...resendConfig, notifyRepliesAndMentions: e.target.checked };
+                  setLocalResendConfig(updated);
+                  saveResendNotificationConfig(updated);
+                }}
+                className="rounded border-border text-primary"
+              />
+              <span>✉️ Send email on replies & mentions to real members</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resendConfig.notifyNewAnnouncement}
+                onChange={(e) => {
+                  const updated = { ...resendConfig, notifyNewAnnouncement: e.target.checked };
+                  setLocalResendConfig(updated);
+                  saveResendNotificationConfig(updated);
+                }}
+                className="rounded border-border text-primary"
+              />
+              <span>📢 Send email on new official announcements</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resendConfig.notifyStreamerLive}
+                onChange={(e) => {
+                  const updated = { ...resendConfig, notifyStreamerLive: e.target.checked };
+                  setLocalResendConfig(updated);
+                  saveResendNotificationConfig(updated);
+                }}
+                className="rounded border-border text-primary"
+              />
+              <span>🔴 Send email when community members go live</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resendConfig.notifyNewClips}
+                onChange={(e) => {
+                  const updated = { ...resendConfig, notifyNewClips: e.target.checked };
+                  setLocalResendConfig(updated);
+                  saveResendNotificationConfig(updated);
+                }}
+                className="rounded border-border text-primary"
+              />
+              <span>🎬 Send email when top streamer clips are posted</span>
+            </label>
+          </div>
+
+          {/* Test Email Dispatcher */}
+          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border/40">
+            <input
+              type="email"
+              placeholder="Enter test email address (e.g. your_email@domain.com)"
+              value={testEmailTarget}
+              onChange={(e) => setTestEmailTarget(e.target.value)}
+              className={`${inputClass} flex-1`}
+            />
+            <button
+              type="button"
+              disabled={testingResend || !testEmailTarget}
+              onClick={async () => {
+                setTestingResend(true);
+                try {
+                  const res = await sendResendEmail({
+                    to: testEmailTarget,
+                    subject: "⚡ Test Email from StreamCore Creator Community",
+                    html: `
+                      <div style="font-family: sans-serif; background: #0d0e12; color: #fff; padding: 24px; border-radius: 12px;">
+                        <h2 style="color: #8b5cf6;">StreamCore Resend Notification Test</h2>
+                        <p style="color: #ccc;">Your Resend email configuration is working perfectly! Streamer notifications are active.</p>
+                      </div>
+                    `,
+                  });
+                  if (res.success) {
+                    notify("✓ Test email sent successfully via Resend!");
+                  } else {
+                    notify(`Resend Error: ${res.error}`);
+                  }
+                } catch (err) {
+                  notify(err instanceof Error ? err.message : "Failed to send test email");
+                } finally {
+                  setTestingResend(false);
+                }
+              }}
+              className={`${buttonClass} shrink-0 text-xs`}
+            >
+              {testingResend ? "Sending Test…" : "✉️ Send Test Email"}
+            </button>
           </div>
         </div>
       </div>
