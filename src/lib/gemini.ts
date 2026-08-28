@@ -125,15 +125,6 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
   const keys = apiKey ? [apiKey] : getGeminiApiKeys();
   if (!keys.length) return { success: false, message: "Please provide at least one Gemini API key." };
 
-  for (const k of keys) {
-    if (k.startsWith("AQ.")) {
-      return {
-        success: false,
-        message: "Invalid Key: The key you entered starts with 'AQ.' which is not a Gemini API key. Google Gemini API keys start with 'AIzaSy' (get yours free at https://aistudio.google.com/app/apikey).",
-      };
-    }
-  }
-
   let selectedModel = model || getGeminiModel();
   const candidateModels = [
     selectedModel,
@@ -149,9 +140,12 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
   for (const key of keys) {
     for (const candidate of uniqueCandidates) {
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${encodeURIComponent(key)}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key,
+          },
           body: JSON.stringify({
             contents: [{ parts: [{ text: "Respond with the single word: Connected" }] }]
           })
@@ -165,8 +159,13 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
             workingModel: candidate,
             message: `Gemini AI connected successfully (${candidate})! (Pool of ${keys.length} API key${keys.length > 1 ? "s" : ""})`,
           };
-        } else if (data?.error?.message) {
-          lastErrorMessage = data.error.message;
+        } else if (data?.error) {
+          const reason = data.error.details?.[0]?.reason || "";
+          if (reason === "API_KEY_SERVICE_BLOCKED") {
+            lastErrorMessage = "API Key Service Blocked: Generative Language API is not enabled for this Google Cloud project. Please click 'Create API key' -> 'Create in new project' in Google AI Studio.";
+          } else {
+            lastErrorMessage = data.error.message || lastErrorMessage;
+          }
         }
       } catch (err: any) {
         lastErrorMessage = err?.message || lastErrorMessage;
@@ -177,8 +176,8 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
   return {
     success: false,
     message: lastErrorMessage
-      ? `Google API response: "${lastErrorMessage}". Please generate a new key at https://aistudio.google.com/app/apikey`
-      : "Invalid API key(s) or no supported Gemini models found. Gemini API keys must start with 'AIzaSy'.",
+      ? `Google AI returned: "${lastErrorMessage}"`
+      : "Could not connect to Gemini AI with the provided key(s). Please verify your key in Google AI Studio.",
   };
 }
 
@@ -214,9 +213,12 @@ async function callGeminiGenerate(prompt: string, specificKey?: string, specific
   for (const key of keys) {
     for (const candidate of uniqueCandidates) {
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${encodeURIComponent(key)}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key,
+          },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { temperature: 0.9 },
