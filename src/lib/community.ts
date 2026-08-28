@@ -49,6 +49,8 @@ export type PostInput = {
   sticker?: string | undefined;
   replyToId?: string | undefined;
   channel?: string | undefined;
+  /** Allows the editorial Trending composer to preserve an intentional publish date. */
+  time?: number | undefined;
 };
 
 export type Stats = { members: string; online: string; rank: string };
@@ -315,7 +317,7 @@ export function useCommunity() {
       throw new Error("Media must be uploaded to Storage before publishing.");
     }
     const id = uid();
-    const post = { ...input, id, image: input.image ?? "", channel: input.channel ?? "general", reactions: {}, time: Date.now() };
+    const post = { ...input, id, image: input.image ?? "", channel: input.channel ?? "general", reactions: {}, time: input.time ?? Date.now() };
     mutationVersion.current += 1;
     const { id: _id, ...data } = post;
     const { error } = await (supabase as any).from("community_posts").upsert({ id, data });
