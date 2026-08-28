@@ -681,7 +681,34 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
 
 function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
   const parent = typeof window === "undefined" ? "peak-pylon.vercel.app" : window.location.hostname;
-  return <div className="space-y-6 px-4 py-6"><header><h1 className="text-3xl font-black">🔴 LIVE NOW</h1><p className="mt-1 text-sm text-muted-foreground">Creators currently live from your community. Streams begin automatically muted.</p></header><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{members.map((member) => { const login = member.handle.replace(/^@/, ""); const isTwitch = member.platform.toLowerCase() === "twitch" && login; return <article key={member.id} className="overflow-hidden rounded-2xl border border-border bg-popover hover:border-primary"><div className="relative bg-black">{isTwitch ? <iframe title={`${member.name} live stream`} src={`https://player.twitch.tv/?channel=${encodeURIComponent(login)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=true`} className="h-52 w-full border-0 bg-black" allow="autoplay; fullscreen" allowFullScreen /> : <div className="h-52 bg-accent bg-cover bg-center" style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}/>}<span className="absolute left-3 top-3 rounded bg-destructive px-2 py-1 text-xs font-black text-white">LIVE</span></div><button onClick={() => onPick(member)} className="w-full p-4 text-left"><div className="flex items-center gap-3"><Avatar member={member} size={44}/><div><p className="font-bold">{member.name}</p><p className="text-xs text-muted-foreground">{member.handle}</p></div></div><p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{member.bio || "Live community creator"}</p></button></article>; })}</div>{!members.length && <p className="text-sm text-muted-foreground">No community creators are live right now.</p>}</div>;
+  return <div className="space-y-6 px-4 py-6"><header><h1 className="text-3xl font-black">🔴 LIVE NOW</h1><p className="mt-1 text-sm text-muted-foreground">Creators currently live from your community. Streams begin automatically muted.</p></header><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{members.map((member) => { const login = member.handle.replace(/^@/, ""); const isTwitch = member.platform.toLowerCase() === "twitch" && login; return <article key={member.id} className="overflow-hidden rounded-2xl border border-border bg-popover hover:border-primary"><div className="relative bg-black">{isTwitch ? <TwitchLivePlayer login={login} name={member.name} parent={parent} /> : <div className="h-52 bg-accent bg-cover bg-center" style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}/>}<span className="pointer-events-none absolute left-3 top-3 rounded bg-destructive px-2 py-1 text-xs font-black text-white">LIVE</span></div><button onClick={() => onPick(member)} className="w-full p-4 text-left"><div className="flex items-center gap-3"><Avatar member={member} size={44}/><div><p className="font-bold">{member.name}</p><p className="text-xs text-muted-foreground">{member.handle}</p></div></div><p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{member.bio || "Live community creator"}</p></button></article>; })}</div>{!members.length && <p className="text-sm text-muted-foreground">No community creators are live right now.</p>}</div>;
+}
+
+function TwitchLivePlayer({ login, name, parent }: { login: string; name: string; parent: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let disposed = false;
+    const createPlayer = () => {
+      const Twitch = (window as any).Twitch;
+      if (disposed || !host.current || !Twitch?.Player) return;
+      host.current.replaceChildren();
+      const mount = document.createElement("div");
+      mount.id = `twitch-live-${login.replace(/[^a-z0-9_-]/gi, "")}-${Math.random().toString(36).slice(2)}`;
+      host.current.append(mount);
+      const player = new Twitch.Player(mount.id, { channel: login, parent: [parent], width: "100%", height: "100%", autoplay: true, muted: true });
+      const startMuted = () => {
+        try { player.setMuted(true); player.setVolume(0); player.play(); window.setTimeout(() => player.play(), 600); } catch { /* Twitch may reject playback when no stream is available. */ }
+      };
+      player.addEventListener?.(Twitch.Player.READY, startMuted);
+    };
+    const source = "https://player.twitch.tv/js/embed/v1.js";
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${source}"]`);
+    if ((window as any).Twitch?.Player) createPlayer();
+    else if (existing) existing.addEventListener("load", createPlayer, { once: true });
+    else { const script = document.createElement("script"); script.src = source; script.async = true; script.addEventListener("load", createPlayer, { once: true }); document.head.append(script); }
+    return () => { disposed = true; };
+  }, [login, parent]);
+  return <div ref={host} aria-label={`${name} live stream`} className="h-52 w-full bg-black [&>div]:h-full [&>div]:w-full [&_iframe]:h-full [&_iframe]:w-full" />;
 }
 
 function TrendingCommunityView({ posts, members, onPick, isAdmin, onCreate }: { posts: Post[]; members: Map<string, Member>; onPick: (member: Member) => void; isAdmin: boolean; onCreate: (post: Pick<PostInput, "text" | "image" | "time">) => Promise<void> }) {
@@ -696,13 +723,13 @@ function Metric({ value, label }: { value: string; label: string }) { return <di
 function RichPostContent({ text }: { text: string }) {
   return <div className="mt-4 space-y-3 text-base leading-relaxed">{text.split("\n").map((line, index) => {
     const image = line.trim().match(/^!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)$/);
-    if (image) return <img key={`${line}-${index}`} src={image[1]} alt="Inline post image" className="max-h-[36rem] w-full rounded-xl object-cover" />;
+    if (image) return <img key={`${line}-${index}`} src={image[1]!} alt="Inline post image" className="max-h-[36rem] w-full rounded-xl object-cover" />;
     const parts = line.split(/(https?:\/\/[^\s]+)/g);
     return <p key={`${line}-${index}`} className={line ? "min-h-5 whitespace-pre-wrap" : "h-2"}>{parts.map((part, partIndex) => /^https?:\/\//.test(part) ? <a key={partIndex} href={part} target="_blank" rel="noreferrer" className="break-all text-primary underline">{part}</a> : part)}</p>;
   })}</div>;
 }
 
-function MessageActions({ post, member, isAdmin, currentUserId, onReply, onReact, onDelete, onRemoveMember }: { post: Post; member?: Member; isAdmin: boolean; currentUserId?: string; onReply: () => void; onReact: (id: string, emoji: string) => void; onDelete: (id: string) => Promise<void>; onRemoveMember: () => Promise<void> }) {
+function MessageActions({ post, member, isAdmin, currentUserId, onReply, onReact, onDelete, onRemoveMember }: { post: Post; member?: Member | undefined; isAdmin: boolean; currentUserId?: string | undefined; onReply: () => void; onReact: (id: string, emoji: string) => void; onDelete: (id: string) => Promise<void>; onRemoveMember: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const hold = useRef<number | null>(null);
   const start = () => { hold.current = window.setTimeout(() => setOpen(true), 550); };
@@ -726,7 +753,7 @@ function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => 
   return <div className="mx-auto max-w-2xl space-y-4 px-4 py-8"><section className="rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #rules!</h1><p className="mt-2 text-sm text-muted-foreground">Please read these rules before taking part in the community.</p></section><section className="space-y-3 rounded-xl bg-popover p-5"><h2 className="font-bold">Community rules</h2><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">{rules.split("\n").filter(Boolean).map((rule) => <li key={rule}>{rule}</li>)}</ol><button onClick={onContinue} className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85">I have read the rules — Continue to #general</button></section></div>;
 }
 
-function CustomChannel({ name, topic, posts, members, onReply, onReact, isAdmin, currentUserId, onDelete }: { name: string; topic: string; posts: Post[]; members: Map<string, Member>; onReply: (post: { id: string; authorId: string }) => void; onReact: (id: string, emoji: string) => void; isAdmin: boolean; currentUserId?: string; onDelete: (id: string) => Promise<void> }) {
+function CustomChannel({ name, topic, posts, members, onReply, onReact, isAdmin, currentUserId, onDelete }: { name: string; topic: string; posts: Post[]; members: Map<string, Member>; onReply: (post: { id: string; authorId: string }) => void; onReact: (id: string, emoji: string) => void; isAdmin: boolean; currentUserId?: string | undefined; onDelete: (id: string) => Promise<void> }) {
   return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); const segments = post.text.split(/(https?:\/\/[^\s]+)/g); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{segments.map((segment, index) => /^https?:\/\//.test(segment) ? <a key={index} href={segment} target="_blank" rel="noreferrer" className="break-all text-primary underline hover:text-primary/80">{segment}</a> : segment)}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<MessageActions post={post} member={member} isAdmin={isAdmin} currentUserId={currentUserId} onReact={onReact} onReply={() => onReply({ id: post.id, authorId: post.authorId })} onDelete={onDelete} onRemoveMember={async () => {}} /></div></div></article>; })}</div>;
 }
 
