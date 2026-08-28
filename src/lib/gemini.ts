@@ -1,6 +1,8 @@
 export const GEMINI_STORAGE_KEY = "streamcore:gemini-api-key";
+export const GEMINI_KEYS_STORAGE_KEY = "streamcore:gemini-api-keys";
 export const GEMINI_MODEL_KEY = "streamcore:gemini-model";
 export const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+export const ACTIVE_CHAT_CONFIG_KEY = "streamcore:active-chat-config";
 
 export const AVAILABLE_MODELS = [
   { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Recommended, Fast & Stable)" },
@@ -12,14 +14,87 @@ export const AVAILABLE_MODELS = [
   { id: "gemini-pro", label: "Gemini Pro (Legacy)" },
 ];
 
+export interface ActiveChatConfig {
+  enabled: boolean;
+  intervalSeconds: number;
+  sendStickers: boolean;
+  replyFrequency: number;
+  includeLiveContext: boolean;
+  channel: string;
+}
+
+export const DEFAULT_ACTIVE_CHAT_CONFIG: ActiveChatConfig = {
+  enabled: true,
+  intervalSeconds: 60,
+  sendStickers: true,
+  replyFrequency: 0.5,
+  includeLiveContext: true,
+  channel: "general",
+};
+
+export function getActiveChatConfig(): ActiveChatConfig {
+  if (typeof window === "undefined") return DEFAULT_ACTIVE_CHAT_CONFIG;
+  try {
+    const raw = localStorage.getItem(ACTIVE_CHAT_CONFIG_KEY);
+    if (!raw) return DEFAULT_ACTIVE_CHAT_CONFIG;
+    return { ...DEFAULT_ACTIVE_CHAT_CONFIG, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_ACTIVE_CHAT_CONFIG;
+  }
+}
+
+export function setActiveChatConfig(config: Partial<ActiveChatConfig>) {
+  if (typeof window === "undefined") return;
+  const current = getActiveChatConfig();
+  const next = { ...current, ...config };
+  localStorage.setItem(ACTIVE_CHAT_CONFIG_KEY, JSON.stringify(next));
+}
+
+export function getGeminiApiKeys(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const multiRaw = localStorage.getItem(GEMINI_KEYS_STORAGE_KEY);
+    if (multiRaw) {
+      const parsed = JSON.parse(multiRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((k) => String(k).trim()).filter(Boolean);
+      }
+    }
+  } catch {
+    // fallback
+  }
+
+  const single = localStorage.getItem(GEMINI_STORAGE_KEY);
+  if (single && single.trim()) {
+    return [single.trim()];
+  }
+  return [];
+}
+
+export function setGeminiApiKeys(keys: string[]) {
+  if (typeof window === "undefined") return;
+  const cleaned = keys.map((k) => k.trim()).filter(Boolean);
+  localStorage.setItem(GEMINI_KEYS_STORAGE_KEY, JSON.stringify(cleaned));
+  if (cleaned.length > 0) {
+    localStorage.setItem(GEMINI_STORAGE_KEY, cleaned[0]);
+  } else {
+    localStorage.removeItem(GEMINI_STORAGE_KEY);
+  }
+}
+
 export function getGeminiApiKey(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(GEMINI_STORAGE_KEY) || "";
+  const keys = getGeminiApiKeys();
+  return keys[0] || "";
 }
 
 export function setGeminiApiKey(key: string) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(GEMINI_STORAGE_KEY, key.trim());
+  if (!key.trim()) return;
+  const keys = getGeminiApiKeys();
+  if (!keys.includes(key.trim())) {
+    setGeminiApiKeys([key.trim(), ...keys]);
+  } else {
+    setGeminiApiKeys(keys);
+  }
 }
 
 export function getGeminiModel(): string {
@@ -47,10 +122,10 @@ export async function fetchSupportedModels(apiKey: string): Promise<string[]> {
 }
 
 export async function testGeminiConnection(apiKey?: string, model?: string): Promise<{ success: boolean; message: string; workingModel?: string }> {
-  const key = apiKey || getGeminiApiKey();
-  let selectedModel = model || getGeminiModel();
-  if (!key) return { success: false, message: "Please provide a Gemini API key." };
+  const keys = apiKey ? [apiKey] : getGeminiApiKeys();
+  if (!keys.length) return { success: false, message: "Please provide at least one Gemini API key." };
 
+  let selectedModel = model || getGeminiModel();
   const candidateModels = [
     selectedModel,
     "gemini-2.0-flash",
@@ -58,56 +133,38 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
     "gemini-1.5-flash-latest",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
-    "gemini-2.5-pro",
-    "gemini-pro",
   ];
   const uniqueCandidates = Array.from(new Set(candidateModels.filter(Boolean)));
 
-  for (const candidate of uniqueCandidates) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: "Respond with the single word: Connected" }] }]
-        })
-      });
+  for (const key of keys) {
+    for (const candidate of uniqueCandidates) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: "Respond with the single word: Connected" }] }]
+          })
+        });
 
-      const data = await res.json();
-      if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        setGeminiModel(candidate);
-        return {
-          success: true,
-          workingModel: candidate,
-          message: candidate === selectedModel
-            ? `Gemini AI connected successfully (${candidate})!`
-            : `Connected! Auto-switched to active model: ${candidate}`,
-        };
+        const data = await res.json();
+        if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+          setGeminiModel(candidate);
+          return {
+            success: true,
+            workingModel: candidate,
+            message: `Gemini AI connected successfully (${candidate})! (Pool of ${keys.length} API key${keys.length > 1 ? "s" : ""})`,
+          };
+        }
+      } catch {
+        // try next candidate
       }
-    } catch {
-      // try next candidate
     }
-  }
-
-  // If candidate loop failed, try querying model list
-  try {
-    const list = await fetchSupportedModels(key);
-    if (list.length > 0) {
-      const firstModel = list[0];
-      setGeminiModel(firstModel);
-      return {
-        success: true,
-        workingModel: firstModel,
-        message: `Connected! Using available model: ${firstModel}`,
-      };
-    }
-  } catch {
-    // ignore
   }
 
   return {
     success: false,
-    message: "Invalid API key or no supported Gemini models found for this key.",
+    message: "Invalid API key(s) or no supported Gemini models found.",
   };
 }
 
@@ -116,6 +173,8 @@ export interface MemberProfile {
   name: string;
   handle?: string;
   platform?: string;
+  bio?: string;
+  status?: string;
 }
 
 export interface GeneratedComment {
@@ -123,11 +182,11 @@ export interface GeneratedComment {
   text: string;
 }
 
-async function callGeminiGenerate(prompt: string, apiKey?: string, model?: string): Promise<string | null> {
-  const key = apiKey || getGeminiApiKey();
-  const selectedModel = model || getGeminiModel();
-  if (!key) return null;
+async function callGeminiGenerate(prompt: string, specificKey?: string, specificModel?: string): Promise<string | null> {
+  const keys = specificKey ? [specificKey] : getGeminiApiKeys();
+  if (!keys.length) return null;
 
+  const selectedModel = specificModel || getGeminiModel();
   const candidateModels = [
     selectedModel,
     "gemini-2.0-flash",
@@ -138,23 +197,25 @@ async function callGeminiGenerate(prompt: string, apiKey?: string, model?: strin
   ];
   const uniqueCandidates = Array.from(new Set(candidateModels.filter(Boolean)));
 
-  for (const candidate of uniqueCandidates) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.85 },
-        }),
-      });
+  for (const key of keys) {
+    for (const candidate of uniqueCandidates) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate}:generateContent?key=${key}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.9 },
+          }),
+        });
 
-      if (!res.ok) continue;
-      const data = await res.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawText) return rawText;
-    } catch {
-      // try next model
+        if (!res.ok) continue;
+        const data = await res.json();
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) return rawText;
+      } catch {
+        // try next candidate/key
+      }
     }
   }
 
@@ -261,4 +322,87 @@ Respond ONLY with a valid JSON array in this exact format:
   } catch {
     return [];
   }
+}
+
+export interface ActiveChatMessageResult {
+  authorId: string;
+  text?: string;
+  sticker?: string;
+  replyToId?: string;
+  reactions?: { emoji: string; postId: string };
+}
+
+export async function generateActiveChatMessage({
+  members,
+  recentMessages,
+  availableStickers,
+  apiKey,
+  model,
+}: {
+  members: MemberProfile[];
+  recentMessages: { id: string; authorId: string; authorName: string; text?: string; sticker?: string }[];
+  availableStickers?: { id: string; label: string; url: string }[];
+  apiKey?: string;
+  model?: string;
+}): Promise<ActiveChatMessageResult | null> {
+  if (!members || members.length < 2) return null;
+
+  const stickersList = availableStickers?.slice(0, 15) || [];
+  const recentHistory = recentMessages.slice(-6).map((msg) => {
+    return `${msg.authorName} (${msg.id}): ${msg.text || `[sticker: ${msg.sticker}]`}`;
+  }).join("\n");
+
+  const prompt = `You are the 24/7 AI Community Chat Engine for StreamCore streamer community (#general chat).
+Your job is to simulate authentic, vibrant streamer discussions between verified creators in the community.
+
+Community Streamers available to chat:
+${members.map((m) => `- ID: "${m.id}", Name: "${m.name}", Status: "${m.status || "online"}", Bio/Game: "${m.bio || "streaming and gaming"}"`).join("\n")}
+
+Recent chat context in #general:
+${recentHistory || "No previous messages yet. Kick off a lively discussion about gaming, streams, rank grinds, or tournament clips."}
+
+Available sticker URLs:
+${stickersList.map((s) => `- ${s.label}: "${s.url}"`).join("\n")}
+
+Rules:
+1. Pick ONE creator who would realistically talk next.
+2. They can reply to a previous message (set replyToId) or start a new comment.
+3. Use natural Twitch/Discord/streamer language (humor, game strategies, congratulating someone streaming live, GG, W, LMAO, etc.).
+4. Sometimes send a sticker from the list.
+5. Optionally react to a recent post ID with an emoji (🔥, 😂, 👑, ❤️, 🎮).
+
+Respond ONLY with a valid JSON object:
+{
+  "authorId": "id_of_selected_creator",
+  "text": "message text",
+  "sticker": "optional_sticker_url",
+  "replyToId": "optional_reply_to_post_id",
+  "reactions": { "emoji": "🔥", "postId": "post_id_to_react_to" }
+}`;
+
+  try {
+    const rawText = await callGeminiGenerate(prompt, apiKey, model);
+    if (!rawText) return null;
+
+    const cleaned = rawText
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    const parsed = JSON.parse(cleaned);
+    if (parsed?.authorId && (parsed?.text || parsed?.sticker)) {
+      return {
+        authorId: parsed.authorId,
+        text: parsed.text || undefined,
+        sticker: parsed.sticker || undefined,
+        replyToId: parsed.replyToId || undefined,
+        reactions: parsed.reactions?.postId && parsed.reactions?.emoji ? parsed.reactions : undefined,
+      };
+    }
+  } catch (err) {
+    console.error("Active chat generation error:", err);
+  }
+
+  return null;
 }

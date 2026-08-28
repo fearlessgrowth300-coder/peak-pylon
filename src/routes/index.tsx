@@ -14,11 +14,14 @@ import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
 import {
   generateAiCommentsForPost,
   generateAiClipComments,
+  generateActiveChatMessage,
+  getActiveChatConfig,
   getGeminiApiKey,
+  getGeminiApiKeys,
   setGeminiApiKey,
   getGeminiModel,
 } from "@/lib/gemini";
-import { saveCustomSticker, isStickerSaved } from "@/lib/stickers";
+import { saveCustomSticker, isStickerSaved, COMMUNITY_STICKERS } from "@/lib/stickers";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -395,6 +398,65 @@ function Index() {
       setToast(error instanceof Error ? error.message : "Could not fetch Twitch clips");
     }
   }
+
+  const triggerActiveChatMessageRound = async () => {
+    if (allMembers.length < 2) return;
+    const config = getActiveChatConfig();
+    const recentGeneralPosts = state.posts
+      .filter((p) => !p.channel || p.channel === (config.channel || "general"))
+      .slice(0, 8)
+      .map((p) => ({
+        id: p.id,
+        authorId: p.authorId,
+        authorName: memberById.get(p.authorId)?.name ?? "Streamer",
+        text: p.text,
+        sticker: p.sticker,
+      }));
+
+    const result = await generateActiveChatMessage({
+      members: allMembers.map((m) => ({
+        id: m.id,
+        name: m.name,
+        handle: m.handle,
+        platform: m.platform,
+        bio: m.bio,
+        status: m.status,
+      })),
+      recentMessages: recentGeneralPosts,
+      availableStickers: config.sendStickers
+        ? COMMUNITY_STICKERS.map((s) => ({ id: s.id, label: s.name, url: s.url }))
+        : undefined,
+    });
+
+    if (!result) return;
+
+    await addPost({
+      authorId: result.authorId,
+      channel: config.channel || "general",
+      text: result.text || "",
+      sticker: result.sticker,
+      replyToId: result.replyToId,
+    });
+
+    if (result.reactions?.postId && result.reactions?.emoji) {
+      void toggleReaction(result.reactions.postId, result.reactions.emoji);
+    }
+  };
+
+  useEffect(() => {
+    const runWorker = () => {
+      const config = getActiveChatConfig();
+      if (!config.enabled) return;
+      const keys = getGeminiApiKeys();
+      if (!keys.length) return;
+      void triggerActiveChatMessageRound().catch(() => {});
+    };
+
+    const config = getActiveChatConfig();
+    const intervalMs = Math.max(15, config.intervalSeconds || 60) * 1000;
+    const timer = window.setInterval(runWorker, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [allMembers, state.posts, memberById]);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
@@ -775,6 +837,7 @@ function Index() {
                 addChannel={addChannel}
                 removeChannel={removeChannel}
                 generateClips={generateManagedMemberClips}
+                triggerActiveChatMessage={triggerActiveChatMessageRound}
                 crm={
                   <MembersCRM
                     accounts={accounts}

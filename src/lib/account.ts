@@ -144,7 +144,7 @@ export function useAccounts() {
         last_active_at: new Date().toISOString(),
         twitch_verified: false,
         social_links: (m.connections || []) as SocialLink[],
-        roles: byUser.get(row.id) ?? ["streamer"],
+        roles: byUser.get(row.id) ?? (m.role ? [m.role as Role] : ["streamer"]),
       });
     }
 
@@ -194,8 +194,24 @@ export function useMyAccount(userId: string | undefined, accounts: Account[]) {
 }
 
 export async function setUserRole(userId: string, role: Role) {
-  await supabase.from("user_roles").delete().eq("user_id", userId);
-  return supabase.from("user_roles").insert({ user_id: userId, role });
+  try {
+    await supabase.from("user_roles").delete().eq("user_id", userId);
+    await supabase.from("user_roles").insert({ user_id: userId, role });
+  } catch {
+    // ignore
+  }
+
+  try {
+    const db = supabase as any;
+    const { data: existing } = await db.from("community_listed_members").select("data").eq("id", userId).maybeSingle();
+    if (existing?.data) {
+      await db.from("community_listed_members").update({
+        data: { ...existing.data, role }
+      }).eq("id", userId);
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export async function setRestriction(userId: string, days: number | null) {

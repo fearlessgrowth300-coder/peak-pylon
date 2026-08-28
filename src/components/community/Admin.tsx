@@ -16,12 +16,15 @@ import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits
 import { getChannelMetadata } from "@/lib/channel-metadata";
 import { getTwitchChannel } from "@/lib/twitch.functions";
 import {
-  getGeminiApiKey,
-  setGeminiApiKey,
+  getGeminiApiKeys,
+  setGeminiApiKeys,
   getGeminiModel,
   setGeminiModel,
   testGeminiConnection,
   AVAILABLE_MODELS,
+  getActiveChatConfig,
+  setActiveChatConfig,
+  type ActiveChatConfig,
 } from "@/lib/gemini";
 
 export function AdminView({
@@ -37,6 +40,7 @@ export function AdminView({
   addChannel,
   removeChannel,
   generateClips,
+  triggerActiveChatMessage,
 }: {
   state: State;
   addMember: (m: Omit<Member, "id">) => Promise<void>;
@@ -59,6 +63,7 @@ export function AdminView({
       selectedMemberIds?: string[];
     }
   ) => Promise<void>;
+  triggerActiveChatMessage?: () => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -102,10 +107,12 @@ export function AdminView({
 
   const [stats, setLocalStats] = useState<Stats>(state.stats);
 
-  const [geminiKey, setLocalGeminiKey] = useState(() => getGeminiApiKey());
+  const [geminiKeysText, setLocalGeminiKeysText] = useState(() => getGeminiApiKeys().join("\n"));
   const [geminiModel, setLocalGeminiModel] = useState(() => getGeminiModel());
   const [testingGemini, setTestingGemini] = useState(false);
   const [geminiStatus, setGeminiStatus] = useState<string | null>(null);
+  const [activeChatConfig, setLocalActiveChatConfig] = useState<ActiveChatConfig>(() => getActiveChatConfig());
+  const [generatingActiveChat, setGeneratingActiveChat] = useState(false);
 
   async function submitMember(e: FormEvent) {
     e.preventDefault();
@@ -611,6 +618,192 @@ export function AdminView({
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* 07 · Gemini AI Multi-Key Pool & Model Engine */}
+      <div className="space-y-4 rounded-xl bg-popover p-4 border border-primary/20">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-foreground">07 · Gemini AI Multi-Key Pool & Model Engine</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Add multiple Gemini API keys so your community AI never runs out of quota. The engine automatically rotates keys.
+            </p>
+          </div>
+          <span className="rounded-full bg-primary/20 px-2.5 py-1 text-xs font-bold text-primary">
+            {getGeminiApiKeys().length} Key{getGeminiApiKeys().length === 1 ? "" : "s"} In Pool
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <Field label="Gemini API Keys (Paste one per line)">
+            <textarea
+              rows={3}
+              value={geminiKeysText}
+              onChange={(e) => setLocalGeminiKeysText(e.target.value)}
+              placeholder="AIzaSy...\nAIzaSy...\nAIzaSy..."
+              className={`${inputClass} font-mono text-xs`}
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="AI Model Engine">
+              <select
+                value={geminiModel}
+                onChange={(e) => {
+                  setLocalGeminiModel(e.target.value);
+                  setGeminiModel(e.target.value);
+                }}
+                className={inputClass}
+              >
+                {AVAILABLE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const keys = geminiKeysText
+                    .split("\n")
+                    .map((k) => k.trim())
+                    .filter(Boolean);
+                  setGeminiApiKeys(keys);
+                  setGeminiModel(geminiModel);
+                  notify(`Saved ${keys.length} Gemini API key(s) to pool!`);
+                }}
+                className={`${buttonClass} flex-1`}
+              >
+                💾 Save Keys
+              </button>
+              <button
+                type="button"
+                disabled={testingGemini}
+                onClick={async () => {
+                  const keys = geminiKeysText
+                    .split("\n")
+                    .map((k) => k.trim())
+                    .filter(Boolean);
+                  setGeminiApiKeys(keys);
+                  setTestingGemini(true);
+                  setGeminiStatus(null);
+                  try {
+                    const result = await testGeminiConnection(keys[0], geminiModel);
+                    setGeminiStatus(result.message);
+                    if (result.workingModel) setLocalGeminiModel(result.workingModel);
+                    notify(result.message);
+                  } finally {
+                    setTestingGemini(false);
+                  }
+                }}
+                className={`${ghostButtonClass} flex-1`}
+              >
+                {testingGemini ? "Testing Pool…" : "⚡ Test Connection"}
+              </button>
+            </div>
+          </div>
+
+          {geminiStatus && (
+            <div className="rounded-lg bg-accent/60 p-2.5 text-xs font-semibold text-foreground">
+              {geminiStatus}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 08 · 24/7 AI Active Chat Simulation Autopilot */}
+      <div className="space-y-4 rounded-xl bg-popover p-4 border border-border">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-foreground">08 · 24/7 AI Active Chat Autopilot</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Simulates authentic, vibrant streamer discussions in #general between community members (replies, stickers, stream banter, live reactions).
+            </p>
+          </div>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${activeChatConfig.enabled ? "bg-online/20 text-online" : "bg-muted text-muted-foreground"}`}>
+            {activeChatConfig.enabled ? "🟢 Autopilot Running 24/7" : "⚪ Paused"}
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={activeChatConfig.enabled}
+                onChange={(e) => {
+                  const updated = { ...activeChatConfig, enabled: e.target.checked };
+                  setLocalActiveChatConfig(updated);
+                  setActiveChatConfig(updated);
+                  notify(e.target.checked ? "24/7 AI Active Chat Autopilot Started!" : "Active Chat Autopilot paused.");
+                }}
+                className="rounded border-border text-primary"
+              />
+              <span>Enable 24/7 AI Active Chat Simulation</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={activeChatConfig.sendStickers}
+                onChange={(e) => {
+                  const updated = { ...activeChatConfig, sendStickers: e.target.checked };
+                  setLocalActiveChatConfig(updated);
+                  setActiveChatConfig(updated);
+                }}
+                className="rounded border-border text-primary"
+              />
+              <span>Send Animated Stickers in Chat</span>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Chat Frequency Interval">
+              <select
+                value={activeChatConfig.intervalSeconds}
+                onChange={(e) => {
+                  const updated = { ...activeChatConfig, intervalSeconds: Number(e.target.value) || 60 };
+                  setLocalActiveChatConfig(updated);
+                  setActiveChatConfig(updated);
+                }}
+                className={inputClass}
+              >
+                <option value={30}>Every 30 seconds (High Activity)</option>
+                <option value={60}>Every 1 minute (Recommended)</option>
+                <option value={120}>Every 2 minutes</option>
+                <option value={300}>Every 5 minutes</option>
+              </select>
+            </Field>
+
+            <div className="flex items-end">
+              <button
+                type="button"
+                disabled={generatingActiveChat}
+                onClick={async () => {
+                  if (triggerActiveChatMessage) {
+                    setGeneratingActiveChat(true);
+                    try {
+                      await triggerActiveChatMessage();
+                      notify("AI chat round generated in #general!");
+                    } catch (err) {
+                      notify(err instanceof Error ? err.message : "Failed to generate AI message");
+                    } finally {
+                      setGeneratingActiveChat(false);
+                    }
+                  } else {
+                    notify("Chat trigger ready");
+                  }
+                }}
+                className={`${buttonClass} w-full`}
+              >
+                {generatingActiveChat ? "Simulating Streamer Chat…" : "⚡ Generate AI Chat Message Now"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
