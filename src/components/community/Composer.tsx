@@ -29,7 +29,9 @@ export function Composer({
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [stickers, setStickers] = useState(false);
-  const [stickerCategory, setStickerCategory] = useState<"streamer" | "anime" | "gaming" | "custom" | "emojis">("streamer");
+  const [stickerCategory, setStickerCategory] = useState<
+    "all" | "memes" | "streamer" | "anime" | "gaming" | "custom" | "emojis"
+  >("all");
   const [stickerSearch, setStickerSearch] = useState("");
   const [sendError, setSendError] = useState("");
   const [customStickers, setCustomStickers] = useState<CommunitySticker[]>(() => getCustomStickers());
@@ -90,8 +92,9 @@ export function Composer({
 
   const filteredCommunityStickers = COMMUNITY_STICKERS.filter((s) => {
     if (stickerSearch.trim()) {
-      return s.name.toLowerCase().includes(stickerSearch.toLowerCase());
+      return s.name.toLowerCase().includes(stickerSearch.toLowerCase()) || s.category.toLowerCase().includes(stickerSearch.toLowerCase());
     }
+    if (stickerCategory === "all") return true;
     return s.category === stickerCategory;
   });
 
@@ -148,7 +151,7 @@ export function Composer({
               <input
                 value={stickerSearch}
                 onChange={(e) => setStickerSearch(e.target.value)}
-                placeholder="Search stickers, emotes, or emojis..."
+                placeholder="Search 70+ animated stickers, emotes, memes..."
                 className="w-full bg-transparent outline-none placeholder:text-muted-foreground"
               />
               {stickerSearch && (
@@ -171,13 +174,29 @@ export function Composer({
           {!stickerSearch && (
             <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border/50 pb-2 text-xs font-semibold">
               <button
+                onClick={() => setStickerCategory("all")}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 transition-colors ${
+                  stickerCategory === "all" ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                <Sparkles className="h-3 w-3" />
+                <span>All ({COMMUNITY_STICKERS.length})</span>
+              </button>
+              <button
+                onClick={() => setStickerCategory("memes")}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 transition-colors ${
+                  stickerCategory === "memes" ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                <span>🔥 Memes & Funny</span>
+              </button>
+              <button
                 onClick={() => setStickerCategory("streamer")}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 transition-colors ${
                   stickerCategory === "streamer" ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground hover:bg-accent"
                 }`}
               >
-                <Sparkles className="h-3 w-3" />
-                <span>Streamer Hype</span>
+                <span>🎉 Streamer Hype</span>
               </button>
               <button
                 onClick={() => setStickerCategory("anime")}
@@ -195,7 +214,7 @@ export function Composer({
                 }`}
               >
                 <Gamepad2 className="h-3 w-3" />
-                <span>Gaming Memes</span>
+                <span>Gaming</span>
               </button>
               <button
                 onClick={() => { setStickerCategory("custom"); refreshCustom(); }}

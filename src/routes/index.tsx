@@ -258,6 +258,7 @@ function Index() {
   postsRef.current = state.posts;
   const memberByIdRef = useRef(memberById);
   memberByIdRef.current = memberById;
+  const recentAiSpeakersRef = useRef<string[]>([]);
 
   const postingAuthors = useMemo(() => {
     if (!myAccount) return [];
@@ -466,6 +467,23 @@ function Index() {
     const speakerPool = onlineSimulatedSpeakers.length >= 2 ? onlineSimulatedSpeakers : currentMembers.filter((m) => !realUserIds.has(m.id.toLowerCase()));
     if (speakerPool.length < 1) return;
 
+    // Strict round-robin rotation:
+    // Exclude creators who spoke in the last 6-8 AI rounds so one person never speaks 4-5 times in a row!
+    const recentSpeakers = recentAiSpeakersRef.current;
+    let availableSpeakers = speakerPool.filter((m) => !recentSpeakers.includes(m.id));
+    if (availableSpeakers.length < 2) {
+      // If most members already spoke, keep only the latest 2 in history to restart rotation
+      recentAiSpeakersRef.current = recentSpeakers.slice(-2);
+      availableSpeakers = speakerPool.filter((m) => !recentAiSpeakersRef.current.includes(m.id));
+    }
+    if (availableSpeakers.length === 0) availableSpeakers = speakerPool;
+
+    // Randomize/shuffle candidates so all 20+ online creators get equal turns
+    const candidatePool = [...availableSpeakers].sort(() => Math.random() - 0.5);
+
+    // Limit sticker frequency: offer stickers ~25% of the time (1 in 4 messages) to avoid sticker spam
+    const shouldSendSticker = Boolean(config.sendStickers && Math.random() < 0.25);
+
     const recentGeneralPosts = currentPosts
       .filter((p) => !p.channel || p.channel === (config.channel || "general"))
       .slice(0, 10)
@@ -478,7 +496,7 @@ function Index() {
       }));
 
     const result = await generateActiveChatMessage({
-      members: speakerPool.map((m) => ({
+      members: candidatePool.map((m) => ({
         id: m.id,
         name: m.name,
         handle: m.handle,
@@ -487,7 +505,7 @@ function Index() {
         status: m.status,
       })),
       recentMessages: recentGeneralPosts,
-      availableStickers: config.sendStickers
+      availableStickers: shouldSendSticker
         ? COMMUNITY_STICKERS.map((s) => ({ id: s.id, label: s.name, url: s.url }))
         : undefined,
     });
@@ -496,9 +514,12 @@ function Index() {
 
     // Double check: ensure AI did not impersonate a real signed-up user
     if (realUserIds.has(result.authorId.toLowerCase())) {
-      const fallbackSpeaker = speakerPool[0];
+      const fallbackSpeaker = candidatePool[0];
       if (fallbackSpeaker) result.authorId = fallbackSpeaker.id;
     }
+
+    // Record author in recent speakers history
+    recentAiSpeakersRef.current = [...recentAiSpeakersRef.current.slice(-8), result.authorId];
 
     const chosenAuthor = currentMemberById.get(result.authorId) || currentMembers.find((m) => m.id === result.authorId);
     const authorDisplayName = chosenAuthor?.name || "Streamer";
