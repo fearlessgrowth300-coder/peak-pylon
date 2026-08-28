@@ -9,6 +9,7 @@ import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
 import { CreatorRankingsView } from "@/components/community/CreatorRankingsView";
+import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget";
 import { computeRankings } from "@/lib/rankings";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
@@ -1527,21 +1528,7 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
       </div>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-popover p-5">
-          <p className="text-xs font-black tracking-widest text-primary">◌ TOP CATEGORIES</p>
-          <h2 className="mt-1 text-xl font-extrabold">Where the network is watching</h2>
-          <div className="mt-4 flex items-center gap-6">
-            <div className="h-28 w-28 rounded-full bg-[conic-gradient(oklch(0.577_0.209_273.9)_0_45%,oklch(0.637_0.215_24.7)_45%_68%,oklch(0.637_0.155_152.3)_68%_85%,oklch(0.801_0.151_80.5)_85%)] p-7">
-              <div className="h-full w-full rounded-full bg-popover" />
-            </div>
-            <div className="space-y-2 text-xs">
-              <p>🔴 Just Chatting <strong className="ml-3 text-online">45%</strong></p>
-              <p>🔵 Gaming <strong className="ml-3 text-online">32%</strong></p>
-              <p>🟣 Music <strong className="ml-3 text-online">13%</strong></p>
-              <p>🟡 IRL <strong className="ml-3 text-online">7%</strong></p>
-            </div>
-          </div>
-        </div>
+        <TopCategoriesWidget members={members} posts={posts} />
 
         <div className="rounded-2xl border border-border bg-popover p-5">
           <p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p>
