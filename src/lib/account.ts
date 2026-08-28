@@ -68,9 +68,10 @@ export function useAccounts() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [{ data: profiles }, { data: roles }] = await Promise.all([
-      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
-      supabase.from("user_roles").select("user_id, role"),
+    const [{ data: profiles }, { data: roles }, { data: listedRows }] = await Promise.all([
+      (supabase as any).from("profiles").select("*").order("created_at", { ascending: false }),
+      (supabase as any).from("user_roles").select("user_id, role"),
+      (supabase as any).from("community_listed_members").select("id, data"),
     ]);
     const byUser = new Map<string, Role[]>();
     for (const r of roles ?? []) {
@@ -78,9 +79,38 @@ export function useAccounts() {
       list.push(r.role as Role);
       byUser.set(r.user_id, list);
     }
-    setAccounts(
-      ((profiles ?? []) as unknown as ProfileRow[]).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] })),
-    );
+    const profileAccounts: Account[] = ((profiles ?? []) as unknown as ProfileRow[]).map((p) => ({
+      ...p,
+      roles: byUser.get(p.id) ?? (p.id === "00000000-0000-0000-0000-000000000001" ? ["admin"] : ["streamer"]),
+    }));
+
+    // Convert listed members who aren't yet in profiles
+    const existingIds = new Set(profileAccounts.map((a) => a.id));
+    const convertedFromListed: Account[] = (listedRows ?? [])
+      .filter((row: any) => !existingIds.has(row.id) && row.data)
+      .map((row: any) => {
+        const m = row.data as Member;
+        return {
+          id: row.id,
+          display_name: m.name || "Streamer",
+          handle: m.handle ? m.handle.replace(/^@/, "") : m.name.toLowerCase().replace(/\s+/g, ""),
+          bio: m.bio || "",
+          avatar_url: m.avatar || "",
+          banner_url: m.banner || "",
+          platform: m.platform || "Twitch",
+          channel_url: m.link || "",
+          status: m.status || "online",
+          is_banned: false,
+          restricted_until: null,
+          created_at: new Date(m.joined || Date.now()).toISOString(),
+          last_active_at: new Date().toISOString(),
+          twitch_verified: false,
+          social_links: (m.connections || []) as SocialLink[],
+          roles: byUser.get(row.id) ?? ["streamer"],
+        };
+      });
+
+    setAccounts([...profileAccounts, ...convertedFromListed]);
     setLoading(false);
   }, []);
 

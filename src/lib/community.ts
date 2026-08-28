@@ -314,6 +314,30 @@ export function useCommunity() {
       mutationVersion.current += 1;
       throw error;
     }
+
+    try {
+      const profileRecord = {
+        id,
+        display_name: member.name,
+        handle: member.handle ? member.handle.replace(/^@/, "") : member.name.toLowerCase().replace(/\s+/g, ""),
+        bio: member.bio || "",
+        avatar_url: member.avatar || "",
+        banner_url: member.banner || "",
+        platform: member.platform || "Twitch",
+        channel_url: member.link || "",
+        status: member.status || "online",
+        is_banned: false,
+        created_at: new Date().toISOString(),
+        last_active_at: new Date().toISOString(),
+        twitch_verified: false,
+        social_links: member.connections || [],
+      };
+      await (supabase as any).from("profiles").upsert(profileRecord);
+      await (supabase as any).from("user_roles").upsert({ user_id: id, role: member.role || "streamer" });
+    } catch {
+      // ignore
+    }
+
     setState((s) => ({
       ...s,
       members: [{ ...record, id }, ...s.members],
@@ -327,6 +351,25 @@ export function useCommunity() {
     if (readError || !data) throw readError ?? new Error("Member record was not found");
     const { error } = await db.from("community_listed_members").update({ data: { ...data.data, ...patch } }).eq("id", id);
     if (error) throw error;
+
+    try {
+      const profilePatch: any = {};
+      if (patch.name) profilePatch.display_name = patch.name;
+      if (patch.handle) profilePatch.handle = patch.handle.replace(/^@/, "");
+      if (patch.bio !== undefined) profilePatch.bio = patch.bio;
+      if (patch.avatar !== undefined) profilePatch.avatar_url = patch.avatar;
+      if (patch.banner !== undefined) profilePatch.banner_url = patch.banner;
+      if (patch.platform) profilePatch.platform = patch.platform;
+      if (patch.link !== undefined) profilePatch.channel_url = patch.link;
+      if (patch.status) profilePatch.status = patch.status;
+      if (patch.connections) profilePatch.social_links = patch.connections;
+      if (Object.keys(profilePatch).length) {
+        await db.from("profiles").update(profilePatch).eq("id", id);
+      }
+    } catch {
+      // ignore
+    }
+
     setState((s) => ({ ...s, members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) }));
   }, []);
 
@@ -335,6 +378,14 @@ export function useCommunity() {
     const db = supabase as any;
     const { error } = await db.from("community_listed_members").delete().eq("id", id);
     if (error) throw error;
+
+    try {
+      await db.from("profiles").delete().eq("id", id);
+      await db.from("user_roles").delete().eq("user_id", id);
+    } catch {
+      // ignore
+    }
+
     setState((s) => ({
       ...s,
       members: s.members.filter((m) => m.id !== id),

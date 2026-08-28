@@ -18,6 +18,7 @@ import {
   setGeminiApiKey,
   getGeminiModel,
 } from "@/lib/gemini";
+import { saveCustomSticker, isStickerSaved } from "@/lib/stickers";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -551,7 +552,7 @@ function Index() {
                                 </p>
                               )}
                               {p.sticker && (
-                                <p className="mt-1 text-5xl leading-none">{p.sticker}</p>
+                                <StickerDisplay sticker={p.sticker} onToast={setToast} />
                               )}
                               {p.image && (
                                 <img
@@ -2112,20 +2113,145 @@ function RichPostContent({ text }: { text: string }) {
   })}</div>;
 }
 
-function MessageActions({ post, member, isAdmin, currentUserId, onReply, onReact, onDelete, onRemoveMember }: { post: Post; member?: Member | undefined; isAdmin: boolean; currentUserId?: string | undefined; onReply: () => void; onReact: (id: string, emoji: string) => void; onDelete: (id: string) => Promise<void>; onRemoveMember: () => Promise<void> }) {
-  const [open, setOpen] = useState(false);
-  const hold = useRef<number | null>(null);
-  const start = () => { hold.current = window.setTimeout(() => setOpen(true), 550); };
-  const cancel = () => { if (hold.current) window.clearTimeout(hold.current); };
-  return <div className="relative mt-2" onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onContextMenu={(event) => { event.preventDefault(); setOpen(true); }}>
-    {open && <div className="absolute bottom-7 left-0 z-20 flex items-center gap-1 rounded-lg bg-popover p-1 shadow-elevated">
-      {[["👍", "Like"], ["❤️", "Love"], ["😂", "Laugh"], ["😮", "Wow"], ["😢", "Sad"], ["😡", "Angry"]].map(([emoji, label]) => <button key={emoji} title={label} onClick={() => { onReact(post.id, emoji); setOpen(false); }} className="rounded px-2 py-1 text-lg hover:bg-accent">{emoji}</button>)}
-      <button onClick={() => { onReply(); setOpen(false); }} className="rounded px-2 py-1 text-xs font-semibold hover:bg-accent">Reply</button>
-      {(isAdmin || post.authorId === currentUserId) && <button onClick={() => void onDelete(post.id).then(() => setOpen(false))} className="rounded px-2 py-1 text-xs font-semibold text-destructive hover:bg-accent">Delete</button>}
-      {isAdmin && member?.role !== "admin" && <button onClick={() => void onRemoveMember().then(() => setOpen(false))} className="rounded px-2 py-1 text-xs font-semibold text-destructive hover:bg-accent">Remove member</button>}
-    </div>}
-    {Object.entries(post.reactions ?? {}).filter(([, count]) => count > 0).map(([emoji, count]) => <span key={emoji} className="mr-1 rounded bg-accent px-2 py-1 text-xs">{emoji} {count}</span>)}
-  </div>;
+
+function StickerDisplay({
+  sticker,
+  onToast,
+}: {
+  sticker: string;
+  onToast?: (msg: string) => void;
+}) {
+  const isImage = sticker.startsWith("http") || sticker.startsWith("data:image");
+  const [saved, setSaved] = useState(() => isStickerSaved(sticker));
+
+  if (!isImage) {
+    return <p className="mt-1 text-5xl leading-none">{sticker}</p>;
+  }
+
+  return (
+    <div className="group/sticker relative mt-2 inline-block">
+      <img
+        src={sticker}
+        alt="Community sticker"
+        loading="lazy"
+        className="max-h-36 max-w-36 rounded-xl object-contain drop-shadow-md transition-transform hover:scale-105"
+      />
+      <button
+        type="button"
+        onClick={() => {
+          saveCustomSticker("Saved Sticker", sticker);
+          setSaved(true);
+          onToast?.("Sticker added to your collection!");
+        }}
+        className="absolute -top-2 -right-2 flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-0.5 text-[10px] font-bold text-foreground opacity-90 shadow-md transition-opacity hover:opacity-100 hover:bg-accent"
+        title="Save this sticker to your stickers"
+      >
+        {saved ? "✓ In Stickers" : "⭐ Add to Stickers"}
+      </button>
+    </div>
+  );
+}
+
+function MessageActions({
+  post,
+  member,
+  isAdmin,
+  currentUserId,
+  onReply,
+  onReact,
+  onDelete,
+  onRemoveMember,
+}: {
+  post: Post;
+  member?: Member | undefined;
+  isAdmin: boolean;
+  currentUserId?: string | undefined;
+  onReply: () => void;
+  onReact: (id: string, emoji: string) => void;
+  onDelete: (id: string) => Promise<void>;
+  onRemoveMember: () => Promise<void>;
+}) {
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const canDelete = isAdmin || post.authorId === currentUserId || !post.authorId || post.authorId === "community";
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+      {/* Existing Reactions */}
+      {Object.entries(post.reactions ?? {})
+        .filter(([, count]) => count > 0)
+        .map(([emoji, count]) => (
+          <button
+            key={emoji}
+            onClick={() => onReact(post.id, emoji)}
+            className="flex items-center gap-1 rounded-lg border border-border/60 bg-accent/40 px-2 py-0.5 text-xs font-semibold hover:bg-accent"
+          >
+            <span>{emoji}</span>
+            <span>{count}</span>
+          </button>
+        ))}
+
+      {/* Quick Action Toolbar */}
+      <div className="flex items-center gap-1 opacity-80 hover:opacity-100">
+        <button
+          type="button"
+          onClick={() => setShowEmojiPicker((v) => !v)}
+          className="rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          title="Add reaction"
+        >
+          😀+
+        </button>
+
+        <button
+          type="button"
+          onClick={onReply}
+          className="rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          title="Reply to message"
+        >
+          Reply
+        </button>
+
+        {canDelete && (
+          <button
+            type="button"
+            onClick={() => void onDelete(post.id)}
+            className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-destructive/80 hover:bg-destructive/15 hover:text-destructive"
+            title="Delete post"
+          >
+            Delete
+          </button>
+        )}
+
+        {isAdmin && member && member.role !== "admin" && (
+          <button
+            type="button"
+            onClick={() => void onRemoveMember()}
+            className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-destructive/60 hover:bg-destructive/15 hover:text-destructive"
+            title="Remove member"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+
+      {/* Popup Emoji Picker */}
+      {showEmojiPicker && (
+        <div className="flex items-center gap-1 rounded-xl border border-border bg-popover p-1 shadow-lg">
+          {["👍", "❤️", "😂", "🔥", "😮", "👑", "🎮", "💀"].map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => {
+                onReact(post.id, emoji);
+                setShowEmojiPicker(false);
+              }}
+              className="rounded-lg px-1.5 py-1 text-base hover:bg-accent"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CommunityMark({ community, size }: { community: { name: string; logo: string }; size: number }) {
@@ -2302,7 +2428,7 @@ function CustomChannel({
                     </p>
                   )}
 
-                  {post.sticker && <p className="mt-2 text-4xl">{post.sticker}</p>}
+                  {post.sticker && <StickerDisplay sticker={post.sticker} onToast={onToast} />}
 
                   {post.image && (
                     <div className="mt-3 overflow-hidden rounded-xl border border-border bg-background">
