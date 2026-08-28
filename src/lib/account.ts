@@ -79,36 +79,74 @@ export function useAccounts() {
       list.push(r.role as Role);
       byUser.set(r.user_id, list);
     }
-    const profileAccounts: Account[] = ((profiles ?? []) as unknown as ProfileRow[]).map((p) => ({
-      ...p,
-      roles: byUser.get(p.id) ?? (p.id === "00000000-0000-0000-0000-000000000001" ? ["admin"] : ["streamer"]),
-    }));
+    const existingIds = new Set<string>();
+    const existingHandles = new Set<string>();
+    const existingLinks = new Set<string>();
+    const existingNames = new Set<string>();
+
+    const profileAccounts: Account[] = [];
+    for (const p of ((profiles ?? []) as unknown as ProfileRow[])) {
+      const idKey = p.id?.toLowerCase() || "";
+      const handleKey = p.handle ? p.handle.replace(/^@/, "").trim().toLowerCase() : "";
+      const nameKey = p.display_name ? p.display_name.trim().toLowerCase() : "";
+      const linkKey = p.channel_url ? p.channel_url.trim().toLowerCase() : "";
+
+      if (existingIds.has(idKey) || (handleKey && existingHandles.has(handleKey)) || (linkKey && existingLinks.has(linkKey))) {
+        continue;
+      }
+      if (idKey) existingIds.add(idKey);
+      if (handleKey) existingHandles.add(handleKey);
+      if (nameKey) existingNames.add(nameKey);
+      if (linkKey) existingLinks.add(linkKey);
+
+      profileAccounts.push({
+        ...p,
+        roles: byUser.get(p.id) ?? (p.id === "00000000-0000-0000-0000-000000000001" ? ["admin"] : ["streamer"]),
+      });
+    }
 
     // Convert listed members who aren't yet in profiles
-    const existingIds = new Set(profileAccounts.map((a) => a.id));
-    const convertedFromListed: Account[] = (listedRows ?? [])
-      .filter((row: any) => !existingIds.has(row.id) && row.data)
-      .map((row: any) => {
-        const m = row.data as Member;
-        return {
-          id: row.id,
-          display_name: m.name || "Streamer",
-          handle: m.handle ? m.handle.replace(/^@/, "") : m.name.toLowerCase().replace(/\s+/g, ""),
-          bio: m.bio || "",
-          avatar_url: m.avatar || "",
-          banner_url: m.banner || "",
-          platform: m.platform || "Twitch",
-          channel_url: m.link || "",
-          status: m.status || "online",
-          is_banned: false,
-          restricted_until: null,
-          created_at: new Date(m.joined || Date.now()).toISOString(),
-          last_active_at: new Date().toISOString(),
-          twitch_verified: false,
-          social_links: (m.connections || []) as SocialLink[],
-          roles: byUser.get(row.id) ?? ["streamer"],
-        };
+    const convertedFromListed: Account[] = [];
+    for (const row of (listedRows ?? [])) {
+      if (!row.data) continue;
+      const m = row.data as Member;
+      const idKey = row.id?.toLowerCase() || "";
+      const handleKey = m.handle ? m.handle.replace(/^@/, "").trim().toLowerCase() : "";
+      const nameKey = m.name ? m.name.trim().toLowerCase() : "";
+      const linkKey = m.link ? m.link.trim().toLowerCase() : "";
+
+      if (
+        (idKey && existingIds.has(idKey)) ||
+        (handleKey && existingHandles.has(handleKey)) ||
+        (nameKey && existingNames.has(nameKey)) ||
+        (linkKey && existingLinks.has(linkKey))
+      ) {
+        continue;
+      }
+      if (idKey) existingIds.add(idKey);
+      if (handleKey) existingHandles.add(handleKey);
+      if (nameKey) existingNames.add(nameKey);
+      if (linkKey) existingLinks.add(linkKey);
+
+      convertedFromListed.push({
+        id: row.id,
+        display_name: m.name || "Streamer",
+        handle: m.handle ? m.handle.replace(/^@/, "") : m.name.toLowerCase().replace(/\s+/g, ""),
+        bio: m.bio || "",
+        avatar_url: m.avatar || "",
+        banner_url: m.banner || "",
+        platform: m.platform || "Twitch",
+        channel_url: m.link || "",
+        status: m.status || "online",
+        is_banned: false,
+        restricted_until: null,
+        created_at: new Date(m.joined || Date.now()).toISOString(),
+        last_active_at: new Date().toISOString(),
+        twitch_verified: false,
+        social_links: (m.connections || []) as SocialLink[],
+        roles: byUser.get(row.id) ?? ["streamer"],
       });
+    }
 
     setAccounts([...profileAccounts, ...convertedFromListed]);
     setLoading(false);
@@ -133,7 +171,7 @@ export function accountToMember(a: Account): Member & { real: true; role: Role }
     name: a.display_name,
     handle: a.handle ?? "@member",
     platform: a.platform,
-    status: a.status === "live" ? "live" : isRecentlyActive ? "online" : "offline",
+    status: a.status === "live" ? "live" : a.status === "online" ? "online" : isRecentlyActive ? "online" : "offline",
     link: a.channel_url,
     bio: a.bio,
     avatar: a.avatar_url,

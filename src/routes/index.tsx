@@ -54,6 +54,7 @@ function Index() {
     const saved = localStorage.getItem("streamcore:last-view") as View | null;
     const migrated = saved === "general" ? "home" : saved;
     return migrated && (migrated === "home" || migrated === "rules" || migrated === "general" || migrated === "creators" || migrated === "live-now" || migrated === "trending" || migrated === "rankings" || migrated === "announcements" || migrated === "featured" || migrated === "rising" || migrated === "partners" || migrated === "events" || migrated === "analytics" || migrated === "notifications" || migrated === "messages" || migrated === "admin" || migrated === "me" || migrated.startsWith("channel:")) ? migrated : "home";
+
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -73,17 +74,6 @@ function Index() {
     [userId, accounts],
   );
   const isAdmin = !!myAccount?.roles.includes("admin");
-
-  // A real signed-in account always posts as itself. Only the owner may select
-  // one of the community-managed showcase profiles for an editorial post.
-  const postingAuthors = useMemo(() => {
-    if (!myAccount) return [];
-    const ownerProfile = accountToMember(myAccount);
-    return isAdmin ? [ownerProfile, ...state.members] : [ownerProfile];
-  }, [isAdmin, myAccount, state.members]);
-  const selectedChatAuthor = postingAuthors.some((member) => member.id === chatAuthor)
-    ? chatAuthor
-    : (postingAuthors[0]?.id ?? "");
 
   useEffect(() => {
     const channel = supabase.channel("streamcore-typing");
@@ -165,6 +155,7 @@ function Index() {
     return () => clearTimeout(t);
   }, [toast]);
 
+
   useEffect(() => {
     if (view !== "general") return;
     const el = scrollRef.current;
@@ -175,10 +166,50 @@ function Index() {
     () => accounts.filter((a) => !a.is_banned).map(accountToMember),
     [accounts],
   );
-  const allMembers = useMemo(
-    () => [...realMembers, ...state.members],
-    [realMembers, state.members],
-  );
+  const allMembers = useMemo(() => {
+    const list: Member[] = [];
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    const seenHandles = new Set<string>();
+    const seenLinks = new Set<string>();
+
+    for (const m of realMembers) {
+      const idKey = m.id?.toLowerCase() || "";
+      const nameKey = m.name ? m.name.trim().toLowerCase() : "";
+      const handleKey = m.handle ? m.handle.replace(/^@/, "").trim().toLowerCase() : "";
+      const linkKey = m.link ? m.link.trim().toLowerCase() : "";
+
+      if (idKey) seenIds.add(idKey);
+      if (nameKey) seenNames.add(nameKey);
+      if (handleKey) seenHandles.add(handleKey);
+      if (linkKey) seenLinks.add(linkKey);
+      list.push(m);
+    }
+
+    for (const m of state.members) {
+      const idKey = m.id?.toLowerCase() || "";
+      const nameKey = m.name ? m.name.trim().toLowerCase() : "";
+      const handleKey = m.handle ? m.handle.replace(/^@/, "").trim().toLowerCase() : "";
+      const linkKey = m.link ? m.link.trim().toLowerCase() : "";
+
+      if (
+        (idKey && seenIds.has(idKey)) ||
+        (nameKey && seenNames.has(nameKey)) ||
+        (handleKey && seenHandles.has(handleKey)) ||
+        (linkKey && seenLinks.has(linkKey))
+      ) {
+        continue;
+      }
+
+      if (idKey) seenIds.add(idKey);
+      if (nameKey) seenNames.add(nameKey);
+      if (handleKey) seenHandles.add(handleKey);
+      if (linkKey) seenLinks.add(linkKey);
+      list.push(m);
+    }
+
+    return list;
+  }, [realMembers, state.members]);
 
   const memberById = useMemo(() => new Map(allMembers.map((m) => [m.id, m])), [allMembers]);
 
