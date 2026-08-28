@@ -680,35 +680,117 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
 }
 
 function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
-  const parent = typeof window === "undefined" ? "peak-pylon.vercel.app" : window.location.hostname;
-  return <div className="space-y-6 px-4 py-6"><header><h1 className="text-3xl font-black">🔴 LIVE NOW</h1><p className="mt-1 text-sm text-muted-foreground">Creators currently live from your community. Streams begin automatically muted.</p></header><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{members.map((member) => { const login = member.handle.replace(/^@/, ""); const isTwitch = member.platform.toLowerCase() === "twitch" && login; return <article key={member.id} className="overflow-hidden rounded-2xl border border-border bg-popover hover:border-primary"><div className="relative bg-black">{isTwitch ? <TwitchLivePlayer login={login} name={member.name} parent={parent} /> : <div className="h-52 bg-accent bg-cover bg-center" style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}/>}<span className="pointer-events-none absolute left-3 top-3 rounded bg-destructive px-2 py-1 text-xs font-black text-white">LIVE</span></div><button onClick={() => onPick(member)} className="w-full p-4 text-left"><div className="flex items-center gap-3"><Avatar member={member} size={44}/><div><p className="font-bold">{member.name}</p><p className="text-xs text-muted-foreground">{member.handle}</p></div></div><p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{member.bio || "Live community creator"}</p></button></article>; })}</div>{!members.length && <p className="text-sm text-muted-foreground">No community creators are live right now.</p>}</div>;
+  return (
+    <div className="space-y-6 px-4 py-6">
+      <header>
+        <h1 className="text-3xl font-black">🔴 LIVE NOW</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Creators currently live from your community. Streams begin automatically muted.
+        </p>
+      </header>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {members.map((member) => (
+          <article
+            key={member.id}
+            className="overflow-hidden rounded-2xl border border-border bg-popover hover:border-primary"
+          >
+            <div className="relative bg-black">
+              <LiveStreamEmbed member={member} />
+              <span className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-destructive px-2 py-1 text-xs font-black text-white shadow">
+                LIVE
+              </span>
+            </div>
+            <button onClick={() => onPick(member)} className="w-full p-4 text-left">
+              <div className="flex items-center gap-3">
+                <Avatar member={member} size={44} />
+                <div>
+                  <p className="font-bold">{member.name}</p>
+                  <p className="text-xs text-muted-foreground">{member.handle}</p>
+                </div>
+              </div>
+              <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+                {member.bio || "Live community creator"}
+              </p>
+            </button>
+          </article>
+        ))}
+      </div>
+      {!members.length && (
+        <p className="text-sm text-muted-foreground">No community creators are live right now.</p>
+      )}
+    </div>
+  );
 }
 
-function TwitchLivePlayer({ login, name, parent }: { login: string; name: string; parent: string }) {
-  const host = useRef<HTMLDivElement>(null);
+function LiveStreamEmbed({ member }: { member: Member }) {
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
-    let disposed = false;
-    const createPlayer = () => {
-      const Twitch = (window as any).Twitch;
-      if (disposed || !host.current || !Twitch?.Player) return;
-      host.current.replaceChildren();
-      const mount = document.createElement("div");
-      mount.id = `twitch-live-${login.replace(/[^a-z0-9_-]/gi, "")}-${Math.random().toString(36).slice(2)}`;
-      host.current.append(mount);
-      const player = new Twitch.Player(mount.id, { channel: login, parent: [parent], width: "100%", height: "100%", autoplay: true, muted: true });
-      const startMuted = () => {
-        try { player.setMuted(true); player.setVolume(0); player.play(); window.setTimeout(() => player.play(), 600); } catch { /* Twitch may reject playback when no stream is available. */ }
-      };
-      player.addEventListener?.(Twitch.Player.READY, startMuted);
-    };
-    const source = "https://player.twitch.tv/js/embed/v1.js";
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${source}"]`);
-    if ((window as any).Twitch?.Player) createPlayer();
-    else if (existing) existing.addEventListener("load", createPlayer, { once: true });
-    else { const script = document.createElement("script"); script.src = source; script.async = true; script.addEventListener("load", createPlayer, { once: true }); document.head.append(script); }
-    return () => { disposed = true; };
-  }, [login, parent]);
-  return <div ref={host} aria-label={`${name} live stream`} className="h-52 w-full bg-black [&>div]:h-full [&>div]:w-full [&_iframe]:h-full [&_iframe]:w-full" />;
+    setMounted(true);
+  }, []);
+
+  const login = (member.handle || "").replace(/^@/, "").trim().toLowerCase() ||
+    (member.link ? member.link.split("/").filter(Boolean).pop()?.toLowerCase() : "");
+
+  const platform = (member.platform || "").toLowerCase();
+
+  if (!mounted || !login) {
+    return (
+      <div
+        className="h-52 bg-accent bg-cover bg-center"
+        style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}
+      />
+    );
+  }
+
+  const hostname = window.location.hostname || "localhost";
+  const parentDomains = Array.from(
+    new Set([
+      hostname,
+      "localhost",
+      "127.0.0.1",
+      "peak-pylon.vercel.app",
+    ])
+  ).filter(Boolean);
+
+  const parentParams = parentDomains.map((p) => `parent=${encodeURIComponent(p)}`).join("&");
+
+  if (platform === "twitch") {
+    const twitchSrc = `https://player.twitch.tv/?channel=${encodeURIComponent(login)}&${parentParams}&autoplay=true&muted=true`;
+    return (
+      <div className="relative h-52 w-full overflow-hidden bg-black">
+        <iframe
+          src={twitchSrc}
+          title={`${member.name} live stream`}
+          className="h-full w-full border-0"
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          allowFullScreen
+        />
+      </div>
+    );
+  }
+
+  if (platform === "kick") {
+    const kickSrc = `https://player.kick.com/${encodeURIComponent(login)}?autoplay=true&muted=true`;
+    return (
+      <div className="relative h-52 w-full overflow-hidden bg-black">
+        <iframe
+          src={kickSrc}
+          title={`${member.name} live stream`}
+          className="h-full w-full border-0"
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          allowFullScreen
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="h-52 bg-accent bg-cover bg-center"
+      style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}
+    />
+  );
 }
 
 function TrendingCommunityView({ posts, members, onPick, isAdmin, onCreate }: { posts: Post[]; members: Map<string, Member>; onPick: (member: Member) => void; isAdmin: boolean; onCreate: (post: Pick<PostInput, "text" | "image" | "time">) => Promise<void> }) {
