@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
 import {
   generateAiCommentsForPost,
+  generateAiClipComments,
   getGeminiApiKey,
   setGeminiApiKey,
   getGeminiModel,
@@ -230,15 +231,88 @@ function Index() {
         setToast(`No recent public clips found for ${member.name}.`);
         return;
       }
+
+      const streamChatTemplates = [
+        "LMAOOOO no way this happened 💀💀",
+        "W STREAM FR FR 🔥🔥",
+        "bro was NOT ready for that 😂",
+        "clip of the year honestly 🏆",
+        "chat was moving at the speed of light lmao",
+        "the comedic timing was unreal 😭",
+        "WWWWWWWWWW",
+        "I cannot breathe right now 💀😂",
+        "classic stream moment honestly ✨",
+        "AYOOOO WHAT 😭😭",
+        "legendary clip haha",
+        "top tier content right here 🎮",
+        "BROOO WHAT JUST HAPPENED 😂",
+        "clip that right now!! 🚀",
+        "this had me dying laughing 😭🔥",
+        "the face expression killed me 💀",
+        "W energy as always! 👑",
+        "instant favorite moment 🙌"
+      ];
+
+      const otherMembers = allMembers.filter((m) => m.id !== member.id);
+      const memberPool = otherMembers.length >= 3 ? otherMembers : allMembers;
+      const apiKey = getGeminiApiKey();
+
       for (const clip of clips) {
+        // Pick 3 to 6 random members for comments
+        const shuffled = [...memberPool].sort(() => 0.5 - Math.random());
+        const commentCount = Math.min(shuffled.length, Math.floor(Math.random() * 4) + 3);
+        const commenterMembers = shuffled.slice(0, commentCount);
+
+        let commentTexts: string[] = [];
+
+        if (apiKey && commenterMembers.length > 0) {
+          try {
+            const aiComments = await generateAiClipComments({
+              clipTitle: clip.title,
+              streamerName: member.name,
+              members: commenterMembers,
+              apiKey,
+            });
+            if (aiComments && aiComments.length > 0) {
+              const map = new Map(aiComments.map((c) => [c.authorId, c.text]));
+              commentTexts = commenterMembers.map(
+                (m, idx) => map.get(m.id) || streamChatTemplates[idx % streamChatTemplates.length]
+              );
+            }
+          } catch {
+            // fallback to template reactions
+          }
+        }
+
+        if (commentTexts.length === 0) {
+          const chatShuffled = [...streamChatTemplates].sort(() => 0.5 - Math.random());
+          commentTexts = commenterMembers.map((_, i) => chatShuffled[i % chatShuffled.length]);
+        }
+
+        // Pick 4 to 8 random members to like the clip
+        const likerShuffled = [...allMembers].sort(() => 0.5 - Math.random());
+        const likeCount = Math.min(allMembers.length, Math.floor(Math.random() * 5) + 4);
+        const likerIds = likerShuffled.slice(0, likeCount).map((m) => m.id);
+
+        const now = Date.now();
+        const postComments = commenterMembers.map((m, idx) => ({
+          id: Math.random().toString(36).slice(2, 9),
+          authorId: m.id,
+          text: commentTexts[idx],
+          time: now - (commenterMembers.length - idx) * 45000,
+        }));
+
         await addPost({
           authorId: member.id,
           channel: "clips",
           text: `${clip.title}\n${clip.url}\n👁 ${clip.view_count.toLocaleString()} views`,
           image: clip.thumbnail_url,
+          likes: likerIds,
+          shares: Math.floor(Math.random() * 9) + 3,
+          comments: postComments,
         });
       }
-      setToast(`${clips.length} clips from ${member.name} added to #clips.`);
+      setToast(`Generated ${clips.length} clips for ${member.name} with live chat comments & likes!`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Could not fetch Twitch clips");
     }
@@ -528,7 +602,22 @@ function Index() {
 
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
-              return channel ? <CustomChannel name={channel.name} topic={channel.topic} posts={state.posts.filter((post) => post.channel === channel.id || post.channel === channel.name)} members={memberById} onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })} onReact={toggleReaction} isAdmin={isAdmin} currentUserId={myAccount?.id} onDelete={removePost} /> : null;
+              return channel ? (
+                <CustomChannel
+                  name={channel.name}
+                  topic={channel.topic}
+                  posts={state.posts.filter((post) => post.channel === channel.id || post.channel === channel.name)}
+                  members={memberById}
+                  allMemberList={allMembers}
+                  onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })}
+                  onReact={toggleReaction}
+                  isAdmin={isAdmin}
+                  currentUserId={myAccount?.id}
+                  onDelete={removePost}
+                  onUpdate={updatePost}
+                  onToast={setToast}
+                />
+              ) : null;
             })()}
 
             {(view === "creators" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
@@ -2047,8 +2136,338 @@ function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => 
   return <div className="mx-auto max-w-2xl space-y-4 px-4 py-8"><section className="rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #rules!</h1><p className="mt-2 text-sm text-muted-foreground">Please read these rules before taking part in the community.</p></section><section className="space-y-3 rounded-xl bg-popover p-5"><h2 className="font-bold">Community rules</h2><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">{rules.split("\n").filter(Boolean).map((rule) => <li key={rule}>{rule}</li>)}</ol><button onClick={onContinue} className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85">I have read the rules — Continue to #general</button></section></div>;
 }
 
-function CustomChannel({ name, topic, posts, members, onReply, onReact, isAdmin, currentUserId, onDelete }: { name: string; topic: string; posts: Post[]; members: Map<string, Member>; onReply: (post: { id: string; authorId: string }) => void; onReact: (id: string, emoji: string) => void; isAdmin: boolean; currentUserId?: string | undefined; onDelete: (id: string) => Promise<void> }) {
-  return <div className="mx-auto max-w-2xl space-y-3 px-4 py-6"><section className="rounded-xl bg-popover p-5"><span className="text-3xl text-muted-foreground">#</span><h1 className="mt-2 text-2xl font-extrabold">Welcome to #{name}!</h1><p className="mt-1 text-sm text-muted-foreground">{topic}</p></section>{posts.map((post) => { const member = members.get(post.authorId); const segments = post.text.split(/(https?:\/\/[^\s]+)/g); return <article key={post.id} className="rounded-lg px-2 py-3 hover:bg-accent/20"><div className="flex gap-3"><Avatar member={member ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} /><div className="min-w-0"><p className="text-sm font-semibold">{member?.name ?? "Community"} <span className="ml-1 text-xs font-normal text-muted-foreground">{post.time ? new Date(post.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</span></p>{post.text && <p className="mt-1 whitespace-pre-wrap text-sm">{segments.map((segment, index) => /^https?:\/\//.test(segment) ? <a key={index} href={segment} target="_blank" rel="noreferrer" className="break-all text-primary underline hover:text-primary/80">{segment}</a> : segment)}</p>}{post.sticker && <p className="mt-1 text-4xl">{post.sticker}</p>}{post.image && <img src={post.image} alt="Channel attachment" className="mt-2 max-h-80 rounded-lg" />}<MessageActions post={post} member={member} isAdmin={isAdmin} currentUserId={currentUserId} onReact={onReact} onReply={() => onReply({ id: post.id, authorId: post.authorId })} onDelete={onDelete} onRemoveMember={async () => {}} /></div></div></article>; })}</div>;
+function CustomChannel({
+  name,
+  topic,
+  posts,
+  members,
+  allMemberList,
+  onReply,
+  onReact,
+  isAdmin,
+  currentUserId,
+  onDelete,
+  onUpdate,
+  onToast,
+}: {
+  name: string;
+  topic: string;
+  posts: Post[];
+  members: Map<string, Member>;
+  allMemberList?: Member[];
+  onReply: (post: { id: string; authorId: string }) => void;
+  onReact: (id: string, emoji: string) => void;
+  isAdmin: boolean;
+  currentUserId?: string | undefined;
+  onDelete: (id: string) => Promise<void>;
+  onUpdate?: (id: string, patch: Partial<Post>) => Promise<void>;
+  onToast?: (msg: string) => void;
+}) {
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    if (name === "clips") {
+      // By default in #clips, show comments so it never feels dry
+      posts.forEach((p) => {
+        initial[p.id] = true;
+      });
+    }
+    return initial;
+  });
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+
+  const toggleLike = async (post: Post) => {
+    if (!onUpdate) return;
+    const userKey = currentUserId || "guest-user";
+    const currentLikes = post.likes ?? [];
+    const hasLiked = currentLikes.includes(userKey);
+    const updatedLikes = hasLiked
+      ? currentLikes.filter((id) => id !== userKey)
+      : [...currentLikes, userKey];
+
+    await onUpdate(post.id, { likes: updatedLikes });
+  };
+
+  const handleAddComment = async (postId: string) => {
+    if (!onUpdate) return;
+    const text = commentDrafts[postId]?.trim();
+    if (!text) return;
+
+    const targetPost = posts.find((p) => p.id === postId);
+    if (!targetPost) return;
+
+    const newComment = {
+      id: Math.random().toString(36).slice(2, 9),
+      authorId: currentUserId || "guest-user",
+      text,
+      time: Date.now(),
+    };
+
+    const currentComments = targetPost.comments ?? [];
+    await onUpdate(postId, {
+      comments: [...currentComments, newComment],
+    });
+
+    setCommentDrafts((prev) => ({ ...prev, [postId]: "" }));
+    setExpandedComments((prev) => ({ ...prev, [postId]: true }));
+    onToast?.("Comment added!");
+  };
+
+  const handleDeleteComment = async (postId: string, commentId: string) => {
+    if (!onUpdate) return;
+    const targetPost = posts.find((p) => p.id === postId);
+    if (!targetPost) return;
+
+    const updatedComments = (targetPost.comments ?? []).filter((c) => c.id !== commentId);
+    await onUpdate(postId, { comments: updatedComments });
+    onToast?.("Comment deleted");
+  };
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
+      <section className="rounded-2xl border border-border bg-popover p-5 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-3xl font-black text-primary">#</span>
+          <div>
+            <h1 className="text-2xl font-extrabold text-foreground">Welcome to #{name}!</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">{topic}</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="space-y-4">
+        {posts.map((post) => {
+          const member = members.get(post.authorId);
+          const segments = post.text.split(/(https?:\/\/[^\s]+)/g);
+          const likesList = post.likes ?? [];
+          const userKey = currentUserId || "guest-user";
+          const isLikedByMe = likesList.includes(userKey);
+          const isCommentsOpen = !!expandedComments[post.id];
+          const commentsList = post.comments ?? [];
+
+          return (
+            <article
+              key={post.id}
+              className="rounded-2xl border border-border/80 bg-popover p-4 shadow-sm transition-all hover:border-border"
+            >
+              <div className="flex items-start gap-3">
+                <Avatar
+                  member={member ?? { name: "Community", avatar: "", status: "offline" }}
+                  size={42}
+                  showStatus={true}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-foreground">
+                        {member?.name ?? "Community Creator"}
+                      </p>
+                      <span className="text-xs text-muted-foreground">
+                        {member?.handle || ""}
+                      </span>
+                      <span className="text-xs text-muted-foreground">·</span>
+                      <span className="text-xs text-muted-foreground">
+                        {post.time ? timeAgo(post.time) : ""}
+                      </span>
+                    </div>
+
+                    <MessageActions
+                      post={post}
+                      member={member}
+                      isAdmin={isAdmin}
+                      currentUserId={currentUserId}
+                      onReact={onReact}
+                      onReply={() => onReply({ id: post.id, authorId: post.authorId })}
+                      onDelete={onDelete}
+                      onRemoveMember={async () => {}}
+                    />
+                  </div>
+
+                  {post.text && (
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                      {segments.map((segment, index) =>
+                        /^https?:\/\//.test(segment) ? (
+                          <a
+                            key={index}
+                            href={segment}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="break-all font-semibold text-primary underline hover:text-primary/80"
+                          >
+                            {segment}
+                          </a>
+                        ) : (
+                          segment
+                        )
+                      )}
+                    </p>
+                  )}
+
+                  {post.sticker && <p className="mt-2 text-4xl">{post.sticker}</p>}
+
+                  {post.image && (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-border bg-background">
+                      <img
+                        src={post.image}
+                        alt="Clip thumbnail or attachment"
+                        className="max-h-96 w-full object-cover transition-transform hover:scale-[1.01]"
+                      />
+                    </div>
+                  )}
+
+                  {/* Engagement Bar (Likes, Comments, Shares) */}
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+                    <div className="flex items-center gap-4 text-xs font-semibold">
+                      {/* Like button */}
+                      <button
+                        onClick={() => toggleLike(post)}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-colors ${
+                          isLikedByMe
+                            ? "bg-destructive/15 text-destructive"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        }`}
+                      >
+                        <span>{isLikedByMe ? "❤️" : "🤍"}</span>
+                        <span>{likesList.length}</span>
+                      </button>
+
+                      {/* Comment toggle button */}
+                      <button
+                        onClick={() =>
+                          setExpandedComments((prev) => ({ ...prev, [post.id]: !prev[post.id] }))
+                        }
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-colors ${
+                          isCommentsOpen
+                            ? "bg-primary/15 text-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        }`}
+                      >
+                        <span>💬</span>
+                        <span>{commentsList.length} Comments</span>
+                      </button>
+
+                      {/* Shares */}
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <span>↗</span>
+                        <span>{post.shares ?? 0} Shares</span>
+                      </div>
+                    </div>
+
+                    {/* Likers Avatars Tooltip / List */}
+                    {likesList.length > 0 && (
+                      <div className="flex items-center -space-x-1.5 overflow-hidden">
+                        {likesList.slice(0, 5).map((userId) => {
+                          const liker = members.get(userId);
+                          if (!liker) return null;
+                          return (
+                            <div
+                              key={userId}
+                              className="rounded-full ring-2 ring-popover"
+                              title={liker.name}
+                            >
+                              <Avatar member={liker} size={20} showStatus={false} />
+                            </div>
+                          );
+                        })}
+                        {likesList.length > 5 && (
+                          <span className="pl-2 text-[10px] font-bold text-muted-foreground">
+                            +{likesList.length - 5}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Expandable Live Chat & Comments Thread */}
+                  {isCommentsOpen && (
+                    <div className="mt-3.5 space-y-3 rounded-xl border border-border/80 bg-background/80 p-3.5">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                        Stream Chat & Creator Comments ({commentsList.length})
+                      </p>
+
+                      <div className="space-y-2.5">
+                        {commentsList.map((comment) => {
+                          const commentAuthor = members.get(comment.authorId);
+                          return (
+                            <div
+                              key={comment.id}
+                              className="flex items-start justify-between gap-2.5 rounded-lg bg-popover p-2.5 text-xs shadow-xs"
+                            >
+                              <div className="flex items-start gap-2.5">
+                                <Avatar
+                                  member={
+                                    commentAuthor ?? {
+                                      name: "Community Member",
+                                      avatar: "",
+                                      status: "online",
+                                    }
+                                  }
+                                  size={26}
+                                  showStatus={false}
+                                />
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-foreground">
+                                      {commentAuthor?.name ?? "Community Chatter"}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {timeAgo(comment.time)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-0.5 text-foreground/90">{comment.text}</p>
+                                </div>
+                              </div>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => handleDeleteComment(post.id, comment.id)}
+                                  className="text-muted-foreground hover:text-destructive"
+                                  title="Delete comment"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {!commentsList.length && (
+                          <p className="py-1 text-xs text-muted-foreground">
+                            No chat reactions yet. Be the first to comment!
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Add Comment Input */}
+                      <div className="mt-2.5 flex gap-2">
+                        <input
+                          value={commentDrafts[post.id] || ""}
+                          onChange={(e) =>
+                            setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              void handleAddComment(post.id);
+                            }
+                          }}
+                          placeholder="Write a comment as creator or admin..."
+                          className="w-full rounded-xl bg-input px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <button
+                          onClick={() => handleAddComment(post.id)}
+                          className="shrink-0 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+                        >
+                          Post
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function LiveStories({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {

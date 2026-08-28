@@ -60,6 +60,10 @@ export type PostInput = {
   replyToId?: string | undefined;
   channel?: string | undefined;
   time?: number | undefined;
+  likes?: string[] | undefined;
+  shares?: number | undefined;
+  comments?: PostComment[] | undefined;
+  reactions?: Record<string, number> | undefined;
 };
 
 export type Stats = { members: string; online: string; rank: string };
@@ -349,10 +353,10 @@ export function useCommunity() {
       id,
       image: input.image ?? "",
       channel: input.channel ?? "general",
-      reactions: {},
-      likes: [],
-      shares: 0,
-      comments: [],
+      reactions: input.reactions ?? {},
+      likes: input.likes ?? [],
+      shares: input.shares ?? 0,
+      comments: input.comments ?? [],
       time: input.time ?? Date.now(),
     };
     mutationVersion.current += 1;

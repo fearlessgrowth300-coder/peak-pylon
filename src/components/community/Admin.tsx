@@ -21,6 +21,7 @@ import {
   getGeminiModel,
   setGeminiModel,
   testGeminiConnection,
+  AVAILABLE_MODELS,
 } from "@/lib/gemini";
 
 export function AdminView({
@@ -289,9 +290,11 @@ export function AdminView({
               value={geminiModel}
               onChange={(e) => setLocalGeminiModel(e.target.value)}
             >
-              <option value="gemini-1.5-flash">Gemini 1.5 Flash (Fast, Recommended)</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Next Gen)</option>
-              <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Analysis)</option>
+              {AVAILABLE_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
             </select>
           </Field>
 
@@ -304,8 +307,11 @@ export function AdminView({
                 setGeminiStatus(null);
                 try {
                   const result = await testGeminiConnection(geminiKey, geminiModel);
+                  if (result.workingModel && result.workingModel !== geminiModel) {
+                    setLocalGeminiModel(result.workingModel);
+                  }
                   setGeminiStatus(result.message);
-                  notify(result.success ? "Gemini AI connection successful!" : result.message);
+                  notify(result.success ? result.message : result.message);
                 } finally {
                   setTestingGemini(false);
                 }
