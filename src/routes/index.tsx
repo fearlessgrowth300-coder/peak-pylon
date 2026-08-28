@@ -9,6 +9,7 @@ import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
 import { CreatorRankingsView } from "@/components/community/CreatorRankingsView";
+import { CreatorDirectoryView } from "@/components/community/CreatorDirectoryView";
 import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget";
 import { computeRankings } from "@/lib/rankings";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
@@ -1084,7 +1085,16 @@ function Index() {
               ) : null;
             })()}
 
-            {(view === "creators" || view === "featured" || view === "rising" || view === "partners" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
+            {(view === "creators" || view === "featured" || view === "partners") && (
+              <CreatorDirectoryView
+                members={allMembers}
+                posts={state.posts}
+                onPick={setProfile}
+                setToast={setToast}
+              />
+            )}
+
+            {(view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
               <div className="space-y-4 px-4 py-5">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
