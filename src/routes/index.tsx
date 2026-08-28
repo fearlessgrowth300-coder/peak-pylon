@@ -977,32 +977,71 @@ function Index() {
 
             {view === "live-now" && <LiveNowCommunityView members={liveMembers} onPick={setProfile} />}
 
-            {view === "trending" && (() => {
-              const explicitTrending = state.posts.filter((post) => post.channel === "trending");
-              const trendingPosts = explicitTrending.length
-                ? explicitTrending
-                : state.posts
-                    .filter((p) => (p.reactions && Object.keys(p.reactions).length > 0) || p.image || p.video || (p.comments && p.comments.length > 0))
-                    .slice(0, 15);
+            {view === "trending" && (
+              <TrendingCommunityView
+                title="🔥 TRENDING"
+                subtitle="Official community announcements, featured updates, and creator highlights."
+                formLabel="Create Trending Post · Admin Only"
+                posts={state.posts
+                  .filter((post) => post.channel === "trending" || post.channel === "announcements")
+                  .sort((a, b) => (b.time || 0) - (a.time || 0))}
+                members={memberById}
+                allMemberList={allMembers}
+                isAdmin={isAdmin}
+                currentUserId={myAccount?.id}
+                onCreate={async (post) => {
+                  const authorId = myAccount?.id ?? adminMembers[0]?.id;
+                  if (authorId) await addPost({ ...post, authorId, channel: "trending" });
+                }}
+                onUpdate={updatePost}
+                onDelete={removePost}
+                onPick={setProfile}
+                setToast={setToast}
+              />
+            )}
 
-              return (
-                <TrendingCommunityView
-                  posts={trendingPosts.length ? trendingPosts : state.posts.slice(0, 10)}
-                  members={memberById}
-                  allMemberList={allMembers}
-                  isAdmin={isAdmin}
-                  currentUserId={myAccount?.id}
-                  onCreate={async (post) => {
-                    const authorId = myAccount?.id ?? adminMembers[0]?.id;
-                    if (authorId) await addPost({ ...post, authorId, channel: "trending" });
-                  }}
-                  onUpdate={updatePost}
-                  onDelete={removePost}
-                  onPick={setProfile}
-                  setToast={setToast}
-                />
-              );
-            })()}
+            {view === "announcements" && (
+              <TrendingCommunityView
+                title="📣 ANNOUNCEMENTS"
+                subtitle="Important community announcements, updates, and milestones broadcast by community leaders."
+                formLabel="Broadcast Announcement · Admin Only"
+                posts={state.posts
+                  .filter((post) => post.channel === "announcements" || post.channel === "trending")
+                  .sort((a, b) => (b.time || 0) - (a.time || 0))}
+                members={memberById}
+                allMemberList={allMembers}
+                isAdmin={isAdmin}
+                currentUserId={myAccount?.id}
+                onCreate={async (post) => {
+                  const authorId = myAccount?.id ?? adminMembers[0]?.id;
+                  if (authorId) await addPost({ ...post, authorId, channel: "announcements" });
+                }}
+                onUpdate={updatePost}
+                onDelete={removePost}
+                onPick={setProfile}
+                setToast={setToast}
+              />
+            )}
+
+            {view === "events" && (
+              <EventsCommunityView
+                posts={state.posts
+                  .filter((post) => post.channel === "events")
+                  .sort((a, b) => (b.time || 0) - (a.time || 0))}
+                members={memberById}
+                allMemberList={allMembers}
+                isAdmin={isAdmin}
+                currentUserId={myAccount?.id}
+                onCreate={async (post) => {
+                  const authorId = myAccount?.id ?? adminMembers[0]?.id;
+                  if (authorId) await addPost({ ...post, authorId, channel: "events" });
+                }}
+                onUpdate={updatePost}
+                onDelete={removePost}
+                onPick={setProfile}
+                setToast={setToast}
+              />
+            )}
 
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
@@ -1024,7 +1063,7 @@ function Index() {
               ) : null;
             })()}
 
-            {(view === "creators" || view === "rankings" || view === "announcements" || view === "featured" || view === "rising" || view === "partners" || view === "events" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
+            {(view === "creators" || view === "rankings" || view === "featured" || view === "rising" || view === "partners" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
               <div className="space-y-4 px-4 py-5">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -1798,6 +1837,9 @@ function TrendingCommunityView({
   onUpdate,
   onDelete,
   setToast,
+  title,
+  subtitle,
+  formLabel,
 }: {
   posts: Post[];
   members: Map<string, Member>;
@@ -1809,9 +1851,12 @@ function TrendingCommunityView({
   onUpdate: (id: string, patch: Partial<Post>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   setToast: (msg: string) => void;
+  title?: string;
+  subtitle?: string;
+  formLabel?: string;
 }) {
   const [draft, setDraft] = useState("");
-  const [title, setTitle] = useState("");
+  const [postHeadline, setPostHeadline] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [publishedAt, setPublishedAt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1985,9 +2030,9 @@ function TrendingCommunityView({
   return (
     <div className="space-y-6 px-4 py-6">
       <header>
-        <h1 className="text-3xl font-black">🔥 TRENDING</h1>
+        <h1 className="text-3xl font-black">{title || "🔥 TRENDING"}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Admin announcements, featured creator updates, and community discussions.
+          {subtitle || "Admin announcements, featured creator updates, and community discussions."}
         </p>
       </header>
 
@@ -1995,20 +2040,20 @@ function TrendingCommunityView({
         <form
           onSubmit={async (event) => {
             event.preventDefault();
-            if (!title.trim() && !draft.trim()) return;
+            if (!postHeadline.trim() && !draft.trim()) return;
             setBusy(true);
             try {
               const uploaded = attachment ? await uploadCommunityMedia(attachment) : "";
               await onCreate({
-                text: title.trim() ? `${title.trim()}\n\n${draft.trim()}` : draft.trim(),
+                text: postHeadline.trim() ? `${postHeadline.trim()}\n\n${draft.trim()}` : draft.trim(),
                 image: uploaded,
                 time: publishedAt ? new Date(publishedAt).getTime() : Date.now(),
               });
-              setTitle("");
+              setPostHeadline("");
               setDraft("");
               setAttachment(null);
               setPublishedAt("");
-              setToast("Trending post published!");
+              setToast("Post published successfully!");
             } finally {
               setBusy(false);
             }
@@ -2017,12 +2062,12 @@ function TrendingCommunityView({
         >
           <div className="mb-3 flex items-center justify-between">
             <p className="text-xs font-bold uppercase tracking-wider text-primary">
-              Create trending post · Admin Only
+              {formLabel || "Create trending post · Admin Only"}
             </p>
           </div>
           <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            value={postHeadline}
+            onChange={(event) => setPostHeadline(event.target.value)}
             className="mb-2 w-full rounded-xl bg-input px-3.5 py-2.5 text-sm font-semibold outline-none focus:ring-1 focus:ring-primary"
             placeholder="Post headline / title..."
           />
@@ -2815,6 +2860,419 @@ function AutoEngageModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+type CommunityEvent = {
+  isEvent: boolean;
+  title: string;
+  category: string;
+  eventDate: number;
+  hostId: string;
+  streamUrl: string;
+  description: string;
+};
+
+function parseCommunityEvent(post: Post): CommunityEvent {
+  try {
+    if (post.text.startsWith("{") && post.text.includes('"isEvent"')) {
+      const parsed = JSON.parse(post.text);
+      return {
+        isEvent: true,
+        title: parsed.title || "Community Event",
+        category: parsed.category || "Community Event",
+        eventDate: parsed.eventDate || post.time || Date.now(),
+        hostId: parsed.hostId || post.authorId,
+        streamUrl: parsed.streamUrl || "",
+        description: parsed.description || "",
+      };
+    }
+  } catch {}
+
+  const lines = post.text.split("\n");
+  const firstLine = lines[0] || "Community Event";
+  return {
+    isEvent: true,
+    title: firstLine.replace(/^#+\s*/, ""),
+    category: "Special Event",
+    eventDate: post.time || Date.now(),
+    hostId: post.authorId,
+    streamUrl: "",
+    description: lines.slice(1).join("\n").trim() || post.text,
+  };
+}
+
+function EventsCommunityView({
+  posts,
+  members,
+  allMemberList,
+  onPick,
+  isAdmin,
+  currentUserId,
+  onCreate,
+  onUpdate,
+  onDelete,
+  setToast,
+}: {
+  posts: Post[];
+  members: Map<string, Member>;
+  allMemberList: Member[];
+  onPick: (member: Member) => void;
+  isAdmin: boolean;
+  currentUserId?: string;
+  onCreate: (post: Pick<PostInput, "text" | "image" | "time">) => Promise<void>;
+  onUpdate: (id: string, patch: Partial<Post>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  setToast: (msg: string) => void;
+}) {
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventDateStr, setEventDateStr] = useState(() => {
+    const next = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    next.setMinutes(0, 0, 0);
+    return next.toISOString().slice(0, 16);
+  });
+  const [hostId, setHostId] = useState(allMemberList[0]?.id || "");
+  const [category, setCategory] = useState("🎮 Tournament");
+  const [streamUrl, setStreamUrl] = useState("");
+  const [description, setDescription] = useState("");
+  const [posterFile, setPosterFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<"all" | "upcoming">("all");
+
+  const submitEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventTitle.trim()) return setToast("Please enter an event title");
+    setBusy(true);
+    try {
+      const bannerUrl = posterFile ? await uploadCommunityMedia(posterFile) : "";
+      const chosenHostId = hostId || allMemberList[0]?.id || "community-admin";
+      const eventTimestamp = eventDateStr ? new Date(eventDateStr).getTime() : Date.now();
+
+      const eventPayload: CommunityEvent = {
+        isEvent: true,
+        title: eventTitle.trim(),
+        category,
+        eventDate: eventTimestamp,
+        hostId: chosenHostId,
+        streamUrl: streamUrl.trim(),
+        description: description.trim(),
+      };
+
+      await onCreate({
+        text: JSON.stringify(eventPayload),
+        image: bannerUrl,
+        time: eventTimestamp,
+      });
+
+      setEventTitle("");
+      setDescription("");
+      setStreamUrl("");
+      setPosterFile(null);
+      setToast("🎉 Community Event published successfully!");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleRsvp = async (post: Post) => {
+    const userKey = currentUserId || "guest-user";
+    const currentLikes = post.likes ?? [];
+    const hasRsvped = currentLikes.includes(userKey);
+    const updated = hasRsvped
+      ? currentLikes.filter((id) => id !== userKey)
+      : [...currentLikes, userKey];
+
+    await onUpdate(post.id, { likes: updated });
+    setToast(hasRsvped ? "RSVP cancelled" : "🎉 You're going to this event!");
+  };
+
+  return (
+    <div className="space-y-6 px-4 py-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-black">📅 COMMUNITY EVENTS</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Tournaments, collab raid trains, creator stages, and live gaming showdowns.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveFilter("all")}
+            className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${
+              activeFilter === "all" ? "bg-primary text-primary-foreground" : "bg-popover hover:bg-accent text-muted-foreground"
+            }`}
+          >
+            All Events ({posts.length})
+          </button>
+          <button
+            onClick={() => setActiveFilter("upcoming")}
+            className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${
+              activeFilter === "upcoming" ? "bg-primary text-primary-foreground" : "bg-popover hover:bg-accent text-muted-foreground"
+            }`}
+          >
+            ⏳ Upcoming
+          </button>
+        </div>
+      </header>
+
+      {isAdmin && (
+        <form onSubmit={submitEvent} className="rounded-2xl border border-primary/40 bg-popover p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-border pb-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-primary">
+              Create Community Event · Admin Only
+            </p>
+            <span className="rounded-full bg-primary/20 px-2.5 py-0.5 text-[10px] font-bold text-primary">
+              LIVE BROADCAST TOOL
+            </span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Event Title *
+              </label>
+              <input
+                required
+                value={eventTitle}
+                onChange={(e) => setEventTitle(e.target.value)}
+                placeholder="e.g. 🏆 Apex Legends 3v3 Creator Scrims"
+                className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm font-semibold outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Event Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm font-semibold outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="🎮 Tournament">🎮 Tournament</option>
+                <option value="🚂 Raid Train">🚂 Raid Train</option>
+                <option value="🎙️ Creator Podcast">🎙️ Creator Podcast</option>
+                <option value="⭐ Community Game Night">⭐ Community Game Night</option>
+                <option value="🏆 Championship">🏆 Championship</option>
+                <option value="🎉 Special Event">🎉 Special Event</option>
+                <option value="📺 Watch Party">📺 Watch Party</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Date & Time *
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={eventDateStr}
+                onChange={(e) => setEventDateStr(e.target.value)}
+                className="w-full rounded-xl bg-input px-3 py-2 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Featured Host Creator
+              </label>
+              <select
+                value={hostId}
+                onChange={(e) => setHostId(e.target.value)}
+                className="w-full rounded-xl bg-input px-3 py-2 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary"
+              >
+                {allMemberList.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} (@{m.handle.replace(/^@/, "")})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">
+                Stream / Room Link
+              </label>
+              <input
+                type="url"
+                value={streamUrl}
+                onChange={(e) => setStreamUrl(e.target.value)}
+                placeholder="https://twitch.tv/..."
+                className="w-full rounded-xl bg-input px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">
+              Event Description & Schedule
+            </label>
+            <textarea
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Provide details about the tournament format, rules, prizes, and schedule..."
+              className="w-full rounded-xl bg-input p-3 text-sm leading-relaxed outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border pt-3">
+            <label className="text-xs font-medium text-muted-foreground">
+              Event Cover Banner
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setPosterFile(e.target.files?.[0] ?? null)}
+                className="mt-1 block text-xs"
+              />
+            </label>
+            <button
+              disabled={busy}
+              type="submit"
+              className="rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-primary-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
+            >
+              {busy ? "Publishing Event…" : "📅 Publish Community Event"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Events List */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {posts.map((post) => {
+          const evt = parseCommunityEvent(post);
+          const host = members.get(evt.hostId) || allMemberList.find((m) => m.id === evt.hostId);
+          const rsvps = post.likes ?? [];
+          const isGoing = rsvps.includes(currentUserId || "guest-user");
+          const isLiveNow = host?.status === "live" || (Date.now() >= evt.eventDate && Date.now() <= evt.eventDate + 3 * 3600 * 1000);
+          const dateObj = new Date(evt.eventDate);
+          const dateFormatted = dateObj.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+          return (
+            <article
+              key={post.id}
+              className="flex flex-col overflow-hidden rounded-2xl border border-border bg-popover shadow-sm hover:border-primary/50 transition-all"
+            >
+              {post.image ? (
+                <div className="relative h-44 w-full overflow-hidden bg-accent">
+                  <img src={post.image} alt={evt.title} className="h-full w-full object-cover" />
+                  <span className="absolute top-3 left-3 rounded-lg bg-black/75 px-2.5 py-1 text-[11px] font-extrabold text-white backdrop-blur-sm">
+                    {evt.category}
+                  </span>
+                  {isLiveNow ? (
+                    <span className="absolute top-3 right-3 rounded-lg bg-live px-2.5 py-1 text-[10px] font-black text-white uppercase tracking-wider animate-pulse">
+                      ● LIVE EVENT NOW
+                    </span>
+                  ) : (
+                    <span className="absolute top-3 right-3 rounded-lg bg-black/75 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-sm">
+                      📅 {dateFormatted}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex h-24 items-center justify-between bg-gradient-to-r from-primary/30 via-accent to-popover px-5">
+                  <span className="rounded-lg bg-background/80 px-2.5 py-1 text-xs font-bold text-foreground">
+                    {evt.category}
+                  </span>
+                  {isLiveNow ? (
+                    <span className="rounded-lg bg-live px-2.5 py-1 text-[10px] font-black text-white uppercase tracking-wider animate-pulse">
+                      ● LIVE EVENT NOW
+                    </span>
+                  ) : (
+                    <span className="text-xs font-bold text-muted-foreground">
+                      📅 {dateFormatted}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-1 flex-col justify-between p-5 space-y-4">
+                <div>
+                  <h2 className="text-lg font-black text-foreground">{evt.title}</h2>
+                  {evt.description && (
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground line-clamp-3">
+                      {evt.description}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between border-t border-border pt-3">
+                  {host ? (
+                    <button
+                      onClick={() => onPick(host)}
+                      className="flex items-center gap-2 text-left hover:opacity-85"
+                    >
+                      <Avatar member={host} size={32} showStatus={true} />
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-bold">{host.name}</p>
+                        <p className="text-[10px] text-muted-foreground">Host · {host.platform}</p>
+                      </div>
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">StreamCore Community</span>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    {evt.streamUrl || host?.link ? (
+                      <a
+                        href={evt.streamUrl || host?.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-xl bg-accent px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent/80 transition-colors"
+                      >
+                        Watch Stream ↗
+                      </a>
+                    ) : null}
+
+                    <button
+                      onClick={() => toggleRsvp(post)}
+                      className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${
+                        isGoing
+                          ? "bg-primary text-primary-foreground shadow"
+                          : "bg-background border border-border text-foreground hover:bg-accent"
+                      }`}
+                    >
+                      <span>{isGoing ? "✓ Going" : "+ RSVP"}</span>
+                      {rsvps.length > 0 && (
+                        <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${isGoing ? "bg-primary-foreground/20 text-primary-foreground" : "bg-accent text-muted-foreground"}`}>
+                          {rsvps.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {isAdmin && (
+                      <button
+                        onClick={async () => {
+                          if (window.confirm("Delete this event?")) {
+                            await onDelete(post.id);
+                            setToast("Event removed");
+                          }
+                        }}
+                        className="rounded-xl p-1.5 text-xs text-destructive hover:bg-destructive/10"
+                        title="Delete event"
+                      >
+                        🗑
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      {!posts.length && (
+        <div className="rounded-2xl border border-dashed border-border bg-popover/50 p-12 text-center">
+          <p className="text-4xl">📅</p>
+          <h3 className="mt-3 text-lg font-bold text-foreground">No community events scheduled yet</h3>
+          <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
+            {isAdmin
+              ? "Use the event builder above to schedule and broadcast upcoming tournaments, raid trains, or game nights."
+              : "Upcoming tournaments and creator raid trains will appear here when scheduled."}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
