@@ -100,7 +100,7 @@ export function defaultState(): State {
   const m2 = uid();
   const m3 = uid();
   return {
-    stats: { members: "42M", online: "1.6K", rank: "#3" },
+    stats: { members: "21", online: "18", rank: "#1" },
     community: { ...defaultCommunity },
     channels: [
       { id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "announcement", allowChat: false, createdAt: Date.now() },

@@ -224,7 +224,16 @@ function Index() {
     setToast("Signed out");
   }
 
-  async function generateManagedMemberClips(member: Member, amount = 6) {
+  async function generateManagedMemberClips(
+    member: Member,
+    amount = 6,
+    options?: {
+      commentsCount?: number;
+      likesCount?: number;
+      sharesCount?: number;
+      selectedMemberIds?: string[];
+    }
+  ) {
     if (!member.link) return;
     try {
       const clips = await getTwitchClips({ data: { channelUrl: member.link, first: amount } });
@@ -251,18 +260,40 @@ function Index() {
         "this had me dying laughing 😭🔥",
         "the face expression killed me 💀",
         "W energy as always! 👑",
-        "instant favorite moment 🙌"
+        "instant favorite moment 🙌",
+        "literally crying laughing haha",
+        "goat stream honestly 🐐"
       ];
 
+      // Determine commenter candidates
+      const specifiedCommenters = options?.selectedMemberIds && options.selectedMemberIds.length > 0
+        ? allMembers.filter((m) => options.selectedMemberIds!.includes(m.id))
+        : [];
+
       const otherMembers = allMembers.filter((m) => m.id !== member.id);
-      const memberPool = otherMembers.length >= 3 ? otherMembers : allMembers;
+      const defaultPool = otherMembers.length >= 2 ? otherMembers : allMembers;
+      const memberPool = specifiedCommenters.length > 0 ? specifiedCommenters : defaultPool;
+
+      const targetCommentCount = options?.commentsCount !== undefined
+        ? Math.min(memberPool.length, options.commentsCount)
+        : Math.min(memberPool.length, Math.floor(Math.random() * 4) + 4);
+
+      const targetLikeCount = options?.likesCount !== undefined
+        ? Math.min(allMembers.length, options.likesCount)
+        : Math.min(allMembers.length, Math.floor(Math.random() * 5) + 5);
+
+      const targetShares = options?.sharesCount !== undefined
+        ? options.sharesCount
+        : Math.floor(Math.random() * 9) + 3;
+
       const apiKey = getGeminiApiKey();
 
       for (const clip of clips) {
-        // Pick 3 to 6 random members for comments
+        // Pick commenters
         const shuffled = [...memberPool].sort(() => 0.5 - Math.random());
-        const commentCount = Math.min(shuffled.length, Math.floor(Math.random() * 4) + 3);
-        const commenterMembers = shuffled.slice(0, commentCount);
+        const commenterMembers = targetCommentCount >= memberPool.length
+          ? memberPool
+          : shuffled.slice(0, targetCommentCount);
 
         let commentTexts: string[] = [];
 
@@ -281,7 +312,7 @@ function Index() {
               );
             }
           } catch {
-            // fallback to template reactions
+            // fallback
           }
         }
 
@@ -290,17 +321,16 @@ function Index() {
           commentTexts = commenterMembers.map((_, i) => chatShuffled[i % chatShuffled.length]);
         }
 
-        // Pick 4 to 8 random members to like the clip
+        // Pick likers
         const likerShuffled = [...allMembers].sort(() => 0.5 - Math.random());
-        const likeCount = Math.min(allMembers.length, Math.floor(Math.random() * 5) + 4);
-        const likerIds = likerShuffled.slice(0, likeCount).map((m) => m.id);
+        const likerIds = likerShuffled.slice(0, targetLikeCount).map((m) => m.id);
 
         const now = Date.now();
         const postComments = commenterMembers.map((m, idx) => ({
           id: Math.random().toString(36).slice(2, 9),
           authorId: m.id,
-          text: commentTexts[idx],
-          time: now - (commenterMembers.length - idx) * 45000,
+          text: commentTexts[idx] || "W CLIP 🔥",
+          time: now - (commenterMembers.length - idx) * 35000,
         }));
 
         await addPost({
@@ -309,11 +339,11 @@ function Index() {
           text: `${clip.title}\n${clip.url}\n👁 ${clip.view_count.toLocaleString()} views`,
           image: clip.thumbnail_url,
           likes: likerIds,
-          shares: Math.floor(Math.random() * 9) + 3,
+          shares: targetShares,
           comments: postComments,
         });
       }
-      setToast(`Generated ${clips.length} clips for ${member.name} with live chat comments & likes!`);
+      setToast(`Generated ${clips.length} clips with ${targetCommentCount} comments and ${targetLikeCount} likes!`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Could not fetch Twitch clips");
     }
@@ -453,6 +483,7 @@ function Index() {
                 >
                   <div className="relative z-10">
                   <p className="inline-block rounded-full bg-primary/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-primary">
+
                     {state.community.tagline}
                   </p>
                   <h1 className="mt-3 text-3xl font-extrabold leading-tight">
@@ -464,15 +495,15 @@ function Index() {
                     A community for streamers, creators, teams, and fans.
                   </p>
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <Stat value={state.stats.members} label="Members" logo={state.community.logo} />
-                    <Stat value={state.stats.online} label="Online" dot />
-                    <Stat value={state.stats.rank} label="Rank by size" />
+                    <Stat value={allMembers.length.toLocaleString()} label="Members" logo={state.community.logo} />
+                    <Stat value={allMembers.filter((m) => m.status !== "offline").length.toLocaleString()} label="Online" dot />
+                    <Stat value={`#${Math.min(1, allMembers.length)}`} label="Rank by size" />
                   </div>
                   <p className="mt-2 text-center text-xs text-muted-foreground">
                     <strong className="text-foreground">
-                      {realMembers.length.toLocaleString()}
+                      {allMembers.length.toLocaleString()}
                     </strong>{" "}
-                    verified streamer accounts have joined with a real login.
+                    verified streamer accounts in the community.
                   </p>
                   </div>
                 </section>
@@ -770,25 +801,220 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
   const trending = [...posts].sort((a, b) => b.time - a.time).slice(0, 3);
   const creators = members.slice(0, 3);
   const clips = posts.filter((post) => post.image || post.video).slice(0, 4);
-  const activity = { online: liveMembers.length || 86_421, active: Math.max(members.length, 12_482), streams: liveMembers.filter((m) => m.status === "live").length || 3_821, posts: posts.length || 18_421 };
-  return <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 lg:px-7">
-    <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-[radial-gradient(circle_at_top_right,_oklch(0.577_0.209_273.9_/_0.42),_transparent_44%),linear-gradient(135deg,_oklch(0.25_0.018_270),_oklch(0.17_0.015_270))] p-6 lg:p-9">
-      <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/25 blur-3xl" />
-      <div className="relative max-w-3xl"><p className="text-xs font-black tracking-[0.25em] text-primary">STREAMCORE</p><h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">One network.<br />Millions of creators.</h1><p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">A premium creator network built for discovery, collaboration, and the conversations that move culture.</p><div className="mt-6 flex flex-wrap gap-3"><button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-elevated">Explore creators</button><button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold backdrop-blur hover:bg-accent">Watch live now</button></div></div>
-      <div className="relative mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-4">{[[state.stats.members,"Members"],[activity.online.toLocaleString(),"Online now"],[activity.active.toLocaleString(),"Active today"],[activity.streams.toLocaleString(),"Streams live"]].map(([value,label]) => <div key={label} className="bg-background/45 px-4 py-4 backdrop-blur"><p className="text-lg font-black sm:text-2xl">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p></div>)}</div>
-      <p className="relative mt-3 text-xs text-muted-foreground">Live activity is based on current community data. Network totals are display statistics until live analytics are connected.</p>
-    </section>
+  const totalMembers = members.length;
+  const onlineMembers = members.filter((m) => m.status === "online" || m.status === "live").length;
+  const liveCount = members.filter((m) => m.status === "live").length;
+  const activeToday = Math.max(onlineMembers, members.length);
+  const totalPosts = posts.length;
 
-    <section className="rounded-2xl border border-border bg-popover p-4"><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-live">● LIVE NOW</p><h2 className="text-xl font-extrabold">Streamers live in the network</h2></div><button onClick={() => onOpen("live-now")} className="text-sm font-bold text-primary">View all →</button></div><div className="flex gap-3 overflow-x-auto pb-1">{liveMembers.filter((m) => m.status === "live").slice(0, 6).map((m) => <button key={m.id} onClick={() => onPick(m)} className="w-40 shrink-0 overflow-hidden rounded-xl bg-background text-left hover:ring-2 hover:ring-primary"><div className="h-16 bg-primary/30 bg-cover bg-center" style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined} /><div className="relative -mt-5 px-3 pb-3"><Avatar member={m} size={42} showStatus={false} /><p className="mt-2 truncate text-sm font-bold">{m.name}</p><p className="mt-0.5 text-xs text-live">● LIVE · {m.platform}</p></div></button>)}{!liveMembers.filter((m) => m.status === "live").length && <p className="px-2 py-6 text-sm text-muted-foreground">Live creator cards will appear here automatically.</p>}</div></section>
+  return (
+    <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 lg:px-7">
+      <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-[radial-gradient(circle_at_top_right,_oklch(0.577_0.209_273.9_/_0.42),_transparent_44%),linear-gradient(135deg,_oklch(0.25_0.018_270),_oklch(0.17_0.015_270))] p-6 lg:p-9">
+        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/25 blur-3xl" />
+        <div className="relative max-w-3xl">
+          <p className="text-xs font-black tracking-[0.25em] text-primary">STREAMCORE</p>
+          <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">One network.<br />Millions of creators.</h1>
+          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+            A premium creator network built for discovery, collaboration, and the conversations that move culture.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-elevated">Explore creators</button>
+            <button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold backdrop-blur hover:bg-accent">Watch live now</button>
+          </div>
+        </div>
+        <div className="relative mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-4">
+          {[
+            [totalMembers.toLocaleString(), "Members"],
+            [onlineMembers.toLocaleString(), "Online now"],
+            [activeToday.toLocaleString(), "Active today"],
+            [liveCount.toLocaleString(), "Streams live"]
+          ].map(([value, label]) => (
+            <div key={label} className="bg-background/45 px-4 py-4 backdrop-blur">
+              <p className="text-lg font-black sm:text-2xl">{value}</p>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
+            </div>
+          ))}
+        </div>
+        <p className="relative mt-3 text-xs text-muted-foreground">Live activity is based on current verified community data.</p>
+      </section>
 
-    <div className="grid gap-5 xl:grid-cols-[1.35fr_.85fr]"><section className="rounded-2xl border border-border bg-popover p-4"><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING RIGHT NOW</p><h2 className="text-xl font-extrabold">What creators are talking about</h2></div><button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary">Open feed →</button></div><div className="space-y-2">{trending.map((post) => { const author = members.find((m) => m.id === post.authorId); return <article key={post.id} className="rounded-xl bg-background p-3"><div className="flex gap-3"><Avatar member={author ?? { name:"Community",avatar:"",status:"offline" }} size={36} showStatus={false}/><div className="min-w-0"><p className="text-sm font-bold">{author?.name ?? "Community"} <span className="font-normal text-muted-foreground">· {timeAgo(post.time)}</span></p><p className="mt-1 line-clamp-2 text-sm">{post.text || post.sticker || "Shared a new creator moment."}</p><p className="mt-2 text-xs font-semibold text-muted-foreground">{Object.values(post.reactions ?? {}).reduce((a,b) => a+b, 0)} reactions · Community discussion</p></div></div></article>; })}{!trending.length && <p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">Fresh creator conversations will show up here.</p>}</div></section>
-    <section className="rounded-2xl border border-border bg-popover p-4"><p className="text-xs font-black tracking-widest text-primary">🌟 RISING CREATORS</p><h2 className="mt-1 text-xl font-extrabold">Creators building momentum</h2><div className="mt-3 space-y-2">{creators.map((m,index) => <button key={m.id} onClick={() => onPick(m)} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent"><span className="w-4 text-xs font-black text-primary">{index+1}</span><Avatar member={m} size={34}/><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{m.name}</span><span className="block truncate text-xs text-muted-foreground">{m.platform} creator</span></span><span className="text-xs font-black text-online">+{42-index*9}%</span></button>)}</div><button onClick={() => onOpen("rising")} className="mt-3 w-full rounded-xl bg-accent py-2 text-sm font-bold hover:bg-accent/70">Discover rising creators</button></section></div>
+      <section className="rounded-2xl border border-border bg-popover p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-black tracking-widest text-live">● LIVE NOW</p>
+            <h2 className="text-xl font-extrabold">Streamers live in the network</h2>
+          </div>
+          <button onClick={() => onOpen("live-now")} className="text-sm font-bold text-primary">View all →</button>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-1">
+          {liveMembers.filter((m) => m.status === "live").slice(0, 6).map((m) => (
+            <button key={m.id} onClick={() => onPick(m)} className="w-40 shrink-0 overflow-hidden rounded-xl bg-background text-left hover:ring-2 hover:ring-primary">
+              <div className="h-16 bg-primary/30 bg-cover bg-center" style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined} />
+              <div className="relative -mt-5 px-3 pb-3">
+                <Avatar member={m} size={42} showStatus={false} />
+                <p className="mt-2 truncate text-sm font-bold">{m.name}</p>
+                <p className="mt-0.5 text-xs text-live">● LIVE · {m.platform}</p>
+              </div>
+            </button>
+          ))}
+          {!liveMembers.filter((m) => m.status === "live").length && (
+            <p className="px-2 py-6 text-sm text-muted-foreground">Live creator cards will appear here automatically.</p>
+          )}
+        </div>
+      </section>
 
-    <div className="grid gap-5 lg:grid-cols-2"><section className="rounded-2xl border border-border bg-popover p-4"><div className="flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-pink-400">🎬 TRENDING CLIPS</p><h2 className="text-xl font-extrabold">Highlights from the network</h2></div><button onClick={() => onOpen("channel:clips")} className="text-sm font-bold text-primary">Browse clips →</button></div><div className="mt-3 grid grid-cols-2 gap-2">{clips.slice(0,4).map((post) => <div key={post.id} className="aspect-video overflow-hidden rounded-xl bg-accent">{post.image ? <img src={post.image} alt="Creator clip" className="h-full w-full object-cover"/> : post.video ? <video src={post.video} className="h-full w-full object-cover"/> : null}</div>)}{!clips.length && <div className="col-span-2 rounded-xl bg-background p-5 text-sm text-muted-foreground">Clips posted by creators will appear here.</div>}</div></section><section className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-emerald-400">🤝 CREATOR NETWORK</p><h2 className="mt-1 text-xl font-extrabold">Built for creators helping creators</h2><div className="mt-5 grid grid-cols-2 gap-3"><Metric value={members.length.toLocaleString()} label="Creators connected"/><Metric value={activity.posts.toLocaleString()} label="Posts today"/><Metric value="8,420" label="Collaborations this month"/><Metric value="24/7" label="Global activity"/></div><button onClick={() => onOpen("events")} className="mt-5 rounded-xl border border-primary/50 px-4 py-2 text-sm font-bold text-primary hover:bg-primary hover:text-primary-foreground">Explore creator events</button></section></div>
-    <section className="grid gap-5 lg:grid-cols-2"><div className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-primary">◌ TOP CATEGORIES</p><h2 className="mt-1 text-xl font-extrabold">Where the network is watching</h2><div className="mt-4 flex items-center gap-6"><div className="h-28 w-28 rounded-full bg-[conic-gradient(oklch(0.577_0.209_273.9)_0_45%,oklch(0.637_0.215_24.7)_45%_68%,oklch(0.637_0.155_152.3)_68%_85%,oklch(0.801_0.151_80.5)_85%)] p-7"><div className="h-full w-full rounded-full bg-popover"/></div><div className="space-y-2 text-xs"><p>🔴 Just Chatting <strong className="ml-3 text-online">45%</strong></p><p>🔵 Gaming <strong className="ml-3 text-online">32%</strong></p><p>🟣 Music <strong className="ml-3 text-online">13%</strong></p><p>🟡 IRL <strong className="ml-3 text-online">7%</strong></p></div></div></div><div className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p><h2 className="mt-1 text-xl font-extrabold">What’s happening in StreamCore</h2><div className="mt-4 space-y-2">{["Creator Challenge — Spring 2024","Partner program applications open","Community update — new features"].map((item) => <button key={item} onClick={() => onOpen("announcements")} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold hover:bg-accent"><span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary">✦</span><span className="min-w-0 flex-1 truncate">{item}<small className="mt-1 block text-xs font-normal text-muted-foreground">StreamCore Staff · recently</small></span><span className="text-muted-foreground">→</span></button>)}</div></div></section>
-    <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between"><div><h2 className="text-xl font-extrabold">Join the world’s most active creator community</h2><p className="mt-1 text-sm text-muted-foreground">Connect, collaborate, and grow together with millions of creators.</p></div><button onClick={() => onOpen("creators")} className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground sm:mt-0">Invite your friends</button></section>
-    <footer className="grid gap-6 border-t border-border pt-6 text-xs text-muted-foreground sm:grid-cols-4"><div><p className="font-black tracking-widest text-foreground">◈ STREAMCORE</p><p className="mt-2">The world’s largest creator community. Connect, collaborate, and grow together.</p></div><div><p className="font-bold text-foreground">COMMUNITY</p><p className="mt-2">Guidelines</p><p>Rules</p><p>Support</p></div><div><p className="font-bold text-foreground">CREATOR</p><p className="mt-2">Apply for Partner</p><p>Creator resources</p><p>Brand assets</p></div><div><p className="font-bold text-foreground">LEGAL</p><p className="mt-2">Terms of Service</p><p>Privacy Policy</p><p>Community Rules</p></div></footer>
-  </div>;
+      <div className="grid gap-5 xl:grid-cols-[1.35fr_.85fr]">
+        <section className="rounded-2xl border border-border bg-popover p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING RIGHT NOW</p>
+              <h2 className="text-xl font-extrabold">What creators are talking about</h2>
+            </div>
+            <button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary">Open feed →</button>
+          </div>
+          <div className="space-y-2">
+            {trending.map((post) => {
+              const author = members.find((m) => m.id === post.authorId);
+              return (
+                <article key={post.id} className="rounded-xl bg-background p-3">
+                  <div className="flex gap-3">
+                    <Avatar member={author ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold">
+                        {author?.name ?? "Community"} <span className="font-normal text-muted-foreground">· {timeAgo(post.time)}</span>
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-sm">{post.text || post.sticker || "Shared a new creator moment."}</p>
+                      <p className="mt-2 text-xs font-semibold text-muted-foreground">{Object.values(post.reactions ?? {}).reduce((a, b) => a + b, 0)} reactions · Community discussion</p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+            {!trending.length && <p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">Fresh creator conversations will show up here.</p>}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border bg-popover p-4">
+          <p className="text-xs font-black tracking-widest text-primary">🌟 RISING CREATORS</p>
+          <h2 className="mt-1 text-xl font-extrabold">Creators building momentum</h2>
+          <div className="mt-3 space-y-2">
+            {creators.map((m, index) => (
+              <button key={m.id} onClick={() => onPick(m)} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent">
+                <span className="w-4 text-xs font-black text-primary">{index + 1}</span>
+                <Avatar member={m} size={34} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold">{m.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{m.platform} creator</span>
+                </span>
+                <span className="text-xs font-black text-online">+{42 - index * 9}%</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => onOpen("rising")} className="mt-3 w-full rounded-xl bg-accent py-2 text-sm font-bold hover:bg-accent/70">Discover rising creators</button>
+        </section>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <section className="rounded-2xl border border-border bg-popover p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black tracking-widest text-pink-400">🎬 TRENDING CLIPS</p>
+              <h2 className="text-xl font-extrabold">Highlights from the network</h2>
+            </div>
+            <button onClick={() => onOpen("channel:clips")} className="text-sm font-bold text-primary">Browse clips →</button>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {clips.slice(0, 4).map((post) => (
+              <div key={post.id} className="aspect-video overflow-hidden rounded-xl bg-accent">
+                {post.image ? <img src={post.image} alt="Creator clip" className="h-full w-full object-cover" /> : post.video ? <video src={post.video} className="h-full w-full object-cover" /> : null}
+              </div>
+            ))}
+            {!clips.length && <div className="col-span-2 rounded-xl bg-background p-5 text-sm text-muted-foreground">Clips posted by creators will appear here.</div>}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border bg-popover p-5">
+          <p className="text-xs font-black tracking-widest text-emerald-400">🤝 CREATOR NETWORK</p>
+          <h2 className="mt-1 text-xl font-extrabold">Built for creators helping creators</h2>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <Metric value={totalMembers.toLocaleString()} label="Creators connected" />
+            <Metric value={totalPosts.toLocaleString()} label="Posts today" />
+            <Metric value="8,420" label="Collaborations this month" />
+            <Metric value="24/7" label="Global activity" />
+          </div>
+          <button onClick={() => onOpen("events")} className="mt-5 rounded-xl border border-primary/50 px-4 py-2 text-sm font-bold text-primary hover:bg-primary hover:text-primary-foreground">Explore creator events</button>
+        </section>
+      </div>
+
+      <section className="grid gap-5 lg:grid-cols-2">
+        <div className="rounded-2xl border border-border bg-popover p-5">
+          <p className="text-xs font-black tracking-widest text-primary">◌ TOP CATEGORIES</p>
+          <h2 className="mt-1 text-xl font-extrabold">Where the network is watching</h2>
+          <div className="mt-4 flex items-center gap-6">
+            <div className="h-28 w-28 rounded-full bg-[conic-gradient(oklch(0.577_0.209_273.9)_0_45%,oklch(0.637_0.215_24.7)_45%_68%,oklch(0.637_0.155_152.3)_68%_85%,oklch(0.801_0.151_80.5)_85%)] p-7">
+              <div className="h-full w-full rounded-full bg-popover" />
+            </div>
+            <div className="space-y-2 text-xs">
+              <p>🔴 Just Chatting <strong className="ml-3 text-online">45%</strong></p>
+              <p>🔵 Gaming <strong className="ml-3 text-online">32%</strong></p>
+              <p>🟣 Music <strong className="ml-3 text-online">13%</strong></p>
+              <p>🟡 IRL <strong className="ml-3 text-online">7%</strong></p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-popover p-5">
+          <p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p>
+          <h2 className="mt-1 text-xl font-extrabold">What’s happening in StreamCore</h2>
+          <div className="mt-4 space-y-2">
+            {["Creator Challenge — Spring 2024", "Partner program applications open", "Community update — new features"].map((item) => (
+              <button key={item} onClick={() => onOpen("announcements")} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold hover:bg-accent">
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary">✦</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {item}
+                  <small className="mt-1 block text-xs font-normal text-muted-foreground">StreamCore Staff · recently</small>
+                </span>
+                <span className="text-muted-foreground">→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold">Join the world’s most active creator community</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Connect, collaborate, and grow together with millions of creators.</p>
+        </div>
+        <button onClick={() => onOpen("creators")} className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground sm:mt-0">Invite your friends</button>
+      </section>
+
+      <footer className="grid gap-6 border-t border-border pt-6 text-xs text-muted-foreground sm:grid-cols-4">
+        <div>
+          <p className="font-black tracking-widest text-foreground">◈ STREAMCORE</p>
+          <p className="mt-2">The world’s largest creator community. Connect, collaborate, and grow together.</p>
+        </div>
+        <div>
+          <p className="font-bold text-foreground">COMMUNITY</p>
+          <p className="mt-2">Guidelines</p>
+          <p>Rules</p>
+          <p>Support</p>
+        </div>
+        <div>
+          <p className="font-bold text-foreground">CREATOR</p>
+          <p className="mt-2">Apply for Partner</p>
+          <p>Creator resources</p>
+          <p>Brand assets</p>
+        </div>
+        <div>
+          <p className="font-bold text-foreground">LEGAL</p>
+          <p className="mt-2">Terms of Service</p>
+          <p>Privacy Policy</p>
+          <p>Community Rules</p>
+        </div>
+      </footer>
+    </div>
+  );
 }
 
 function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
@@ -2396,16 +2622,31 @@ function CustomChannel({
                       </span>
                     </div>
 
-                    <MessageActions
-                      post={post}
-                      member={member}
-                      isAdmin={isAdmin}
-                      currentUserId={currentUserId}
-                      onReact={onReact}
-                      onReply={() => onReply({ id: post.id, authorId: post.authorId })}
-                      onDelete={onDelete}
-                      onRemoveMember={async () => {}}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      {(isAdmin || post.authorId === currentUserId || !post.authorId || post.authorId === "community") && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void onDelete(post.id);
+                            onToast?.("Clip deleted");
+                          }}
+                          className="flex items-center gap-1 rounded-md bg-destructive/15 px-2 py-1 text-xs font-bold text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                          title="Delete clip"
+                        >
+                          <span>🗑️ Delete</span>
+                        </button>
+                      )}
+                      <MessageActions
+                        post={post}
+                        member={member}
+                        isAdmin={isAdmin}
+                        currentUserId={currentUserId}
+                        onReact={onReact}
+                        onReply={() => onReply({ id: post.id, authorId: post.authorId })}
+                        onDelete={onDelete}
+                        onRemoveMember={async () => {}}
+                      />
+                    </div>
                   </div>
 
                   {post.text && (

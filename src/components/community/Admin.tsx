@@ -49,7 +49,16 @@ export function AdminView({
   crm?: ReactNode;
   addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
   removeChannel: (id: string) => void;
-  generateClips?: (member: Member, amount: number) => Promise<void>;
+  generateClips?: (
+    member: Member,
+    amount: number,
+    options?: {
+      commentsCount?: number;
+      likesCount?: number;
+      sharesCount?: number;
+      selectedMemberIds?: string[];
+    }
+  ) => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -65,6 +74,13 @@ export function AdminView({
   const [connections, setConnections] = useState<Connection[]>([]);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [clipAmounts, setClipAmounts] = useState<Record<string, number>>({});
+  const [activeClipModalMember, setActiveClipModalMember] = useState<Member | null>(null);
+  const [modalClipAmount, setModalClipAmount] = useState(5);
+  const [modalCommentsCount, setModalCommentsCount] = useState(8);
+  const [modalLikesCount, setModalLikesCount] = useState(12);
+  const [modalSharesCount, setModalSharesCount] = useState(5);
+  const [modalSelectedCommenters, setModalSelectedCommenters] = useState<string[]>([]);
+  const [generatingClipsLoading, setGeneratingClipsLoading] = useState(false);
   const [connectionPlatform, setConnectionPlatform] = useState("Instagram");
   const [connectionLabel, setConnectionLabel] = useState("");
   const [connectionUrl, setConnectionUrl] = useState("");
@@ -562,25 +578,191 @@ export function AdminView({
                 </p>
               </div>
                <div className="flex flex-wrap justify-end gap-2">
-               {generateClips && m.platform === "Twitch" && m.link && <><input aria-label={`Number of clips from ${m.name}`} type="number" min={1} max={20} value={clipAmounts[m.id] ?? 5} onChange={(e) => setClipAmounts((items) => ({ ...items, [m.id]: Math.min(20, Math.max(1, Number(e.target.value) || 1)) }))} className="w-16 rounded-md bg-input px-2 py-1.5 text-xs"/><button type="button" onClick={() => void generateClips(m, clipAmounts[m.id] ?? 5)} className="shrink-0 rounded-md bg-primary/15 px-3 py-1.5 text-xs font-bold text-primary">Generate clips</button></>}
-               <button type="button" onClick={() => { const next = m.manualStatus === "online" || m.status === "online" ? "offline" : "online"; void updateMember(m.id, { manualStatus: next, status: next }).then(() => notify(`${m.name} set ${next}`)).catch(() => notify("Could not save member status")); }} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">{m.manualStatus === "online" || m.status === "online" ? "Set offline" : "Set online"}</button>
-              <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
-              <button
-                type="button"
-                onClick={() =>
-                  void removeMember(m.id)
-                    .then(() => notify("Member permanently removed from the community"))
-                    .catch((error) => notify(`Could not remove member: ${error.message ?? "database request failed"}`))
-                }
-                className="shrink-0 rounded-md bg-destructive/15 px-3 py-1.5 text-xs font-bold text-destructive"
-              >
-                Remove
-              </button>
+                {generateClips && m.platform === "Twitch" && m.link && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveClipModalMember(m);
+                      setModalClipAmount(clipAmounts[m.id] ?? 4);
+                      setModalCommentsCount(8);
+                      setModalLikesCount(12);
+                      setModalSharesCount(6);
+                      setModalSelectedCommenters([]);
+                    }}
+                    className="flex shrink-0 items-center gap-1 rounded-md bg-primary/20 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground"
+                    title="Generate clips with custom comments & likes"
+                  >
+                    🎬 Generate clips…
+                  </button>
+                )}
+                <button type="button" onClick={() => { const next = m.manualStatus === "online" || m.status === "online" ? "offline" : "online"; void updateMember(m.id, { manualStatus: next, status: next }).then(() => notify(`${m.name} set ${next}`)).catch(() => notify("Could not save member status")); }} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">{m.manualStatus === "online" || m.status === "online" ? "Set offline" : "Set online"}</button>
+                <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void removeMember(m.id)
+                      .then(() => notify("Member permanently removed from the community"))
+                      .catch((error) => notify(`Could not remove member: ${error.message ?? "database request failed"}`))
+                  }
+                  className="shrink-0 rounded-md bg-destructive/15 px-3 py-1.5 text-xs font-bold text-destructive"
+                >
+                  Remove
+                </button>
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      {activeClipModalMember && generateClips && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-popover p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div>
+                <h3 className="text-lg font-black text-foreground">
+                  🎬 Clip Generator & Community Engagement
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Generate clips from <strong className="text-primary">{activeClipModalMember.name}</strong> with live chat comments & likes.
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveClipModalMember(null)}
+                className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Clips to import">
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={modalClipAmount}
+                  onChange={(e) => setModalClipAmount(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Comments per clip">
+                <input
+                  type="number"
+                  min={1}
+                  max={25}
+                  value={modalCommentsCount}
+                  onChange={(e) => setModalCommentsCount(Math.max(1, Math.min(25, Number(e.target.value) || 1)))}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Likes per clip">
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={modalLikesCount}
+                  onChange={(e) => setModalLikesCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Shares per clip">
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={modalSharesCount}
+                  onChange={(e) => setModalSharesCount(Math.max(0, Math.min(30, Number(e.target.value) || 0)))}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-foreground">
+                  Community Members to Comment & Like ({modalSelectedCommenters.length || "All"} selected)
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (modalSelectedCommenters.length === state.members.length) {
+                      setModalSelectedCommenters([]);
+                    } else {
+                      setModalSelectedCommenters(state.members.map((m) => m.id));
+                    }
+                  }}
+                  className="text-xs font-bold text-primary hover:underline"
+                >
+                  {modalSelectedCommenters.length === state.members.length ? "Reset to Auto" : "Select All Members"}
+                </button>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto rounded-xl border border-border/80 bg-background/60 p-2 space-y-1.5">
+                {state.members.map((m) => {
+                  const isChecked = modalSelectedCommenters.includes(m.id);
+                  return (
+                    <label
+                      key={m.id}
+                      className="flex items-center justify-between rounded-lg p-1.5 text-xs hover:bg-accent cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Avatar member={m} size={24} showStatus={false} />
+                        <span className="font-semibold text-foreground">{m.name}</span>
+                        <span className="text-muted-foreground">{m.handle}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setModalSelectedCommenters((prev) => [...prev, m.id]);
+                          } else {
+                            setModalSelectedCommenters((prev) => prev.filter((id) => id !== m.id));
+                          }
+                        }}
+                        className="rounded border-border"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveClipModalMember(null)}
+                className={`${ghostButtonClass} flex-1`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={generatingClipsLoading}
+                onClick={async () => {
+                  if (!activeClipModalMember) return;
+                  try {
+                    setGeneratingClipsLoading(true);
+                    await generateClips(activeClipModalMember, modalClipAmount, {
+                      commentsCount: modalCommentsCount,
+                      likesCount: modalLikesCount,
+                      sharesCount: modalSharesCount,
+                      selectedMemberIds: modalSelectedCommenters.length > 0 ? modalSelectedCommenters : undefined,
+                    });
+                    notify(`Clips generated for ${activeClipModalMember.name}!`);
+                    setActiveClipModalMember(null);
+                  } finally {
+                    setGeneratingClipsLoading(false);
+                  }
+                }}
+                className={`${buttonClass} flex-1`}
+              >
+                {generatingClipsLoading ? "Generating Clips & Chat…" : "Generate Clips Now"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {crm}
     </div>
