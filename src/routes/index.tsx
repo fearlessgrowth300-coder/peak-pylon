@@ -679,37 +679,16 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
   </div>;
 }
 
-const activeTwitchPlayers = new Set<any>();
-
-function triggerAllLivePlayers() {
-  activeTwitchPlayers.forEach((player) => {
-    try {
-      player.setMuted(true);
-      player.setVolume(0);
-      player.play();
-    } catch {
-      // ignore
-    }
-  });
-}
-
 function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
+  const [activeMember, setActiveMember] = useState<Member | null>(() => members[0] ?? null);
+
   useEffect(() => {
-    triggerAllLivePlayers();
-    const onUserInteract = () => {
-      triggerAllLivePlayers();
-    };
-    window.addEventListener("pointerdown", onUserInteract, { passive: true });
-    window.addEventListener("keydown", onUserInteract, { passive: true });
-    const timer = setInterval(triggerAllLivePlayers, 1500);
-    const stopTimer = setTimeout(() => clearInterval(timer), 10000);
-    return () => {
-      window.removeEventListener("pointerdown", onUserInteract);
-      window.removeEventListener("keydown", onUserInteract);
-      clearInterval(timer);
-      clearTimeout(stopTimer);
-    };
-  }, []);
+    if (members.length > 0 && (!activeMember || !members.some((m) => m.id === activeMember.id))) {
+      setActiveMember(members[0] ?? null);
+    }
+  }, [members, activeMember]);
+
+  const featured = activeMember ?? members[0] ?? null;
 
   return (
     <div className="space-y-6 px-4 py-6">
@@ -719,33 +698,107 @@ function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: 
           Creators currently live from your community. Streams begin automatically muted.
         </p>
       </header>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {members.map((member) => (
-          <article
-            key={member.id}
-            className="overflow-hidden rounded-2xl border border-border bg-popover hover:border-primary"
-          >
-            <div className="relative bg-black">
-              <LiveStreamEmbed member={member} />
-              <span className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-destructive px-2 py-1 text-xs font-black text-white shadow">
+
+      {featured && (
+        <section className="overflow-hidden rounded-2xl border border-primary/40 bg-popover shadow-xl">
+          <div className="relative aspect-video w-full bg-black">
+            <LiveStreamEmbed key={featured.id} member={featured} />
+            <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2">
+              <span className="rounded bg-destructive px-2 py-1 text-xs font-black text-white shadow">
                 LIVE
               </span>
+              <span className="rounded bg-black/70 px-2 py-1 text-xs font-bold text-white backdrop-blur">
+                {featured.platform}
+              </span>
             </div>
-            <button onClick={() => onPick(member)} className="w-full p-4 text-left">
-              <div className="flex items-center gap-3">
-                <Avatar member={member} size={44} />
-                <div>
-                  <p className="font-bold">{member.name}</p>
-                  <p className="text-xs text-muted-foreground">{member.handle}</p>
-                </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <div className="flex items-center gap-3.5">
+              <Avatar member={featured} size={48} />
+              <div>
+                <h2 className="text-lg font-black text-foreground">{featured.name}</h2>
+                <p className="text-xs text-muted-foreground">{featured.handle}</p>
               </div>
-              <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                {member.bio || "Live community creator"}
-              </p>
-            </button>
-          </article>
-        ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {featured.link && (
+                <a
+                  href={featured.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl border border-border bg-background px-4 py-2 text-xs font-bold hover:bg-accent"
+                >
+                  Open on {featured.platform} ↗
+                </a>
+              )}
+              <button
+                onClick={() => onPick(featured)}
+                className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+              >
+                View Profile
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <div>
+        <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          All Live Creators ({members.length})
+        </h3>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {members.map((member) => {
+            const isCurrent = featured?.id === member.id;
+            return (
+              <article
+                key={member.id}
+                onClick={() => setActiveMember(member)}
+                className={`group cursor-pointer overflow-hidden rounded-2xl border bg-popover transition-all hover:border-primary ${
+                  isCurrent ? "ring-2 ring-primary border-primary shadow-elevated" : "border-border"
+                }`}
+              >
+                <div
+                  className="relative h-36 bg-accent bg-cover bg-center"
+                  style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}
+                >
+                  <span className="absolute left-3 top-3 rounded bg-destructive px-2 py-0.5 text-[10px] font-black text-white shadow">
+                    LIVE
+                  </span>
+                  {isCurrent && (
+                    <span className="absolute right-3 top-3 rounded bg-primary px-2 py-0.5 text-[10px] font-black text-primary-foreground shadow">
+                      NOW PLAYING
+                    </span>
+                  )}
+                </div>
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <Avatar member={member} size={40} />
+                      <div>
+                        <p className="font-bold text-foreground group-hover:text-primary">{member.name}</p>
+                        <p className="text-xs text-muted-foreground">{member.handle}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPick(member);
+                      }}
+                      className="rounded-lg border border-border px-2.5 py-1 text-xs font-semibold hover:bg-accent"
+                    >
+                      Profile
+                    </button>
+                  </div>
+                  <p className="mt-3 line-clamp-2 text-xs text-muted-foreground">
+                    {member.bio || "Live community creator"}
+                  </p>
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </div>
+
       {!members.length && (
         <p className="text-sm text-muted-foreground">No community creators are live right now.</p>
       )}
@@ -794,7 +847,6 @@ function LiveStreamEmbed({ member }: { member: Member }) {
         });
 
         playerRef.current = player;
-        activeTwitchPlayers.add(player);
 
         const tryPlay = () => {
           if (disposed) return;
@@ -811,17 +863,10 @@ function LiveStreamEmbed({ member }: { member: Member }) {
           tryPlay();
           setTimeout(tryPlay, 300);
           setTimeout(tryPlay, 1000);
-          setTimeout(tryPlay, 2500);
         });
 
         player.addEventListener?.(Twitch.Player.ONLINE, () => {
           tryPlay();
-        });
-
-        player.addEventListener?.(Twitch.Player.PAUSE, () => {
-          if (!disposed && player.getMuted?.()) {
-            tryPlay();
-          }
         });
 
         const setIframeAttributes = () => {
@@ -856,9 +901,6 @@ function LiveStreamEmbed({ member }: { member: Member }) {
 
     return () => {
       disposed = true;
-      if (playerRef.current) {
-        activeTwitchPlayers.delete(playerRef.current);
-      }
     };
   }, [login, platform]);
 
