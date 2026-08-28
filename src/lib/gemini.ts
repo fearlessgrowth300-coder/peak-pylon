@@ -384,11 +384,12 @@ Rules:
 3. Use natural Twitch/Discord/streamer language (humor, game strategies, congratulating someone streaming live, GG, W, LMAO, etc.).
 4. Sometimes send a sticker from the list.
 5. Optionally react to a recent post ID with an emoji (🔥, 😂, 👑, ❤️, 🎮).
+6. CRITICAL: NEVER put sticker URLs or image links inside the 'text' property. The 'text' property must ONLY contain conversational dialogue. Put sticker URLs ONLY in the 'sticker' property.
 
 Respond ONLY with a valid JSON object:
 {
   "authorId": "id_of_selected_creator",
-  "text": "message text",
+  "text": "message text without any URLs",
   "sticker": "optional_sticker_url",
   "replyToId": "optional_reply_to_post_id",
   "reactions": { "emoji": "🔥", "postId": "post_id_to_react_to" }
@@ -406,9 +407,18 @@ Respond ONLY with a valid JSON object:
 
     const parsed = JSON.parse(cleaned);
     if (parsed?.authorId && (parsed?.text || parsed?.sticker)) {
+      let cleanText = (parsed.text || "").trim();
+      if (parsed.sticker) {
+        cleanText = cleanText.replaceAll(parsed.sticker, "").trim();
+      }
+      cleanText = cleanText
+        .replace(/https?:\/\/[^\s]+(?:\.gif|\.png|\.webp|\.svg|giphy\.com|twemoji)[^\s]*/gi, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
       return {
         authorId: parsed.authorId,
-        text: parsed.text || undefined,
+        text: cleanText || undefined,
         sticker: parsed.sticker || undefined,
         replyToId: parsed.replyToId || undefined,
         reactions: parsed.reactions?.postId && parsed.reactions?.emoji ? parsed.reactions : undefined,

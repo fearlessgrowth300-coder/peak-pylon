@@ -789,7 +789,7 @@ function Index() {
                                 <strong className="text-primary">
                                   {parentAuthor?.name ?? "Community"}
                                 </strong>{" "}
-                                {parent.text || parent.sticker || "attachment"}
+                                {parent.text ? parent.text.replace(/https?:\/\/[^\s]+(?:\.gif|\.png|\.webp|\.svg|giphy\.com|twemoji)[^\s]*/gi, "").trim() || (parent.sticker ? "sticker" : "attachment") : parent.sticker ? "sticker" : "attachment"}
                               </span>
                             </div>
                           )}
@@ -824,11 +824,14 @@ function Index() {
                                   Reply
                                 </button>
                               </div>
-                              {p.text && (
-                                <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">
-                                  {p.text}
-                                </p>
-                              )}
+                              {p.text && (() => {
+                                const displayText = p.text.replace(/https?:\/\/[^\s]+(?:\.gif|\.png|\.webp|\.svg|giphy\.com|twemoji)[^\s]*/gi, "").trim();
+                                return displayText ? (
+                                  <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">
+                                    {displayText}
+                                  </p>
+                                ) : null;
+                              })()}
                               {p.sticker && (
                                 <StickerDisplay sticker={p.sticker} onToast={setToast} />
                               )}
