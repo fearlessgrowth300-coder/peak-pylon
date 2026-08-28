@@ -213,6 +213,22 @@ function Index() {
 
   const memberById = useMemo(() => new Map(allMembers.map((m) => [m.id, m])), [allMembers]);
 
+  const postingAuthors = useMemo(() => {
+    if (!myAccount) return [];
+    const ownerProfile = accountToMember(myAccount);
+    if (!isAdmin) return [ownerProfile];
+    const map = new Map<string, Member>();
+    map.set(ownerProfile.id, ownerProfile);
+    for (const m of allMembers) {
+      map.set(m.id, m);
+    }
+    return Array.from(map.values());
+  }, [isAdmin, myAccount, allMembers]);
+
+  const selectedChatAuthor = postingAuthors.some((member) => member.id === chatAuthor)
+    ? chatAuthor
+    : (postingAuthors[0]?.id ?? "");
+
   const filtered = allMembers.filter((m) =>
     `${m.name} ${m.handle} ${m.platform} ${m.bio}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -2620,7 +2636,7 @@ function CustomChannel({
       <div className="space-y-4">
         {posts.map((post) => {
           const member = members.get(post.authorId);
-          const segments = post.text.split(/(https?:\/\/[^\s]+)/g);
+          const segments = (post.text || "").split(/(https?:\/\/[^\s]+)/g);
           const likesList = post.likes ?? [];
           const userKey = currentUserId || "guest-user";
           const isLikedByMe = likesList.includes(userKey);
