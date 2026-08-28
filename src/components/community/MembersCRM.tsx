@@ -16,7 +16,7 @@ import { formatDate } from "@/lib/community";
 import { Avatar, inputClass } from "./Bits";
 
 export function MembersCRM({
-  accounts,
+  accounts = [],
   isAdmin,
   refresh,
   notify,
@@ -29,17 +29,22 @@ export function MembersCRM({
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
-  const list = accounts.filter((a) =>
-    `${a.display_name} ${a.handle ?? ""} ${a.platform} ${a.channel_url}`
+  const safeAccounts = (accounts ?? []).map((a) => ({
+    ...a,
+    roles: Array.isArray(a.roles) ? a.roles : [],
+  }));
+
+  const list = safeAccounts.filter((a) =>
+    `${a.display_name || ""} ${a.handle || ""} ${a.platform || ""} ${a.channel_url || ""}`
       .toLowerCase()
       .includes(q.toLowerCase()),
   );
 
   const counts = {
-    total: accounts.length,
-    streamers: accounts.filter((a) => a.roles.length > 0).length,
-    partners: accounts.filter((a) => a.roles.includes("partner")).length,
-    restricted: accounts.filter((a) => isRestricted(a) || a.is_banned).length,
+    total: safeAccounts.length,
+    streamers: safeAccounts.filter((a) => a.roles && a.roles.length > 0).length,
+    partners: safeAccounts.filter((a) => a.roles && a.roles.includes("partner")).length,
+    restricted: safeAccounts.filter((a) => isRestricted(a) || a.is_banned).length,
   };
 
   async function run(id: string, fn: () => Promise<unknown>, message: string) {
@@ -85,7 +90,8 @@ export function MembersCRM({
 
       <div className="space-y-2">
         {list.map((a) => {
-          const role = topRole(a.roles);
+          const role = topRole(a.roles || []);
+          const roleMeta = ROLE_META[role] || { label: "Member", icon: "👤" };
           const isOwner = role === "admin";
           return (
             <div key={a.id} className="space-y-3 rounded-md bg-background p-3">
@@ -94,18 +100,17 @@ export function MembersCRM({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{a.display_name}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {a.handle} · {a.platform} · joined{" "}
-                    {formatDate(new Date(a.created_at).getTime())}
+                    {a.handle} · {a.platform} · joined {formatDate(a.created_at)}
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-[11px] font-bold">
-                  {ROLE_META[role].icon} {ROLE_META[role].label}
+                  {roleMeta.icon} {roleMeta.label}
                 </span>
               </div>
 
               {(a.is_banned || isRestricted(a)) && (
                 <p className="text-xs font-semibold text-destructive">
-                  {a.is_banned ? "Banned" : `Restricted until ${formatDate(new Date(a.restricted_until!).getTime())}`}
+                  {a.is_banned ? "Banned" : `Restricted until ${formatDate(a.restricted_until)}`}
                 </p>
               )}
 
@@ -124,7 +129,7 @@ export function MembersCRM({
                 >
                   {ROLES.map((r) => (
                     <option key={r} value={r}>
-                      {ROLE_META[r].label}
+                      {(ROLE_META[r] || { label: r }).label}
                     </option>
                   ))}
                 </select>

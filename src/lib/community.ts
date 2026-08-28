@@ -161,12 +161,25 @@ export function useCommunity() {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<State>;
+        const isLegacyMockPost = (p: Post) => {
+          if (!p || typeof p.text !== "string") return false;
+          return (
+            p.text.includes("VTubers take over") ||
+            p.text.includes("Tonight we are spotlighting competitive creators") ||
+            p.text.includes("Creator tip: make your profile instantly understandable")
+          );
+        };
+
+        const cleanPosts = Array.isArray(parsed.posts)
+          ? parsed.posts.filter((p) => p && !isLegacyMockPost(p))
+          : [];
+
         setState((s) => ({
           ...s,
           ...parsed,
           community: { ...defaultCommunity, ...(parsed.community ?? {}) },
           channels: Array.isArray(parsed.channels) && parsed.channels.length ? parsed.channels : s.channels,
-          posts: Array.isArray(parsed.posts) ? parsed.posts : s.posts,
+          posts: cleanPosts,
         }));
       }
     } catch {
@@ -525,11 +538,17 @@ export const EMOJI_LIBRARY = [
   ["📸", "camera photo"], ["💯", "hundred perfect"], ["✨", "sparkles"], ["🫡", "salute"],
 ] as const;
 
-export function formatDate(ts: number | undefined) {
+export function formatDate(ts: number | string | undefined | null) {
   if (!ts) return "—";
-  return new Date(ts).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const num = typeof ts === "string" ? new Date(ts).getTime() : typeof ts === "number" ? ts : NaN;
+  if (!num || isNaN(num)) return "—";
+  try {
+    return new Date(num).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "—";
+  }
 }
