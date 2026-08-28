@@ -555,6 +555,17 @@ export function AdminView({
               placeholder="AIzaSy...\nAIzaSy...\nAIzaSy..."
               className={`${inputClass} font-mono text-xs`}
             />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              🔑 Need Gemini API keys? Generate free keys (starts with <strong className="text-primary">AIzaSy...</strong>) at{" "}
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary underline font-semibold"
+              >
+                aistudio.google.com/app/apikey ↗
+              </a>
+            </p>
           </Field>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

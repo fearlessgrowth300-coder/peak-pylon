@@ -125,6 +125,15 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
   const keys = apiKey ? [apiKey] : getGeminiApiKeys();
   if (!keys.length) return { success: false, message: "Please provide at least one Gemini API key." };
 
+  for (const k of keys) {
+    if (k.startsWith("AQ.")) {
+      return {
+        success: false,
+        message: "Invalid Key: The key you entered starts with 'AQ.' which is not a Gemini API key. Google Gemini API keys start with 'AIzaSy' (get yours free at https://aistudio.google.com/app/apikey).",
+      };
+    }
+  }
+
   let selectedModel = model || getGeminiModel();
   const candidateModels = [
     selectedModel,
@@ -135,6 +144,7 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
     "gemini-1.5-pro",
   ];
   const uniqueCandidates = Array.from(new Set(candidateModels.filter(Boolean)));
+  let lastErrorMessage = "";
 
   for (const key of keys) {
     for (const candidate of uniqueCandidates) {
@@ -155,16 +165,20 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
             workingModel: candidate,
             message: `Gemini AI connected successfully (${candidate})! (Pool of ${keys.length} API key${keys.length > 1 ? "s" : ""})`,
           };
+        } else if (data?.error?.message) {
+          lastErrorMessage = data.error.message;
         }
-      } catch {
-        // try next candidate
+      } catch (err: any) {
+        lastErrorMessage = err?.message || lastErrorMessage;
       }
     }
   }
 
   return {
     success: false,
-    message: "Invalid API key(s) or no supported Gemini models found.",
+    message: lastErrorMessage
+      ? `Google API response: "${lastErrorMessage}". Please generate a new key at https://aistudio.google.com/app/apikey`
+      : "Invalid API key(s) or no supported Gemini models found. Gemini API keys must start with 'AIzaSy'.",
   };
 }
 
