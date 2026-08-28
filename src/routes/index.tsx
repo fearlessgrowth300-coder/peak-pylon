@@ -214,7 +214,32 @@ function Index() {
     return list;
   }, [realMembers, state.members]);
 
-  const memberById = useMemo(() => new Map(allMembers.map((m) => [m.id, m])), [allMembers]);
+  const memberById = useMemo(() => {
+    const map = new Map<string, Member>();
+    for (const m of allMembers) {
+      if (m.id) {
+        map.set(m.id, m);
+        map.set(m.id.toLowerCase(), m);
+      }
+      if (m.handle) {
+        map.set(m.handle, m);
+        map.set(m.handle.toLowerCase(), m);
+        map.set(m.handle.replace(/^@/, "").toLowerCase(), m);
+      }
+      if (m.name) {
+        map.set(m.name, m);
+        map.set(m.name.toLowerCase(), m);
+      }
+    }
+    return map;
+  }, [allMembers]);
+
+  const allMembersRef = useRef(allMembers);
+  allMembersRef.current = allMembers;
+  const postsRef = useRef(state.posts);
+  postsRef.current = state.posts;
+  const memberByIdRef = useRef(memberById);
+  memberByIdRef.current = memberById;
 
   const postingAuthors = useMemo(() => {
     if (!myAccount) return [];
@@ -400,21 +425,25 @@ function Index() {
   }
 
   const triggerActiveChatMessageRound = async () => {
-    if (allMembers.length < 2) return;
+    const currentMembers = allMembersRef.current;
+    if (currentMembers.length < 2) return;
     const config = getActiveChatConfig();
-    const recentGeneralPosts = state.posts
+    const currentPosts = postsRef.current;
+    const currentMemberById = memberByIdRef.current;
+
+    const recentGeneralPosts = currentPosts
       .filter((p) => !p.channel || p.channel === (config.channel || "general"))
       .slice(0, 8)
       .map((p) => ({
         id: p.id,
         authorId: p.authorId,
-        authorName: memberById.get(p.authorId)?.name ?? "Streamer",
+        authorName: currentMemberById.get(p.authorId)?.name ?? "Streamer",
         text: p.text,
         sticker: p.sticker,
       }));
 
     const result = await generateActiveChatMessage({
-      members: allMembers.map((m) => ({
+      members: currentMembers.map((m) => ({
         id: m.id,
         name: m.name,
         handle: m.handle,
@@ -444,19 +473,36 @@ function Index() {
   };
 
   useEffect(() => {
-    const runWorker = () => {
+    let running = false;
+    const checkAndRun = async () => {
+      if (running) return;
       const config = getActiveChatConfig();
       if (!config.enabled) return;
       const keys = getGeminiApiKeys();
       if (!keys.length) return;
-      void triggerActiveChatMessageRound().catch(() => {});
+      running = true;
+      try {
+        await triggerActiveChatMessageRound();
+      } catch {
+        // ignore background error
+      } finally {
+        running = false;
+      }
     };
 
-    const config = getActiveChatConfig();
-    const intervalMs = Math.max(15, config.intervalSeconds || 60) * 1000;
-    const timer = window.setInterval(runWorker, intervalMs);
-    return () => window.clearInterval(timer);
-  }, [allMembers, state.posts, memberById]);
+    let lastRunTime = Date.now();
+    const intervalChecker = window.setInterval(() => {
+      const config = getActiveChatConfig();
+      if (!config.enabled) return;
+      const intervalMs = Math.max(15, config.intervalSeconds || 60) * 1000;
+      if (Date.now() - lastRunTime >= intervalMs) {
+        lastRunTime = Date.now();
+        void checkAndRun();
+      }
+    }, 3000);
+
+    return () => window.clearInterval(intervalChecker);
+  }, []);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">

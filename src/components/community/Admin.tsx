@@ -638,36 +638,76 @@ export function AdminView({
       </div>
 
       {/* 08 · 24/7 AI Active Chat Simulation Autopilot */}
-      <div className="space-y-4 rounded-xl bg-popover p-4 border border-border">
+      <div className="space-y-4 rounded-xl bg-popover p-5 border border-primary/30 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-bold text-foreground">08 · 24/7 AI Active Chat Autopilot</h2>
+            <h2 className="text-base font-bold text-foreground">08 · 24/7 AI Active Chat Autopilot</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Simulates authentic, vibrant streamer discussions in #general between community members (replies, stickers, stream banter, live reactions).
+              Automatically keeps #general chat continuously alive 24/7 by having community creators converse, reply to each other, drop hype comments, and send animated stickers.
             </p>
           </div>
-          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${activeChatConfig.enabled ? "bg-online/20 text-online" : "bg-muted text-muted-foreground"}`}>
-            {activeChatConfig.enabled ? "🟢 Autopilot Running 24/7" : "⚪ Paused"}
+          <span className={`rounded-full px-3 py-1 text-xs font-black tracking-wide ${activeChatConfig.enabled ? "bg-online/20 text-online border border-online/40 animate-pulse" : "bg-muted text-muted-foreground"}`}>
+            {activeChatConfig.enabled ? "🟢 AUTOPILOT ACTIVE (24/7)" : "🔴 AUTOPILOT STOPPED"}
           </span>
         </div>
 
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={activeChatConfig.enabled}
-                onChange={(e) => {
-                  const updated = { ...activeChatConfig, enabled: e.target.checked };
-                  setLocalActiveChatConfig(updated);
-                  setActiveChatConfig(updated);
-                  notify(e.target.checked ? "24/7 AI Active Chat Autopilot Started!" : "Active Chat Autopilot paused.");
-                }}
-                className="rounded border-border text-primary"
-              />
-              <span>Enable 24/7 AI Active Chat Simulation</span>
-            </label>
+        {/* Master Start / Stop Action Banner */}
+        <div className="flex flex-col sm:flex-row gap-3 pt-1">
+          {activeChatConfig.enabled ? (
+            <button
+              type="button"
+              onClick={() => {
+                const updated = { ...activeChatConfig, enabled: false };
+                setLocalActiveChatConfig(updated);
+                setActiveChatConfig(updated);
+                notify("⏹ 24/7 Active Chat Autopilot stopped.");
+              }}
+              className="flex-1 rounded-xl bg-destructive px-5 py-3 font-black text-destructive-foreground shadow-md hover:bg-destructive/90 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <span className="text-lg">⏹</span> Stop 24/7 AI Chat Autopilot
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const updated = { ...activeChatConfig, enabled: true };
+                setLocalActiveChatConfig(updated);
+                setActiveChatConfig(updated);
+                notify("▶ 24/7 Active Chat Autopilot Started! Running in background.");
+                if (triggerActiveChatMessage) {
+                  void triggerActiveChatMessage();
+                }
+              }}
+              className="flex-1 rounded-xl bg-online px-5 py-3 font-black text-black shadow-md hover:bg-online/90 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <span className="text-lg">▶</span> Start 24/7 AI Chat Autopilot
+            </button>
+          )}
 
+          <button
+            type="button"
+            disabled={generatingActiveChat}
+            onClick={async () => {
+              if (triggerActiveChatMessage) {
+                setGeneratingActiveChat(true);
+                try {
+                  await triggerActiveChatMessage();
+                  notify("⚡ AI chat message generated in #general!");
+                } catch (err) {
+                  notify(err instanceof Error ? err.message : "Failed to generate AI message");
+                } finally {
+                  setGeneratingActiveChat(false);
+                }
+              }
+            }}
+            className={`${ghostButtonClass} px-5 py-3 text-xs font-bold shrink-0`}
+          >
+            {generatingActiveChat ? "Generating…" : "⚡ Send 1 Test Message"}
+          </button>
+        </div>
+
+        <div className="space-y-3 pt-2">
+          <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
               <input
                 type="checkbox"
@@ -679,7 +719,21 @@ export function AdminView({
                 }}
                 className="rounded border-border text-primary"
               />
-              <span>Send Animated Stickers in Chat</span>
+              <span>Send Animated Streamer Stickers in Chat</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={activeChatConfig.includeLiveContext}
+                onChange={(e) => {
+                  const updated = { ...activeChatConfig, includeLiveContext: e.target.checked };
+                  setLocalActiveChatConfig(updated);
+                  setActiveChatConfig(updated);
+                }}
+                className="rounded border-border text-primary"
+              />
+              <span>Include Live Streamer Events & Mentions</span>
             </label>
           </div>
 
@@ -694,6 +748,7 @@ export function AdminView({
                 }}
                 className={inputClass}
               >
+                <option value={20}>Every 20 seconds (Ultra Active)</option>
                 <option value={30}>Every 30 seconds (High Activity)</option>
                 <option value={60}>Every 1 minute (Recommended)</option>
                 <option value={120}>Every 2 minutes</option>
@@ -701,30 +756,20 @@ export function AdminView({
               </select>
             </Field>
 
-            <div className="flex items-end">
-              <button
-                type="button"
-                disabled={generatingActiveChat}
-                onClick={async () => {
-                  if (triggerActiveChatMessage) {
-                    setGeneratingActiveChat(true);
-                    try {
-                      await triggerActiveChatMessage();
-                      notify("AI chat round generated in #general!");
-                    } catch (err) {
-                      notify(err instanceof Error ? err.message : "Failed to generate AI message");
-                    } finally {
-                      setGeneratingActiveChat(false);
-                    }
-                  } else {
-                    notify("Chat trigger ready");
-                  }
+            <Field label="Target Chat Channel">
+              <select
+                value={activeChatConfig.channel || "general"}
+                onChange={(e) => {
+                  const updated = { ...activeChatConfig, channel: e.target.value };
+                  setLocalActiveChatConfig(updated);
+                  setActiveChatConfig(updated);
                 }}
-                className={`${buttonClass} w-full`}
+                className={inputClass}
               >
-                {generatingActiveChat ? "Simulating Streamer Chat…" : "⚡ Generate AI Chat Message Now"}
-              </button>
-            </div>
+                <option value="general"># general</option>
+                <option value="clips"># clips</option>
+              </select>
+            </Field>
           </div>
         </div>
       </div>
