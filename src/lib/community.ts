@@ -28,6 +28,13 @@ export type Member = {
   connections?: Connection[] | undefined;
 };
 
+export type PostComment = {
+  id: string;
+  authorId: string;
+  text: string;
+  time: number;
+};
+
 export type Post = {
   id: string;
   authorId: string;
@@ -38,6 +45,9 @@ export type Post = {
   replyToId?: string | undefined;
   channel?: string | undefined;
   reactions?: Record<string, number> | undefined;
+  likes?: string[] | undefined;
+  shares?: number | undefined;
+  comments?: PostComment[] | undefined;
   time: number;
 };
 
@@ -308,7 +318,6 @@ export function useCommunity() {
       members: s.members.filter((m) => m.id !== id),
       posts: s.posts.filter((p) => p.authorId !== id),
     }));
-    // Posts are secondary data; a failed cleanup must not bring the member back.
     void db.from("community_posts").delete().eq("data->>authorId", id);
   }, []);
 
@@ -317,7 +326,17 @@ export function useCommunity() {
       throw new Error("Media must be uploaded to Storage before publishing.");
     }
     const id = uid();
-    const post = { ...input, id, image: input.image ?? "", channel: input.channel ?? "general", reactions: {}, time: input.time ?? Date.now() };
+    const post: Post = {
+      ...input,
+      id,
+      image: input.image ?? "",
+      channel: input.channel ?? "general",
+      reactions: {},
+      likes: [],
+      shares: 0,
+      comments: [],
+      time: input.time ?? Date.now(),
+    };
     mutationVersion.current += 1;
     const { id: _id, ...data } = post;
     const { error } = await (supabase as any).from("community_posts").upsert({ id, data });
@@ -327,12 +346,26 @@ export function useCommunity() {
     }
     setState((s) => ({
       ...s,
-      posts: [
-        post,
-        ...s.posts,
-      ],
+      posts: [post, ...s.posts],
     }));
   }, []);
+
+  const updatePost = useCallback(async (id: string, patch: Partial<Post>) => {
+    mutationVersion.current += 1;
+    const db = supabase as any;
+    const { data, error: readError } = await db.from("community_posts").select("data").eq("id", id).maybeSingle();
+    const currentPost = state.posts.find((p) => p.id === id);
+    const updatedData = { ...(data?.data ?? currentPost ?? {}), ...patch };
+    const { error } = await db.from("community_posts").upsert({ id, data: updatedData });
+    if (error) {
+      mutationVersion.current += 1;
+      throw error;
+    }
+    setState((s) => ({
+      ...s,
+      posts: s.posts.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+    }));
+  }, [state.posts]);
 
   const removePost = useCallback(async (id: string) => {
     mutationVersion.current += 1;
@@ -359,7 +392,14 @@ export function useCommunity() {
   }, []);
 
   const toggleReaction = useCallback((id: string, emoji: string) => {
-    setState((s) => ({ ...s, posts: s.posts.map((post) => post.id === id ? { ...post, reactions: { ...(post.reactions ?? {}), [emoji]: ((post.reactions ?? {})[emoji] ?? 0) + 1 } } : post) }));
+    setState((s) => ({
+      ...s,
+      posts: s.posts.map((post) =>
+        post.id === id
+          ? { ...post, reactions: { ...(post.reactions ?? {}), [emoji]: ((post.reactions ?? {})[emoji] ?? 0) + 1 } }
+          : post
+      ),
+    }));
   }, []);
 
   return {
@@ -369,6 +409,7 @@ export function useCommunity() {
     updateMember,
     removeMember,
     addPost,
+    updatePost,
     removePost,
     setStats,
     setCommunity,

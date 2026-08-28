@@ -37,7 +37,7 @@ export const Route = createFileRoute("/")({
 type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "me" | `channel:${string}`;
 
 function Index() {
-  const { state, addMember, updateMember, removeMember, addPost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
+  const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
@@ -502,7 +502,23 @@ function Index() {
 
             {view === "live-now" && <LiveNowCommunityView members={liveMembers} onPick={setProfile} />}
 
-            {view === "trending" && <TrendingCommunityView posts={state.posts.filter((post) => post.channel === "trending")} members={memberById} isAdmin={isAdmin} onCreate={async (post) => { const authorId = myAccount?.id ?? adminMembers[0]?.id; if (authorId) await addPost({ ...post, authorId, channel: "trending" }); }} onPick={setProfile} />}
+            {view === "trending" && (
+              <TrendingCommunityView
+                posts={state.posts.filter((post) => post.channel === "trending")}
+                members={memberById}
+                allMemberList={allMembers}
+                isAdmin={isAdmin}
+                currentUserId={myAccount?.id}
+                onCreate={async (post) => {
+                  const authorId = myAccount?.id ?? adminMembers[0]?.id;
+                  if (authorId) await addPost({ ...post, authorId, channel: "trending" });
+                }}
+                onUpdate={updatePost}
+                onDelete={removePost}
+                onPick={setProfile}
+                setToast={setToast}
+              />
+            )}
 
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
@@ -945,11 +961,977 @@ function LiveStreamEmbed({ member }: { member: Member }) {
   );
 }
 
-function TrendingCommunityView({ posts, members, onPick, isAdmin, onCreate }: { posts: Post[]; members: Map<string, Member>; onPick: (member: Member) => void; isAdmin: boolean; onCreate: (post: Pick<PostInput, "text" | "image" | "time">) => Promise<void> }) {
-  const [draft, setDraft] = useState(""); const [title, setTitle] = useState(""); const [attachment, setAttachment] = useState<File | null>(null); const [publishedAt, setPublishedAt] = useState(""); const [busy, setBusy] = useState(false); const editorRef = useRef<HTMLTextAreaElement>(null); const imageRef = useRef<HTMLInputElement>(null);
-  const insert = (value: string) => { const editor = editorRef.current; const start = editor?.selectionStart ?? draft.length; const end = editor?.selectionEnd ?? start; setDraft(`${draft.slice(0, start)}${value}${draft.slice(end)}`); requestAnimationFrame(() => { if (editor) { editor.focus(); editor.setSelectionRange(start + value.length, start + value.length); } }); };
-  const wrap = (left: string, right: string) => { const editor = editorRef.current; const start = editor?.selectionStart ?? draft.length; const end = editor?.selectionEnd ?? start; const selected = draft.slice(start, end) || "text"; const value = `${left}${selected}${right}`; setDraft(`${draft.slice(0, start)}${value}${draft.slice(end)}`); requestAnimationFrame(() => { if (editor) { editor.focus(); editor.setSelectionRange(start + left.length, start + left.length + selected.length); } }); };
-  return <div className="space-y-5 px-4 py-6"><header><h1 className="text-3xl font-black">🔥 TRENDING</h1><p className="mt-1 text-sm text-muted-foreground">Admin announcements and conversations across the community.</p></header>{isAdmin && <form onSubmit={async (event) => { event.preventDefault(); if (!title.trim() && !draft.trim()) return; setBusy(true); try { const uploaded = attachment ? await uploadCommunityMedia(attachment) : ""; await onCreate({ text: title.trim() ? `${title.trim()}\n\n${draft.trim()}` : draft.trim(), image: uploaded, time: publishedAt ? new Date(publishedAt).getTime() : Date.now() }); setTitle(""); setDraft(""); setAttachment(null); setPublishedAt(""); } finally { setBusy(false); } }} className="rounded-2xl border border-primary/40 bg-popover p-4"><p className="mb-3 text-xs font-bold uppercase tracking-wider text-primary">Create trending post · admin only</p><input value={title} onChange={(event) => setTitle(event.target.value)} className="mb-2 w-full rounded-lg bg-input px-3 py-2 text-sm outline-none" placeholder="Post title"/><div className="mb-2 flex flex-wrap gap-1 border-y border-border py-2"><button type="button" onClick={() => wrap("**", "**")} className="rounded px-2 py-1 text-sm font-black hover:bg-accent">B</button><button type="button" onClick={() => wrap("*", "*")} className="rounded px-2 py-1 text-sm italic hover:bg-accent">I</button><button type="button" onClick={() => insert("## ")} className="rounded px-2 py-1 text-sm font-bold hover:bg-accent">H</button><button type="button" onClick={() => { const url = window.prompt("Link URL"); if (url) insert(url); }} className="rounded px-2 py-1 text-sm hover:bg-accent">🔗</button><button type="button" onClick={() => imageRef.current?.click()} className="rounded px-2 py-1 text-sm hover:bg-accent">🖼 Add image here</button><input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setBusy(true); try { const url = await uploadCommunityMedia(file); insert(`\n![image](${url})\n`); } finally { setBusy(false); event.target.value = ""; } }} /></div><textarea ref={editorRef} value={draft} onChange={(event) => setDraft(event.target.value)} rows={8} className="w-full rounded-lg bg-input px-3 py-2 text-sm leading-relaxed outline-none" placeholder="Write the announcement or discussion. Use Add image here to place images between paragraphs…"/><div className="mt-3 flex flex-wrap items-end justify-between gap-3"><label className="text-xs font-semibold text-muted-foreground">Published on <input type="datetime-local" value={publishedAt} onChange={(event) => setPublishedAt(event.target.value)} className="ml-2 rounded bg-input px-2 py-1.5 text-foreground outline-none"/></label><label className="text-xs text-muted-foreground">Featured image <input type="file" accept="image/*" onChange={(event) => setAttachment(event.target.files?.[0] ?? null)} className="ml-2 text-xs"/></label><button disabled={busy} className="rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50">{busy ? "Uploading…" : "Publish"}</button></div></form>}<div className="space-y-4">{posts.map((post) => { const author = members.get(post.authorId); return <article key={post.id} className="rounded-2xl border border-border bg-popover p-5"><button onClick={() => author && onPick(author)} className="flex items-center gap-3 text-left"><Avatar member={author ?? { name: "Community", avatar: "", status: "offline" }} size={42}/><span><strong>{author?.name ?? "Community"}</strong><span className="ml-2 text-xs text-muted-foreground">{new Date(post.time).toLocaleString()}</span></span></button><RichPostContent text={post.text} />{post.image && <img src={post.image} alt="Trending attachment" className="mt-4 max-h-96 w-full rounded-xl object-cover"/>}<div className="mt-4 flex gap-5 border-t border-border pt-3 text-sm text-muted-foreground"><span>♡ Like</span><span>◌ Comment</span><span>↗ Share</span></div></article>; })}</div>{!posts.length && <p className="text-sm text-muted-foreground">No admin trending posts yet.</p>}</div>;
+const COMMENT_TEMPLATES = [
+  "Huge milestone! Congrats! 🔥",
+  "This is massive for the network! 🚀",
+  "Big W! Keep crushing it 👑",
+  "Proud to be a part of this community ❤️",
+  "Let's gooo! Top tier content 🎮",
+  "Incredible growth, love to see this! ✨",
+  "Can't wait for the next event! 🏆",
+  "Always inspiring the community! 🤝",
+  "Super excited about this announcement ⚡",
+  "Amazing work everyone! 🙌",
+];
+
+function TrendingCommunityView({
+  posts,
+  members,
+  allMemberList,
+  onPick,
+  isAdmin,
+  currentUserId,
+  onCreate,
+  onUpdate,
+  onDelete,
+  setToast,
+}: {
+  posts: Post[];
+  members: Map<string, Member>;
+  allMemberList: Member[];
+  onPick: (member: Member) => void;
+  isAdmin: boolean;
+  currentUserId?: string;
+  onCreate: (post: Pick<PostInput, "text" | "image" | "time">) => Promise<void>;
+  onUpdate: (id: string, patch: Partial<Post>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  setToast: (msg: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [title, setTitle] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [publishedAt, setPublishedAt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [autoEngagePost, setAutoEngagePost] = useState<Post | null>(null);
+  const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [pendingTimers, setPendingTimers] = useState<Record<string, { seconds: number; memberIds: string[] }>>({});
+
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const imageRef = useRef<HTMLInputElement>(null);
+
+  const insert = (value: string) => {
+    const editor = editorRef.current;
+    const start = editor?.selectionStart ?? draft.length;
+    const end = editor?.selectionEnd ?? start;
+    setDraft(`${draft.slice(0, start)}${value}${draft.slice(end)}`);
+    requestAnimationFrame(() => {
+      if (editor) {
+        editor.focus();
+        editor.setSelectionRange(start + value.length, start + value.length);
+      }
+    });
+  };
+
+  const wrap = (left: string, right: string) => {
+    const editor = editorRef.current;
+    const start = editor?.selectionStart ?? draft.length;
+    const end = editor?.selectionEnd ?? start;
+    const selected = draft.slice(start, end) || "text";
+    const value = `${left}${selected}${right}`;
+    setDraft(`${draft.slice(0, start)}${value}${draft.slice(end)}`);
+    requestAnimationFrame(() => {
+      if (editor) {
+        editor.focus();
+        editor.setSelectionRange(start + left.length, start + left.length + selected.length);
+      }
+    });
+  };
+
+  // Countdown timer for scheduled auto-engagement
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPendingTimers((prev) => {
+        const next: Record<string, { seconds: number; memberIds: string[] }> = {};
+        for (const [postId, timer] of Object.entries(prev)) {
+          if (timer.seconds > 1) {
+            next[postId] = { ...timer, seconds: timer.seconds - 1 };
+          } else {
+            // Timer expired: execute auto-engagement
+            const targetPost = posts.find((p) => p.id === postId);
+            if (targetPost) {
+              void executeAutoEngagement(targetPost, timer.memberIds, true, true, true);
+            }
+          }
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [posts]);
+
+  const executeAutoEngagement = async (
+    targetPost: Post,
+    selectedMemberIds: string[],
+    includeLikes: boolean,
+    includeShares: boolean,
+    includeComments: boolean
+  ) => {
+    const existingLikes = new Set(targetPost.likes ?? []);
+    if (includeLikes) {
+      selectedMemberIds.forEach((id) => existingLikes.add(id));
+    }
+
+    const currentShares = (targetPost.shares ?? 0) + (includeShares ? selectedMemberIds.length : 0);
+
+    let newComments = [...(targetPost.comments ?? [])];
+    if (includeComments) {
+      selectedMemberIds.forEach((id, idx) => {
+        const template = COMMENT_TEMPLATES[idx % COMMENT_TEMPLATES.length];
+        newComments.push({
+          id: Math.random().toString(36).slice(2, 9),
+          authorId: id,
+          text: template,
+          time: Date.now() + idx * 1000,
+        });
+      });
+    }
+
+    await onUpdate(targetPost.id, {
+      likes: Array.from(existingLikes),
+      shares: currentShares,
+      comments: newComments,
+    });
+    setToast(`Auto-engagement applied: ${selectedMemberIds.length} members engaged!`);
+  };
+
+  const toggleLike = async (post: Post) => {
+    const userKey = currentUserId || "guest-user";
+    const currentLikes = post.likes ?? [];
+    const hasLiked = currentLikes.includes(userKey);
+    const updatedLikes = hasLiked
+      ? currentLikes.filter((id) => id !== userKey)
+      : [...currentLikes, userKey];
+
+    await onUpdate(post.id, { likes: updatedLikes });
+  };
+
+  const handleShare = async (post: Post) => {
+    const url = window.location.href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setToast("Post link copied to clipboard!");
+    } catch {
+      setToast("Shared post link!");
+    }
+    await onUpdate(post.id, { shares: (post.shares ?? 0) + 1 });
+  };
+
+  const handleAddComment = async (postId: string) => {
+    const text = commentDrafts[postId]?.trim();
+    if (!text) return;
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return;
+
+    const authorId = currentUserId || allMemberList[0]?.id || "community-user";
+    const newComment = {
+      id: Math.random().toString(36).slice(2, 9),
+      authorId,
+      text,
+      time: Date.now(),
+    };
+
+    await onUpdate(postId, {
+      comments: [...(post.comments ?? []), newComment],
+    });
+
+    setCommentDrafts((prev) => ({ ...prev, [postId]: "" }));
+    setToast("Comment added!");
+  };
+
+  const handleDeleteComment = async (postId: string, commentId: string) => {
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return;
+    const updated = (post.comments ?? []).filter((c) => c.id !== commentId);
+    await onUpdate(postId, { comments: updated });
+    setToast("Comment removed");
+  };
+
+  return (
+    <div className="space-y-6 px-4 py-6">
+      <header>
+        <h1 className="text-3xl font-black">🔥 TRENDING</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Admin announcements, featured creator updates, and community discussions.
+        </p>
+      </header>
+
+      {isAdmin && (
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!title.trim() && !draft.trim()) return;
+            setBusy(true);
+            try {
+              const uploaded = attachment ? await uploadCommunityMedia(attachment) : "";
+              await onCreate({
+                text: title.trim() ? `${title.trim()}\n\n${draft.trim()}` : draft.trim(),
+                image: uploaded,
+                time: publishedAt ? new Date(publishedAt).getTime() : Date.now(),
+              });
+              setTitle("");
+              setDraft("");
+              setAttachment(null);
+              setPublishedAt("");
+              setToast("Trending post published!");
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="rounded-2xl border border-primary/40 bg-popover p-5 shadow-sm"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wider text-primary">
+              Create trending post · Admin Only
+            </p>
+          </div>
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            className="mb-2 w-full rounded-xl bg-input px-3.5 py-2.5 text-sm font-semibold outline-none focus:ring-1 focus:ring-primary"
+            placeholder="Post headline / title..."
+          />
+          <div className="mb-2 flex flex-wrap gap-1.5 border-y border-border py-2">
+            <button
+              type="button"
+              onClick={() => wrap("**", "**")}
+              className="rounded px-2.5 py-1 text-xs font-black hover:bg-accent"
+            >
+              B
+            </button>
+            <button
+              type="button"
+              onClick={() => wrap("*", "*")}
+              className="rounded px-2.5 py-1 text-xs italic hover:bg-accent"
+            >
+              I
+            </button>
+            <button
+              type="button"
+              onClick={() => insert("## ")}
+              className="rounded px-2.5 py-1 text-xs font-bold hover:bg-accent"
+            >
+              H
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const url = window.prompt("Link URL");
+                if (url) insert(url);
+              }}
+              className="rounded px-2.5 py-1 text-xs hover:bg-accent"
+            >
+              🔗 Link
+            </button>
+            <button
+              type="button"
+              onClick={() => imageRef.current?.click()}
+              className="rounded px-2.5 py-1 text-xs font-semibold hover:bg-accent"
+            >
+              🖼 Add inline image
+            </button>
+            <input
+              ref={imageRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                setBusy(true);
+                try {
+                  const url = await uploadCommunityMedia(file);
+                  insert(`\n![image](${url})\n`);
+                } finally {
+                  setBusy(false);
+                  event.target.value = "";
+                }
+              }}
+            />
+          </div>
+          <textarea
+            ref={editorRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={6}
+            className="w-full rounded-xl bg-input p-3 text-sm leading-relaxed outline-none focus:ring-1 focus:ring-primary"
+            placeholder="Write the announcement or discussion text. Use Add image to place images inline..."
+          />
+          <div className="mt-4 flex flex-wrap items-end justify-between gap-4 border-t border-border pt-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="text-xs font-medium text-muted-foreground">
+                Published Date & Time
+                <input
+                  type="datetime-local"
+                  value={publishedAt}
+                  onChange={(event) => setPublishedAt(event.target.value)}
+                  className="mt-1 block rounded-lg bg-input px-2.5 py-1.5 text-xs text-foreground outline-none"
+                />
+              </label>
+              <label className="text-xs font-medium text-muted-foreground">
+                Featured Cover Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => setAttachment(event.target.files?.[0] ?? null)}
+                  className="mt-1 block text-xs"
+                />
+              </label>
+            </div>
+            <button
+              disabled={busy}
+              className="rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-primary-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
+            >
+              {busy ? "Publishing…" : "Publish Post"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div className="space-y-6">
+        {posts.map((post) => {
+          const author = members.get(post.authorId);
+          const isLikedByMe = (post.likes ?? []).includes(currentUserId || "guest-user");
+          const totalLikes = (post.likes?.length ?? 0) + Object.values(post.reactions ?? {}).reduce((a, b) => a + b, 0);
+          const totalShares = post.shares ?? 0;
+          const totalComments = post.comments?.length ?? 0;
+          const isCommentsOpen = !!expandedComments[post.id];
+          const activeTimer = pendingTimers[post.id];
+
+          return (
+            <article
+              key={post.id}
+              className="rounded-2xl border border-border bg-popover p-6 shadow-sm transition-all hover:border-primary/50"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <button
+                  onClick={() => author && onPick(author)}
+                  className="flex items-center gap-3 text-left"
+                >
+                  <Avatar
+                    member={author ?? { name: "Community Admin", avatar: "", status: "online" }}
+                    size={46}
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <strong className="text-sm font-bold text-foreground hover:underline">
+                        {author?.name ?? "Community Admin"}
+                      </strong>
+                      <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-extrabold text-primary">
+                        ADMIN
+                      </span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(post.time).toLocaleString(undefined, {
+                        month: "numeric",
+                        day: "numeric",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                </button>
+
+                {isAdmin && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setAutoEngagePost(post)}
+                      className="flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-bold text-primary hover:bg-primary/20"
+                      title="Auto-Engage & Boost Community Likes/Shares/Comments"
+                    >
+                      <span>⚡</span> Auto-Engage
+                    </button>
+                    <button
+                      onClick={() => setEditingPost(post)}
+                      className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-semibold hover:bg-accent"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (window.confirm("Are you sure you want to delete this trending post?")) {
+                          await onDelete(post.id);
+                          setToast("Post deleted successfully");
+                        }
+                      }}
+                      className="rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/20"
+                    >
+                      🗑 Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {activeTimer && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl bg-primary/10 px-3 py-2 text-xs font-bold text-primary animate-pulse">
+                  <span>⏱</span>
+                  <span>
+                    Auto-engaging with {activeTimer.memberIds.length} community members in{" "}
+                    {activeTimer.seconds}s...
+                  </span>
+                </div>
+              )}
+
+              <div className="mt-4">
+                <RichPostContent text={post.text} />
+                {post.image && (
+                  <img
+                    src={post.image}
+                    alt="Trending attachment"
+                    className="mt-4 max-h-[32rem] w-full rounded-2xl object-cover shadow-sm"
+                  />
+                )}
+              </div>
+
+              {/* Engagement Stats and Actions */}
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-3.5">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleLike(post)}
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors ${
+                      isLikedByMe
+                        ? "bg-rose-500/20 text-rose-500 ring-1 ring-rose-500/40"
+                        : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    <span>{isLikedByMe ? "❤️" : "♡"}</span>
+                    <span>{totalLikes} {totalLikes === 1 ? "Like" : "Likes"}</span>
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      setExpandedComments((prev) => ({ ...prev, [post.id]: !prev[post.id] }))
+                    }
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors ${
+                      isCommentsOpen
+                        ? "bg-primary/20 text-primary ring-1 ring-primary/40"
+                        : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    <span>💬</span>
+                    <span>{totalComments} {totalComments === 1 ? "Comment" : "Comments"}</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleShare(post)}
+                    className="flex items-center gap-1.5 rounded-xl bg-background px-3.5 py-2 text-xs font-bold text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <span>↗</span>
+                    <span>{totalShares} {totalShares === 1 ? "Share" : "Shares"}</span>
+                  </button>
+                </div>
+
+                {post.likes && post.likes.length > 0 && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <span className="flex -space-x-1.5 overflow-hidden">
+                      {post.likes.slice(0, 4).map((memberId, idx) => {
+                        const m = members.get(memberId);
+                        return (
+                          <span
+                            key={`${memberId}-${idx}`}
+                            className="inline-block h-5 w-5 rounded-full ring-2 ring-popover"
+                          >
+                            <Avatar
+                              member={m ?? { name: "Creator", avatar: "", status: "online" }}
+                              size={20}
+                              showStatus={false}
+                            />
+                          </span>
+                        );
+                      })}
+                    </span>
+                    <span className="ml-1 text-[11px]">
+                      Liked by {post.likes.length} creators
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Comments Thread Section */}
+              {isCommentsOpen && (
+                <div className="mt-4 rounded-xl border border-border/80 bg-background/50 p-4">
+                  <h4 className="mb-3 text-xs font-black uppercase tracking-wider text-muted-foreground">
+                    Comments ({totalComments})
+                  </h4>
+
+                  <div className="space-y-3">
+                    {(post.comments ?? []).map((comment) => {
+                      const commentAuthor = members.get(comment.authorId);
+                      return (
+                        <div
+                          key={comment.id}
+                          className="flex items-start justify-between gap-3 rounded-lg bg-popover p-3 text-xs shadow-xs"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <Avatar
+                              member={
+                                commentAuthor ?? { name: "Community Member", avatar: "", status: "online" }
+                              }
+                              size={28}
+                              showStatus={false}
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-foreground">
+                                  {commentAuthor?.name ?? "Community Creator"}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {timeAgo(comment.time)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-foreground/90">{comment.text}</p>
+                            </div>
+                          </div>
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteComment(post.id, comment.id)}
+                              className="text-muted-foreground hover:text-destructive"
+                              title="Delete comment"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {!post.comments?.length && (
+                      <p className="py-2 text-xs text-muted-foreground">
+                        No comments yet. Start the conversation!
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Add Comment Input */}
+                  <div className="mt-3.5 flex gap-2">
+                    <input
+                      value={commentDrafts[post.id] || ""}
+                      onChange={(e) =>
+                        setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleAddComment(post.id);
+                        }
+                      }}
+                      placeholder="Write a comment as creator or admin..."
+                      className="w-full rounded-xl bg-input px-3.5 py-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <button
+                      onClick={() => handleAddComment(post.id)}
+                      className="shrink-0 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+                    >
+                      Post
+                    </button>
+                  </div>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      {!posts.length && <p className="text-sm text-muted-foreground">No trending posts yet.</p>}
+
+      {/* Edit Trending Post Modal */}
+      {editingPost && (
+        <EditTrendingPostModal
+          post={editingPost}
+          onClose={() => setEditingPost(null)}
+          onSave={async (patch) => {
+            await onUpdate(editingPost.id, patch);
+            setEditingPost(null);
+            setToast("Post updated successfully!");
+          }}
+        />
+      )}
+
+      {/* Auto-Engage Boost Modal */}
+      {autoEngagePost && (
+        <AutoEngageModal
+          post={autoEngagePost}
+          allMembers={allMemberList}
+          onClose={() => setAutoEngagePost(null)}
+          onInstantBoost={async (selectedIds, likes, shares, comments) => {
+            await executeAutoEngagement(autoEngagePost, selectedIds, likes, shares, comments);
+            setAutoEngagePost(null);
+          }}
+          onSchedule1Min={(selectedIds) => {
+            setPendingTimers((prev) => ({
+              ...prev,
+              [autoEngagePost.id]: { seconds: 60, memberIds: selectedIds },
+            }));
+            setAutoEngagePost(null);
+            setToast("Auto-engagement scheduled! Will trigger in 1 minute.");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditTrendingPostModal({
+  post,
+  onClose,
+  onSave,
+}: {
+  post: Post;
+  onClose: () => void;
+  onSave: (patch: Partial<Post>) => Promise<void>;
+}) {
+  const [text, setText] = useState(post.text);
+  const [timeStr, setTimeStr] = useState(() => {
+    const d = new Date(post.time);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
+  const [imageUrl, setImageUrl] = useState(post.image || "");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-popover p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <h2 className="text-lg font-black text-foreground">✏️ Edit Trending Post</h2>
+          <button
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-full bg-accent text-sm font-bold"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Post Content / Body (Markdown)
+            </label>
+            <textarea
+              rows={8}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="mt-1.5 w-full rounded-xl bg-input p-3 text-sm leading-relaxed outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                📅 Change Published Date & Time
+              </label>
+              <input
+                type="datetime-local"
+                value={timeStr}
+                onChange={(e) => setTimeStr(e.target.value)}
+                className="mt-1.5 w-full rounded-xl bg-input px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Modifies the display timestamp on the post.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                🖼 Featured Image URL
+              </label>
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  type="text"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full rounded-xl bg-input px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="shrink-0 rounded-xl bg-accent px-3 py-2 text-xs font-bold hover:bg-accent/80"
+                >
+                  Upload
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploading(true);
+                    try {
+                      const url = await uploadCommunityMedia(file);
+                      setImageUrl(url);
+                    } finally {
+                      setUploading(false);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {imageUrl && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Image Preview:</p>
+              <img
+                src={imageUrl}
+                alt="Preview"
+                className="mt-1 max-h-48 rounded-xl object-cover"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-accent"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={saving || uploading}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                const newTimestamp = timeStr ? new Date(timeStr).getTime() : post.time;
+                await onSave({
+                  text: text.trim(),
+                  image: imageUrl.trim(),
+                  time: newTimestamp,
+                });
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AutoEngageModal({
+  post,
+  allMembers,
+  onClose,
+  onInstantBoost,
+  onSchedule1Min,
+}: {
+  post: Post;
+  allMembers: Member[];
+  onClose: () => void;
+  onInstantBoost: (
+    selectedIds: string[],
+    likes: boolean,
+    shares: boolean,
+    comments: boolean
+  ) => Promise<void>;
+  onSchedule1Min: (selectedIds: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    allMembers.forEach((m) => {
+      initial[m.id] = true;
+    });
+    return initial;
+  });
+
+  const [doLike, setDoLike] = useState(true);
+  const [doShare, setDoShare] = useState(true);
+  const [doComment, setDoComment] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const selectedList = allMembers.filter((m) => selected[m.id]);
+  const isAllSelected = selectedList.length === allMembers.length;
+
+  const toggleSelectAll = () => {
+    const nextState = !isAllSelected;
+    const next: Record<string, boolean> = {};
+    allMembers.forEach((m) => {
+      next[m.id] = nextState;
+    });
+    setSelected(next);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-popover p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <div>
+            <h2 className="text-lg font-black text-foreground">
+              ⚡ Community Auto-Engagement System
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Automatically trigger likes, shares, and authentic comments from community members.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-full bg-accent text-sm font-bold"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          {/* Action Options */}
+          <div className="rounded-xl bg-background p-3.5">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Engagement Actions
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-4 text-xs font-semibold">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={doLike}
+                  onChange={(e) => setDoLike(e.target.checked)}
+                  className="rounded text-primary"
+                />
+                ❤️ Auto-Like ({selectedList.length} likes)
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={doShare}
+                  onChange={(e) => setDoShare(e.target.checked)}
+                  className="rounded text-primary"
+                />
+                ↗ Auto-Share (+{selectedList.length} shares)
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={doComment}
+                  onChange={(e) => setDoComment(e.target.checked)}
+                  className="rounded text-primary"
+                />
+                💬 Auto-Comment ({selectedList.length} creator comments)
+              </label>
+            </div>
+          </div>
+
+          {/* Member Selection */}
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Select Participating Members ({selectedList.length}/{allMembers.length})
+              </label>
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="text-xs font-bold text-primary hover:underline"
+              >
+                {isAllSelected ? "Deselect All" : "Select All"}
+              </button>
+            </div>
+
+            <div className="mt-2 max-h-56 overflow-y-auto space-y-1.5 rounded-xl border border-border bg-background p-2">
+              {allMembers.map((member) => {
+                const isChecked = !!selected[member.id];
+                return (
+                  <label
+                    key={member.id}
+                    className={`flex items-center justify-between rounded-lg p-2 transition-colors cursor-pointer ${
+                      isChecked ? "bg-primary/10" : "hover:bg-accent"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) =>
+                          setSelected((prev) => ({ ...prev, [member.id]: e.target.checked }))
+                        }
+                        className="rounded text-primary"
+                      />
+                      <Avatar member={member} size={28} showStatus={false} />
+                      <div>
+                        <p className="text-xs font-bold text-foreground">{member.name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {member.handle} · {member.platform}
+                        </p>
+                      </div>
+                    </div>
+                    {member.status === "live" && (
+                      <span className="rounded bg-destructive px-1.5 py-0.5 text-[9px] font-black text-white">
+                        LIVE
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-accent"
+          >
+            Cancel
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={selectedList.length === 0}
+              onClick={() => onSchedule1Min(selectedList.map((m) => m.id))}
+              className="rounded-xl border border-primary bg-background px-4 py-2 text-xs font-bold text-primary hover:bg-primary/10 disabled:opacity-50"
+            >
+              ⏱ Auto-Engage in 1 Min
+            </button>
+            <button
+              type="button"
+              disabled={busy || selectedList.length === 0}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onInstantBoost(
+                    selectedList.map((m) => m.id),
+                    doLike,
+                    doShare,
+                    doComment
+                  );
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
+            >
+              {busy ? "Applying..." : "⚡ Boost Now"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Metric({ value, label }: { value: string; label: string }) { return <div className="rounded-xl bg-background p-3"><p className="text-lg font-black">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p></div>; }
