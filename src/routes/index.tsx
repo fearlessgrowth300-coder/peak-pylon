@@ -329,12 +329,29 @@ function Index() {
           const member = twitchMembers.find((item) => item.id === update.id);
           if (!member) return;
           const nextStatus = update.status === "live" ? "live" : member.manualStatus ?? "offline";
-          if (member.status === nextStatus && (!update.banner || member.banner === update.banner)) return;
+
+          const patch: Partial<Member> = {
+            status: nextStatus,
+            ...(update.banner ? { banner: update.banner } : {}),
+            ...(update.avatar ? { avatar: update.avatar } : {}),
+            ...(update.bio ? { bio: update.bio } : {}),
+          };
+
           const realAccount = accounts.find((account) => account.id === member.id);
           if (realAccount) {
             realProfileChanged = true;
-            void supabase.from("profiles").update({ status: update.status, ...(update.banner ? { banner_url: update.banner } : {}) }).eq("id", realAccount.id);
-          } else updateMember(member.id, { status: nextStatus, ...(update.banner ? { banner: update.banner } : {}) });
+            void supabase
+              .from("profiles")
+              .update({
+                status: update.status,
+                ...(update.banner ? { banner_url: update.banner } : {}),
+                ...(update.avatar ? { avatar_url: update.avatar } : {}),
+                ...(update.bio ? { bio: update.bio } : {}),
+              })
+              .eq("id", realAccount.id);
+          } else {
+            updateMember(member.id, patch);
+          }
         });
         if (realProfileChanged) void refresh();
       } catch { /* Keep the last known status if Twitch is temporarily unavailable. */ }

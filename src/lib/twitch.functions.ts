@@ -114,15 +114,50 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
       fetch(`https://api.twitch.tv/helix/users?${valid.map((channel) => `login=${encodeURIComponent(channel.login)}`).join("&")}`, { headers }),
     ]);
     if (!response.ok) throw new Error("Twitch live-status lookup failed");
-    const payload = (await response.json()) as { data?: Array<{ user_login: string; thumbnail_url?: string }> };
-    const users = usersResponse.ok ? (await usersResponse.json()) as { data?: Array<{ login: string; offline_image_url?: string }> } : { data: [] };
+    const payload = (await response.json()) as {
+      data?: Array<{
+        user_login: string;
+        thumbnail_url?: string;
+        viewer_count?: number;
+        game_name?: string;
+        title?: string;
+      }>;
+    };
+    const users = usersResponse.ok
+      ? ((await usersResponse.json()) as {
+          data?: Array<{
+            login: string;
+            offline_image_url?: string;
+            profile_image_url?: string;
+            description?: string;
+          }>;
+        })
+      : { data: [] };
     const live = new Set((payload.data ?? []).map((stream) => stream.user_login.toLowerCase()));
     const streamByLogin = new Map((payload.data ?? []).map((stream) => [stream.user_login.toLowerCase(), stream]));
     const userByLogin = new Map((users.data ?? []).map((user) => [user.login.toLowerCase(), user]));
+
     return valid.map((channel) => {
       const stream = streamByLogin.get(channel.login);
+      const user = userByLogin.get(channel.login);
+      const isLive = live.has(channel.login);
       const liveBanner = stream?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720");
-      return { id: channel.id, status: live.has(channel.login) ? "live" as const : "offline" as const, banner: liveBanner || userByLogin.get(channel.login)?.offline_image_url || "" };
+      const streamTitle = stream?.title || "";
+      const gameName = stream?.game_name || "";
+      const viewerCount = stream?.viewer_count || 0;
+
+      return {
+        id: channel.id,
+        status: isLive ? ("live" as const) : ("offline" as const),
+        banner: liveBanner || user?.offline_image_url || "",
+        avatar: user?.profile_image_url || "",
+        bio: isLive
+          ? `${gameName ? `${gameName} · ` : ""}${streamTitle || user?.description || ""}`
+          : user?.description || "",
+        gameName,
+        viewerCount,
+        title: streamTitle,
+      };
     });
   });
 
