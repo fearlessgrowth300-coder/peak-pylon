@@ -160,9 +160,22 @@ function Index() {
 
 
   useEffect(() => {
-    if (view !== "general") return;
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (view !== "general" && !view.startsWith("channel:")) return;
+    const scrollToBottom = () => {
+      const el = scrollRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    };
+    scrollToBottom();
+    const t1 = setTimeout(scrollToBottom, 50);
+    const t2 = setTimeout(scrollToBottom, 200);
+    const t3 = setTimeout(scrollToBottom, 500);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
   }, [view, state.posts.length]);
 
   const realMembers = useMemo(
@@ -459,12 +472,46 @@ function Index() {
 
     if (!result) return;
 
+    const chosenAuthor = currentMemberById.get(result.authorId) || currentMembers.find((m) => m.id === result.authorId);
+    const authorDisplayName = chosenAuthor?.name || "Streamer";
+
+    // Broadcast and show typing indicator on screen
+    setTypingName(authorDisplayName);
+    void supabase.channel("streamcore-typing").send({
+      type: "broadcast",
+      event: "typing",
+      payload: { userId: result.authorId, name: authorDisplayName, typing: true },
+    });
+
+    // Wait 1.8s for realistic typing animation
+    await new Promise((r) => setTimeout(r, 1800));
+
+    // Clear typing
+    setTypingName(null);
+    void supabase.channel("streamcore-typing").send({
+      type: "broadcast",
+      event: "typing",
+      payload: { userId: result.authorId, name: authorDisplayName, typing: false },
+    });
+
+    // Generate random 1 to 3 lively reactions so posts never show 0 reactions
+    const sampleReactions = ["🔥", "👏", "🚀", "😂", "👑", "❤️", "🎮"];
+    const randomEmoji1 = sampleReactions[Math.floor(Math.random() * sampleReactions.length)] || "🔥";
+    const randomEmoji2 = sampleReactions[Math.floor(Math.random() * sampleReactions.length)] || "👏";
+    const initialReactions: Record<string, number> = {
+      [randomEmoji1]: Math.floor(Math.random() * 2) + 1,
+    };
+    if (randomEmoji2 !== randomEmoji1) {
+      initialReactions[randomEmoji2] = Math.floor(Math.random() * 2) + 1;
+    }
+
     await addPost({
       authorId: result.authorId,
       channel: config.channel || "general",
       text: result.text || "",
       sticker: result.sticker,
       replyToId: result.replyToId,
+      reactions: initialReactions,
     });
 
     if (result.reactions?.postId && result.reactions?.emoji) {
@@ -1041,8 +1088,13 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
                       <p className="text-sm font-bold">
                         {author?.name ?? "Community"} <span className="font-normal text-muted-foreground">· {timeAgo(post.time)}</span>
                       </p>
-                      <p className="mt-1 line-clamp-2 text-sm">{post.text || post.sticker || "Shared a new creator moment."}</p>
-                      <p className="mt-2 text-xs font-semibold text-muted-foreground">{Object.values(post.reactions ?? {}).reduce((a, b) => a + b, 0)} reactions · Community discussion</p>
+                      <p className="mt-2 text-xs font-semibold text-muted-foreground">
+                        {Math.max(
+                          1,
+                          Object.values(post.reactions ?? {}).reduce((a, b) => a + b, 0) + (post.likes?.length || 0)
+                        )}{" "}
+                        reactions · Community discussion
+                      </p>
                     </div>
                   </div>
                 </article>
