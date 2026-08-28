@@ -1,3 +1,5 @@
+import { sendResendEmailServer } from "@/lib/resend.functions";
+
 export interface ResendNotificationConfig {
   apiKey: string;
   fromEmail: string;
@@ -13,7 +15,7 @@ export function getResendNotificationConfig(): ResendNotificationConfig {
   if (typeof window === "undefined") {
     return {
       apiKey: "",
-      fromEmail: "StreamCore Alerts <onboarding@resend.dev>",
+      fromEmail: "StreamCore Alerts <noreply@authenticcommunity.fun>",
       notifyNewAnnouncement: true,
       notifyRepliesAndMentions: true,
       notifyNewClips: true,
@@ -27,7 +29,7 @@ export function getResendNotificationConfig(): ResendNotificationConfig {
       const parsed = JSON.parse(raw);
       return {
         apiKey: parsed.apiKey || "",
-        fromEmail: parsed.fromEmail || "StreamCore Alerts <onboarding@resend.dev>",
+        fromEmail: parsed.fromEmail || "StreamCore Alerts <noreply@authenticcommunity.fun>",
         notifyNewAnnouncement: parsed.notifyNewAnnouncement ?? true,
         notifyRepliesAndMentions: parsed.notifyRepliesAndMentions ?? true,
         notifyNewClips: parsed.notifyNewClips ?? true,
@@ -40,7 +42,7 @@ export function getResendNotificationConfig(): ResendNotificationConfig {
 
   return {
     apiKey: "",
-    fromEmail: "StreamCore Alerts <onboarding@resend.dev>",
+    fromEmail: "StreamCore Alerts <noreply@authenticcommunity.fun>",
     notifyNewAnnouncement: true,
     notifyRepliesAndMentions: true,
     notifyNewClips: true,
@@ -71,11 +73,7 @@ export async function sendResendEmail({
 }): Promise<{ success: boolean; id?: string; error?: string }> {
   const config = getResendNotificationConfig();
   const key = apiKey?.trim() || config.apiKey.trim();
-  if (!key) {
-    return { success: false, error: "No Resend API Key configured in Control Center." };
-  }
-
-  const sender = from?.trim() || config.fromEmail.trim() || "StreamCore Alerts <onboarding@resend.dev>";
+  const sender = from?.trim() || config.fromEmail.trim() || "StreamCore Alerts <noreply@authenticcommunity.fun>";
   const recipients = Array.isArray(to) ? to : [to];
   const validRecipients = recipients.filter((e) => Boolean(e && e.includes("@")));
 
@@ -84,29 +82,20 @@ export async function sendResendEmail({
   }
 
   try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const result = await sendResendEmailServer({
+      data: {
+        apiKey: key || undefined,
         from: sender,
         to: validRecipients,
         subject,
         html,
         text: text || subject,
-      }),
+      },
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      return { success: false, error: data?.message || `HTTP ${response.status} from Resend API` };
-    }
-
-    return { success: true, id: data?.id };
+    return result;
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Failed to connect to Resend API" };
+    return { success: false, error: err instanceof Error ? err.message : "Failed to execute server email function" };
   }
 }
 
