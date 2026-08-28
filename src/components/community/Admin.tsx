@@ -40,7 +40,7 @@ export function AdminView({
   crm?: ReactNode;
   addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
   removeChannel: (id: string) => void;
-  generateClips?: (member: Member) => Promise<void>;
+  generateClips?: (member: Member, amount: number) => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -55,6 +55,7 @@ export function AdminView({
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [clipAmounts, setClipAmounts] = useState<Record<string, number>>({});
   const [connectionPlatform, setConnectionPlatform] = useState("Instagram");
   const [connectionLabel, setConnectionLabel] = useState("");
   const [connectionUrl, setConnectionUrl] = useState("");
@@ -458,7 +459,7 @@ export function AdminView({
                 </p>
               </div>
                <div className="flex flex-wrap justify-end gap-2">
-               {generateClips && m.platform === "Twitch" && m.link && <button type="button" onClick={() => void generateClips(m)} className="shrink-0 rounded-md bg-primary/15 px-3 py-1.5 text-xs font-bold text-primary">Generate clips</button>}
+               {generateClips && m.platform === "Twitch" && m.link && <><input aria-label={`Number of clips from ${m.name}`} type="number" min={1} max={20} value={clipAmounts[m.id] ?? 5} onChange={(e) => setClipAmounts((items) => ({ ...items, [m.id]: Math.min(20, Math.max(1, Number(e.target.value) || 1)) }))} className="w-16 rounded-md bg-input px-2 py-1.5 text-xs"/><button type="button" onClick={() => void generateClips(m, clipAmounts[m.id] ?? 5)} className="shrink-0 rounded-md bg-primary/15 px-3 py-1.5 text-xs font-bold text-primary">Generate clips</button></>}
                <button type="button" onClick={() => { const next = m.manualStatus === "online" || m.status === "online" ? "offline" : "online"; void updateMember(m.id, { manualStatus: next, status: next }).then(() => notify(`${m.name} set ${next}`)).catch(() => notify("Could not save member status")); }} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">{m.manualStatus === "online" || m.status === "online" ? "Set offline" : "Set online"}</button>
               <button type="button" onClick={() => beginEdit(m)} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-bold">Edit</button>
               <button
