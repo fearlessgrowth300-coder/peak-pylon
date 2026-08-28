@@ -679,7 +679,38 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
   </div>;
 }
 
+const activeTwitchPlayers = new Set<any>();
+
+function triggerAllLivePlayers() {
+  activeTwitchPlayers.forEach((player) => {
+    try {
+      player.setMuted(true);
+      player.setVolume(0);
+      player.play();
+    } catch {
+      // ignore
+    }
+  });
+}
+
 function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
+  useEffect(() => {
+    triggerAllLivePlayers();
+    const onUserInteract = () => {
+      triggerAllLivePlayers();
+    };
+    window.addEventListener("pointerdown", onUserInteract, { passive: true });
+    window.addEventListener("keydown", onUserInteract, { passive: true });
+    const timer = setInterval(triggerAllLivePlayers, 1500);
+    const stopTimer = setTimeout(() => clearInterval(timer), 10000);
+    return () => {
+      window.removeEventListener("pointerdown", onUserInteract);
+      window.removeEventListener("keydown", onUserInteract);
+      clearInterval(timer);
+      clearTimeout(stopTimer);
+    };
+  }, []);
+
   return (
     <div className="space-y-6 px-4 py-6">
       <header>
@@ -723,57 +754,118 @@ function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: 
 }
 
 function LiveStreamEmbed({ member }: { member: Member }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const host = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
 
   const login = (member.handle || "").replace(/^@/, "").trim().toLowerCase() ||
     (member.link ? member.link.split("/").filter(Boolean).pop()?.toLowerCase() : "");
 
   const platform = (member.platform || "").toLowerCase();
 
-  if (!mounted || !login) {
-    return (
-      <div
-        className="h-52 bg-accent bg-cover bg-center"
-        style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}
-      />
-    );
-  }
+  useEffect(() => {
+    if (platform !== "twitch" || !login) return;
+    let disposed = false;
 
-  const hostname = window.location.hostname || "localhost";
-  const parentDomains = Array.from(
-    new Set([
-      hostname,
-      "localhost",
-      "127.0.0.1",
-      "peak-pylon.vercel.app",
-    ])
-  ).filter(Boolean);
+    const hostname = window.location.hostname || "localhost";
+    const parentDomains = Array.from(
+      new Set([hostname, "localhost", "127.0.0.1", "peak-pylon.vercel.app"])
+    ).filter(Boolean);
 
-  const parentParams = parentDomains.map((p) => `parent=${encodeURIComponent(p)}`).join("&");
+    const initPlayer = () => {
+      const Twitch = (window as any).Twitch;
+      if (disposed || !host.current || !Twitch?.Player) return;
 
-  if (platform === "twitch") {
-    const twitchSrc = `https://player.twitch.tv/?channel=${encodeURIComponent(login)}&${parentParams}&autoplay=true&muted=true`;
-    return (
-      <div className="relative h-52 w-full overflow-hidden bg-black">
-        <iframe
-          src={twitchSrc}
-          title={`${member.name} live stream`}
-          className="h-full w-full border-0"
-          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          allowFullScreen
-        />
-      </div>
-    );
-  }
+      host.current.replaceChildren();
+      const mount = document.createElement("div");
+      const mountId = `twitch-live-${login.replace(/[^a-z0-9_-]/gi, "")}-${Math.random().toString(36).slice(2, 8)}`;
+      mount.id = mountId;
+      mount.className = "h-full w-full";
+      host.current.append(mount);
 
-  if (platform === "kick") {
+      try {
+        const player = new Twitch.Player(mountId, {
+          channel: login,
+          parent: parentDomains,
+          width: "100%",
+          height: "100%",
+          autoplay: true,
+          muted: true,
+          playsinline: true,
+        });
+
+        playerRef.current = player;
+        activeTwitchPlayers.add(player);
+
+        const tryPlay = () => {
+          if (disposed) return;
+          try {
+            player.setMuted(true);
+            player.setVolume(0);
+            player.play();
+          } catch {
+            // ignore
+          }
+        };
+
+        player.addEventListener?.(Twitch.Player.READY, () => {
+          tryPlay();
+          setTimeout(tryPlay, 300);
+          setTimeout(tryPlay, 1000);
+          setTimeout(tryPlay, 2500);
+        });
+
+        player.addEventListener?.(Twitch.Player.ONLINE, () => {
+          tryPlay();
+        });
+
+        player.addEventListener?.(Twitch.Player.PAUSE, () => {
+          if (!disposed && player.getMuted?.()) {
+            tryPlay();
+          }
+        });
+
+        const setIframeAttributes = () => {
+          const iframe = mount.querySelector("iframe");
+          if (iframe) {
+            iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture; encrypted-media");
+            iframe.setAttribute("allowfullscreen", "true");
+          }
+        };
+
+        setIframeAttributes();
+        const observer = new MutationObserver(setIframeAttributes);
+        observer.observe(mount, { childList: true, subtree: true });
+      } catch (err) {
+        console.error("Twitch player init error:", err);
+      }
+    };
+
+    const source = "https://player.twitch.tv/js/embed/v1.js";
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${source}"]`);
+    if ((window as any).Twitch?.Player) {
+      initPlayer();
+    } else if (existing) {
+      existing.addEventListener("load", initPlayer, { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.src = source;
+      script.async = true;
+      script.addEventListener("load", initPlayer, { once: true });
+      document.head.append(script);
+    }
+
+    return () => {
+      disposed = true;
+      if (playerRef.current) {
+        activeTwitchPlayers.delete(playerRef.current);
+      }
+    };
+  }, [login, platform]);
+
+  if (platform === "kick" && login) {
     const kickSrc = `https://player.kick.com/${encodeURIComponent(login)}?autoplay=true&muted=true`;
     return (
-      <div className="relative h-52 w-full overflow-hidden bg-black">
+      <div className="relative aspect-video w-full overflow-hidden bg-black">
         <iframe
           src={kickSrc}
           title={`${member.name} live stream`}
@@ -785,9 +877,19 @@ function LiveStreamEmbed({ member }: { member: Member }) {
     );
   }
 
+  if (platform === "twitch" && login) {
+    return (
+      <div
+        ref={host}
+        aria-label={`${member.name} live stream`}
+        className="relative aspect-video w-full overflow-hidden bg-black [&>div]:h-full [&>div]:w-full [&_iframe]:h-full [&_iframe]:w-full"
+      />
+    );
+  }
+
   return (
     <div
-      className="h-52 bg-accent bg-cover bg-center"
+      className="aspect-video w-full bg-accent bg-cover bg-center"
       style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined}
     />
   );
