@@ -701,16 +701,24 @@ function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: 
 
       {featured && (
         <section className="overflow-hidden rounded-2xl border border-primary/40 bg-popover shadow-xl">
-          <div className="relative aspect-video w-full bg-black">
-            <LiveStreamEmbed key={featured.id} member={featured} />
-            <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2">
-              <span className="rounded bg-destructive px-2 py-1 text-xs font-black text-white shadow">
-                LIVE
+          <div className="flex items-center justify-between border-b border-border bg-background/50 px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-destructive px-2 py-0.5 text-xs font-black text-white shadow animate-pulse">
+                🔴 LIVE
               </span>
-              <span className="rounded bg-black/70 px-2 py-1 text-xs font-bold text-white backdrop-blur">
+              <span className="rounded bg-accent px-2 py-0.5 text-xs font-bold text-foreground">
                 {featured.platform}
               </span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Playing live for community
+              </span>
             </div>
+            <span className="text-xs font-bold text-primary">
+              Auto-Playing Muted
+            </span>
+          </div>
+          <div className="aspect-video w-full bg-black">
+            <LiveStreamEmbed key={featured.id} member={featured} />
           </div>
           <div className="flex flex-wrap items-center justify-between gap-4 p-5">
             <div className="flex items-center gap-3.5">
