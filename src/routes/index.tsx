@@ -11,6 +11,12 @@ import { ProfileEditor } from "@/components/community/ProfileEditor";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
+import {
+  generateAiCommentsForPost,
+  getGeminiApiKey,
+  setGeminiApiKey,
+  getGeminiModel,
+} from "@/lib/gemini";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -1077,12 +1083,33 @@ function TrendingCommunityView({
 
     let newComments = [...(targetPost.comments ?? [])];
     if (includeComments) {
+      const selectedMembers = selectedMemberIds
+        .map((id) => members.get(id) || allMemberList.find((m) => m.id === id))
+        .filter(Boolean) as Member[];
+
+      const apiKey = getGeminiApiKey();
+      let aiComments: { authorId: string; text: string }[] = [];
+
+      if (apiKey && selectedMembers.length > 0) {
+        try {
+          aiComments = await generateAiCommentsForPost({
+            postText: targetPost.text,
+            members: selectedMembers,
+            apiKey,
+          });
+        } catch (e) {
+          console.warn("Gemini AI comments generation fallback:", e);
+        }
+      }
+
+      const aiCommentMap = new Map(aiComments.map((c) => [c.authorId, c.text]));
+
       selectedMemberIds.forEach((id, idx) => {
-        const template = COMMENT_TEMPLATES[idx % COMMENT_TEMPLATES.length];
+        const text = aiCommentMap.get(id) || COMMENT_TEMPLATES[idx % COMMENT_TEMPLATES.length];
         newComments.push({
           id: Math.random().toString(36).slice(2, 9),
           authorId: id,
-          text: template,
+          text,
           time: Date.now() + idx * 1000,
         });
       });
@@ -1093,7 +1120,7 @@ function TrendingCommunityView({
       shares: currentShares,
       comments: newComments,
     });
-    setToast(`Auto-engagement applied: ${selectedMemberIds.length} members engaged!`);
+    setToast(`Auto-engagement applied: ${selectedMemberIds.length} members engaged with AI comments & boosts!`);
   };
 
   const toggleLike = async (post: Post) => {
@@ -1757,6 +1784,9 @@ function AutoEngageModal({
   const [doShare, setDoShare] = useState(true);
   const [doComment, setDoComment] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [apiKey, setApiKey] = useState(() => getGeminiApiKey());
+  const [modalApiKey, setModalApiKey] = useState(() => getGeminiApiKey());
+  const [keySaved, setKeySaved] = useState(false);
 
   const selectedList = allMembers.filter((m) => selected[m.id]);
   const isAllSelected = selectedList.length === allMembers.length;
@@ -1797,6 +1827,54 @@ function AutoEngageModal({
         </div>
 
         <div className="mt-4 space-y-4">
+          {/* Gemini AI Post Intelligence Status & Config */}
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <div>
+                  <p className="text-xs font-bold text-foreground">
+                    Google Gemini AI Post Intelligence
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {apiKey
+                      ? "Gemini analyzes this post in real time to generate unique, intelligent creator comments."
+                      : "Enter your Gemini API key to enable contextual AI creator comments."}
+                  </p>
+                </div>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[9px] font-black tracking-wide ${
+                  apiKey ? "bg-primary/20 text-primary border border-primary/40" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {apiKey ? "🟢 AI ACTIVE" : "⚪ NO KEY"}
+              </span>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <input
+                type="password"
+                value={modalApiKey}
+                onChange={(e) => setModalApiKey(e.target.value)}
+                placeholder="Enter Gemini API key (AIzaSy...)"
+                className="w-full rounded-lg bg-input px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setGeminiApiKey(modalApiKey);
+                  setApiKey(modalApiKey);
+                  setKeySaved(true);
+                  setTimeout(() => setKeySaved(false), 2000);
+                }}
+                className="shrink-0 rounded-lg bg-primary/20 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/30"
+              >
+                {keySaved ? "Saved ✓" : "Save Key"}
+              </button>
+            </div>
+          </div>
+
           {/* Action Options */}
           <div className="rounded-xl bg-background p-3.5">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">

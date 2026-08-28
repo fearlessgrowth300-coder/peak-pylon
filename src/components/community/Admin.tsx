@@ -10,10 +10,18 @@ import {
   type PostInput,
   type Stats,
   type Status,
+  uid,
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { getChannelMetadata } from "@/lib/channel-metadata";
 import { getTwitchChannel } from "@/lib/twitch.functions";
+import {
+  getGeminiApiKey,
+  setGeminiApiKey,
+  getGeminiModel,
+  setGeminiModel,
+  testGeminiConnection,
+} from "@/lib/gemini";
 
 export function AdminView({
   state,
@@ -77,6 +85,11 @@ export function AdminView({
 
   const [stats, setLocalStats] = useState<Stats>(state.stats);
 
+  const [geminiKey, setLocalGeminiKey] = useState(() => getGeminiApiKey());
+  const [geminiModel, setLocalGeminiModel] = useState(() => getGeminiModel());
+  const [testingGemini, setTestingGemini] = useState(false);
+  const [geminiStatus, setGeminiStatus] = useState<string | null>(null);
+
   async function submitMember(e: FormEvent) {
     e.preventDefault();
     const [avatar, banner] = await Promise.all([
@@ -97,8 +110,8 @@ export function AdminView({
       avatar: avatar || autoAvatar || editingMember?.avatar || "",
       banner: banner || autoBanner || editingMember?.banner || "",
       connections: [...(primary ? [primary] : []), ...connections],
-       joined: new Date(`${form.joined}T12:00:00`).getTime() || Date.now(),
-       manualStatus: (form.status === "offline" ? "offline" : "online") as "online" | "offline",
+      joined: new Date(`${form.joined}T12:00:00`).getTime() || Date.now(),
+      manualStatus: (form.status === "offline" ? "offline" : "online") as "online" | "offline",
     };
     if (editingMember) {
       try {
@@ -237,6 +250,90 @@ export function AdminView({
           ADMIN MODE
         </span>
       </header>
+
+      {/* Google Gemini AI Configuration Card */}
+      <div className="space-y-3 rounded-2xl border border-primary/40 bg-popover p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl">🤖</span>
+            <div>
+              <h2 className="text-base font-black text-foreground">Google Gemini AI Engine</h2>
+              <p className="text-xs text-muted-foreground">
+                Powers AI post analysis, unique contextual creator comments & automated member interactions.
+              </p>
+            </div>
+          </div>
+          <span
+            className={`rounded-full px-3 py-1 text-[10px] font-extrabold tracking-wide ${
+              geminiKey ? "bg-primary/20 text-primary border border-primary/40" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {geminiKey ? "🟢 GEMINI ACTIVE" : "⚪ NO API KEY"}
+          </span>
+        </div>
+
+        <Field label="Gemini API Key">
+          <input
+            type="password"
+            className={inputClass}
+            value={geminiKey}
+            onChange={(e) => setLocalGeminiKey(e.target.value)}
+            placeholder="AIzaSy..."
+          />
+        </Field>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Gemini Model">
+            <select
+              className={inputClass}
+              value={geminiModel}
+              onChange={(e) => setLocalGeminiModel(e.target.value)}
+            >
+              <option value="gemini-1.5-flash">Gemini 1.5 Flash (Fast, Recommended)</option>
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Next Gen)</option>
+              <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Analysis)</option>
+            </select>
+          </Field>
+
+          <div className="flex items-end gap-2">
+            <button
+              type="button"
+              disabled={testingGemini || !geminiKey.trim()}
+              onClick={async () => {
+                setTestingGemini(true);
+                setGeminiStatus(null);
+                try {
+                  const result = await testGeminiConnection(geminiKey, geminiModel);
+                  setGeminiStatus(result.message);
+                  notify(result.success ? "Gemini AI connection successful!" : result.message);
+                } finally {
+                  setTestingGemini(false);
+                }
+              }}
+              className={`${ghostButtonClass} flex-1 text-xs`}
+            >
+              {testingGemini ? "Testing…" : "Test API Connection"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setGeminiApiKey(geminiKey);
+                setGeminiModel(geminiModel);
+                notify("Gemini AI settings saved!");
+              }}
+              className={`${buttonClass} px-5 text-xs`}
+            >
+              Save Key
+            </button>
+          </div>
+        </div>
+
+        {geminiStatus && (
+          <p className="rounded-lg bg-background p-2.5 text-xs font-semibold text-foreground/90">
+            {geminiStatus}
+          </p>
+        )}
+      </div>
 
       <form onSubmit={submitCommunity} className="space-y-3 rounded-xl bg-popover p-4">
         <h2 className="font-bold">01 · Community identity</h2>
@@ -414,7 +511,7 @@ export function AdminView({
         }}
         className="space-y-3 rounded-xl bg-popover p-4"
       >
-          <h2 className="font-bold">05 · Public stats</h2>
+        <h2 className="font-bold">05 · Public stats</h2>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Members">
             <input

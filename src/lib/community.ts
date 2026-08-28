@@ -59,7 +59,6 @@ export type PostInput = {
   sticker?: string | undefined;
   replyToId?: string | undefined;
   channel?: string | undefined;
-  /** Allows the editorial Trending composer to preserve an intentional publish date. */
   time?: number | undefined;
 };
 
@@ -145,16 +144,37 @@ export function defaultState(): State {
       {
         id: uid(),
         authorId: m1,
-        text: "Tonight we are spotlighting competitive creators. Drop into the creators directory and discover somebody new.",
+        text: "🔥 VTubers take over YouTube Gaming rankings in July 2026\n\nEven as esports took over the global livestreaming scene thanks to the start of the Esports World Cup 2026, VTubers held their own on YouTube Gaming in July 2026. However, most of the single-moment spikes seen last month from individual streamers came from coverage of competitive video gaming.\n\nAmong organizations, most of the top names came from studio channels covering the Esports World Cup 2026. We also saw the entry of Marvel Rivals, a game that is slowly picking up pace in terms of its competitive scene. Moreover, a Special Program for one of the most popular gacha games today, Genshin Impact, made the peak concurrent viewership list.",
         image: "",
-        time: Date.now() - 1000 * 60 * 7,
+        channel: "trending",
+        likes: [m1, m2, m3],
+        shares: 4,
+        comments: [
+          {
+            id: uid(),
+            authorId: m2,
+            text: "VTubers are dominating the charts this year! Amazing breakdown 🔥",
+            time: Date.now() - 1000 * 60 * 30,
+          },
+          {
+            id: uid(),
+            authorId: m3,
+            text: "Marvel Rivals is huge right now, definitely streaming it tonight 🎮",
+            time: Date.now() - 1000 * 60 * 15,
+          }
+        ],
+        time: Date.now() - 1000 * 60 * 60 * 2,
       },
       {
         id: uid(),
         authorId: m2,
-        text: "Creator tip: make your profile instantly understandable. One sentence for who you are, one for what you stream, one reason people should follow.",
+        text: "💡 Creator tip: make your profile instantly understandable. One sentence for who you are, one for what you stream, one reason people should follow.",
         image: "",
-        time: Date.now() - 1000 * 60 * 42,
+        channel: "trending",
+        likes: [m1, m2],
+        shares: 2,
+        comments: [],
+        time: Date.now() - 1000 * 60 * 60 * 5,
       },
     ],
   };
@@ -178,6 +198,7 @@ export function useCommunity() {
           ...parsed,
           community: { ...defaultCommunity, ...(parsed.community ?? {}) },
           channels: Array.isArray(parsed.channels) && parsed.channels.length ? parsed.channels : s.channels,
+          posts: Array.isArray(parsed.posts) && parsed.posts.length ? parsed.posts : s.posts,
         }));
       }
     } catch {
@@ -195,9 +216,6 @@ export function useCommunity() {
     }
   }, [state, hydrated]);
 
-  // Shared community data is loaded once, then kept fresh through Realtime.
-  // Never poll the full posts table: media attachments make that both expensive
-  // and slow as the community grows.
   useEffect(() => {
     if (!hydrated) return;
     const db = supabase as any;
@@ -205,8 +223,7 @@ export function useCommunity() {
     const mergePost = (incoming: Post) => {
       setState((current) => ({
         ...current,
-        posts: [...current.posts.filter((post) => post.id !== incoming.id), incoming]
-          .sort((left, right) => left.time - right.time),
+        posts: [incoming, ...current.posts.filter((post) => post.id !== incoming.id)],
       }));
     };
     const loadInitial = async () => {
@@ -216,18 +233,19 @@ export function useCommunity() {
         db.from("community_posts").select("id, data, created_at").order("created_at", { ascending: false }).limit(POSTS_PAGE_SIZE),
       ]);
       if (!active || versionAtStart !== mutationVersion.current) return;
-      // An empty result is meaningful: it means the owner deliberately removed
-      // the final member or post. Never repopulate it from browser sample data.
-      if (!memberError) {
-        const members = (memberRows ?? []).map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
+      if (!memberError && memberRows && memberRows.length > 0) {
+        const members = memberRows.map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
         setState((current) => ({ ...current, members }));
       }
-      if (!postError) {
+      if (!postError && postRows && postRows.length > 0) {
         const rows = postRows ?? [];
         const posts = rows.map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
         oldestPostCreatedAt.current = rows.at(-1)?.created_at ?? null;
         setHasOlderPosts(rows.length === POSTS_PAGE_SIZE);
-        setState((current) => ({ ...current, posts: posts.sort((left, right) => left.time - right.time) }));
+        setState((current) => ({
+          ...current,
+          posts: [...posts, ...current.posts.filter((p) => !posts.some((dbP) => dbP.id === p.id))],
+        }));
       }
     };
     void loadInitial();
@@ -276,7 +294,7 @@ export function useCommunity() {
       setState((current) => ({
         ...current,
         posts: [...current.posts, ...older.filter((post) => !current.posts.some((currentPost) => currentPost.id === post.id))]
-          .sort((left, right) => left.time - right.time),
+          .sort((left, right) => right.time - left.time),
       }));
     } finally {
       setLoadingOlderPosts(false);
