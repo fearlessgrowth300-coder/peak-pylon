@@ -8,6 +8,7 @@ import { ChannelDetails } from "@/components/community/ChannelDetails";
 import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
+import { CreatorRankingsView } from "@/components/community/CreatorRankingsView";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
@@ -1043,6 +1044,14 @@ function Index() {
               />
             )}
 
+            {view === "rankings" && (
+              <CreatorRankingsView
+                members={allMembers}
+                posts={state.posts}
+                onPick={setProfile}
+              />
+            )}
+
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
               return channel ? (
@@ -1063,7 +1072,7 @@ function Index() {
               ) : null;
             })()}
 
-            {(view === "creators" || view === "rankings" || view === "featured" || view === "rising" || view === "partners" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
+            {(view === "creators" || view === "featured" || view === "rising" || view === "partners" || view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
               <div className="space-y-4 px-4 py-5">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
