@@ -9,6 +9,7 @@ import { AdminView } from "@/components/community/Admin";
 import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
 import { CreatorRankingsView } from "@/components/community/CreatorRankingsView";
+import { computeRankings } from "@/lib/rankings";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
@@ -1049,6 +1050,16 @@ function Index() {
                 members={allMembers}
                 posts={state.posts}
                 onPick={setProfile}
+                initialCategory="overall"
+              />
+            )}
+
+            {view === "rising" && (
+              <CreatorRankingsView
+                members={allMembers}
+                posts={state.posts}
+                onPick={setProfile}
+                initialCategory="rising"
               />
             )}
 
@@ -1333,7 +1344,9 @@ function Index() {
 
 function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: { state: ReturnType<typeof useCommunity>["state"]; liveMembers: Member[]; members: Member[]; posts: Post[]; onPick: (member: Member) => void; onOpen: (view: View) => void }) {
   const trending = [...posts].sort((a, b) => b.time - a.time).slice(0, 3);
-  const creators = members.slice(0, 3);
+  const risingRanked = useMemo(() => {
+    return computeRankings(members, posts, "rising").slice(0, 3);
+  }, [members, posts]);
   const clips = posts.filter((post) => post.image || post.video).slice(0, 4);
   const totalMembers = members.length;
   const onlineMembers = members.filter((m) => m.status === "online" || m.status === "live").length;
@@ -1434,22 +1447,50 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
         </section>
 
         <section className="rounded-2xl border border-border bg-popover p-4">
-          <p className="text-xs font-black tracking-widest text-primary">🌟 RISING CREATORS</p>
-          <h2 className="mt-1 text-xl font-extrabold">Creators building momentum</h2>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black tracking-widest text-primary">🌟 RISING CREATORS</p>
+              <h2 className="mt-1 text-xl font-extrabold">Creators building momentum</h2>
+            </div>
+            <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary">
+              AI RANKED
+            </span>
+          </div>
           <div className="mt-3 space-y-2">
-            {creators.map((m, index) => (
-              <button key={m.id} onClick={() => onPick(m)} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent">
-                <span className="w-4 text-xs font-black text-primary">{index + 1}</span>
-                <Avatar member={m} size={34} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-bold">{m.name}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{m.platform} creator</span>
+            {risingRanked.map((item, index) => (
+              <button
+                key={item.member.id}
+                onClick={() => onPick(item.member)}
+                className="group flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent hover:border-primary/40 border border-transparent transition-all"
+              >
+                <span className={`grid h-6 w-6 place-items-center rounded-lg text-xs font-black ${
+                  index === 0 ? "bg-amber-500/20 text-amber-400" : index === 1 ? "bg-zinc-400/20 text-zinc-300" : "bg-amber-700/20 text-amber-500"
+                }`}>
+                  #{index + 1}
                 </span>
-                <span className="text-xs font-black text-online">+{42 - index * 9}%</span>
+                <Avatar member={item.member} size={36} showStatus={true} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 truncate text-sm font-bold">
+                    <span className="truncate">{item.member.name}</span>
+                    <span className={`hidden sm:inline-flex rounded-full border px-1.5 py-0.2 text-[9px] font-bold ${item.badge.color}`}>
+                      {item.badge.icon} {item.badge.text}
+                    </span>
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">{item.member.platform} · {item.metrics.followers.toLocaleString()} followers</span>
+                </span>
+                <div className="text-right shrink-0">
+                  <span className="block text-xs font-black text-emerald-400">+{item.metrics.followerGrowthRate}%</span>
+                  <span className="block text-[10px] font-bold text-primary">{item.scores.totalScore} pts</span>
+                </div>
               </button>
             ))}
           </div>
-          <button onClick={() => onOpen("rising")} className="mt-3 w-full rounded-xl bg-accent py-2 text-sm font-bold hover:bg-accent/70">Discover rising creators</button>
+          <button
+            onClick={() => onOpen("rising")}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-accent py-2.5 text-xs font-bold text-foreground hover:bg-accent/80 transition-colors"
+          >
+            <span>Discover all rising creators →</span>
+          </button>
         </section>
       </div>
 

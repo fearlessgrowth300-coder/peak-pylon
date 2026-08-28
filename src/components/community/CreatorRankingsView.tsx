@@ -28,12 +28,14 @@ export function CreatorRankingsView({
   members,
   posts,
   onPick,
+  initialCategory = "overall",
 }: {
   members: Member[];
   posts: Post[];
   onPick: (member: Member) => void;
+  initialCategory?: RankingCategory;
 }) {
-  const [category, setCategory] = useState<RankingCategory>("overall");
+  const [category, setCategory] = useState<RankingCategory>(initialCategory);
   const [search, setSearch] = useState("");
   const [timeframe, setTimeframe] = useState<"week" | "month" | "all">("week");
   const [inspectedItem, setInspectedItem] = useState<CreatorRankedItem | null>(null);
