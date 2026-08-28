@@ -78,6 +78,7 @@ export function AdminView({
     bio: "",
     status: "online" as Status,
     platform: "Twitch",
+    role: "affiliate",
     joined: new Date().toISOString().slice(0, 10),
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -138,8 +139,30 @@ export function AdminView({
           verified: true,
         }
       : undefined;
+    // Check for duplicate member
+    const normLink = form.link.trim().toLowerCase().replace(/\/$/, "");
+    const normHandle = form.handle.trim().toLowerCase().replace(/^@/, "");
+    const normName = form.name.trim().toLowerCase();
+
+    const existingMatch = state.members.find((m) => {
+      if (editingMember && m.id === editingMember.id) return false;
+      const mLink = (m.link || "").trim().toLowerCase().replace(/\/$/, "");
+      const mHandle = (m.handle || "").trim().toLowerCase().replace(/^@/, "");
+      const mName = (m.name || "").trim().toLowerCase();
+      return (
+        (normLink && mLink && normLink === mLink) ||
+        (normHandle && mHandle && normHandle === mHandle) ||
+        (normName && mName && normName === mName)
+      );
+    });
+
+    if (!editingMember && existingMatch) {
+      return notify(`⚠️ "${existingMatch.name}" (@${existingMatch.handle.replace(/^@/, "")}) is ALREADY added in this community!`);
+    }
+
     const saved = {
       ...form,
+      role: (form.role || "affiliate") as Member["role"],
       avatar: avatar || autoAvatar || editingMember?.avatar || "",
       banner: banner || autoBanner || editingMember?.banner || "",
       connections: [...(primary ? [primary] : []), ...connections],
@@ -149,19 +172,19 @@ export function AdminView({
     if (editingMember) {
       try {
         await updateMember(editingMember.id, saved);
-        notify("Member updated");
+        notify("Member updated successfully");
       } catch {
         return notify("Member update could not be saved to Supabase");
       }
     } else {
       try {
         await addMember(saved);
-        notify("Member added");
+        notify(`🎉 Streamer ${saved.name} added to community!`);
       } catch {
         return notify("Member could not be saved to Supabase");
       }
     }
-    setForm({ name: "", handle: "", link: "", bio: "", status: "online", platform: "Twitch", joined: new Date().toISOString().slice(0, 10) });
+    setForm({ name: "", handle: "", link: "", bio: "", status: "online", platform: "Twitch", role: "affiliate", joined: new Date().toISOString().slice(0, 10) });
     setAvatarFile(null);
     setBannerFile(null);
     setAutoAvatar("");
@@ -195,6 +218,7 @@ export function AdminView({
       bio: member.bio,
       status: member.status,
       platform: member.platform,
+      role: member.role || "affiliate",
       joined: member.joined ? new Date(member.joined).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
     });
     setConnections((member.connections ?? []).filter((c) => c.id !== "primary"));
@@ -210,6 +234,22 @@ export function AdminView({
       const metadata = isTwitch
         ? await getTwitchChannel({ data: { channelUrl: form.link } })
         : await getChannelMetadata(form.link);
+
+      // Check if channel link already exists
+      const normInput = form.link.trim().toLowerCase().replace(/\/$/, "");
+      const isDuplicate = state.members.find((m) => {
+        const mLink = (m.link || "").trim().toLowerCase().replace(/\/$/, "");
+        const mHandle = (m.handle || "").trim().toLowerCase().replace(/^@/, "");
+        const autoHandle = (metadata.handle || "").trim().toLowerCase().replace(/^@/, "");
+        return (normInput && mLink && normInput === mLink) || (autoHandle && mHandle && autoHandle === mHandle);
+      });
+
+      if (isDuplicate) {
+        notify(`⚠️ Streamer "${isDuplicate.name}" (@${isDuplicate.handle.replace(/^@/, "")}) is ALREADY added in this community!`);
+      } else {
+        notify(isTwitch ? "Twitch profile and live status filled. Review before saving." : "Public channel details filled. Review before saving.");
+      }
+
       setForm((current) => ({
         ...current,
         name: metadata.name || current.name,
@@ -220,7 +260,6 @@ export function AdminView({
       }));
       if (metadata.avatar && !avatarFile) setAutoAvatar(metadata.avatar);
       if (metadata.banner && !bannerFile) setAutoBanner(metadata.banner);
-      notify(isTwitch ? "Twitch profile and live status filled. Review before saving." : "Public channel details filled. Review before saving.");
     } catch {
       notify("Could not read that channel. Fill in the details manually.");
     } finally {
@@ -339,7 +378,7 @@ export function AdminView({
             placeholder="Short creator bio"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Status">
             <select
               className={inputClass}
@@ -360,6 +399,19 @@ export function AdminView({
               {["Twitch", "YouTube", "TikTok", "Instagram", "Spotify", "Kick", "Other"].map((p) => (
                 <option key={p}>{p}</option>
               ))}
+            </select>
+          </Field>
+          <Field label="Channel Growth Tier">
+            <select
+              className={inputClass}
+              value={form.role || "affiliate"}
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+            >
+              <option value="affiliate">🟢 Affiliate Streamer</option>
+              <option value="partner">🟣 Partner Creator</option>
+              <option value="verified">🔵 Verified Creator</option>
+              <option value="rising">🚀 Rising Star</option>
+              <option value="member">Streamer Member</option>
             </select>
           </Field>
         </div>

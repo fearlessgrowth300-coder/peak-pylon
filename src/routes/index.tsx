@@ -284,6 +284,34 @@ function Index() {
   const online = allMembers.filter((m) => m.status !== "offline" && m.role !== "admin");
   const offline = allMembers.filter((m) => m.status === "offline" && m.role !== "admin");
 
+  const [pinnedStreamerIds, setPinnedStreamerIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem("streamcore:pinned-streamers");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pinSearch, setPinSearch] = useState("");
+
+  const effectivePinnedIds = useMemo(() => {
+    if (pinnedStreamerIds.length > 0) return pinnedStreamerIds;
+    return allMembers.slice(0, 4).map((m) => m.id);
+  }, [pinnedStreamerIds, allMembers]);
+
+  const togglePinStreamer = (id: string) => {
+    setPinnedStreamerIds((prev) => {
+      const current = prev.length > 0 ? prev : allMembers.slice(0, 4).map((m) => m.id);
+      const updated = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+      try {
+        localStorage.setItem("streamcore:pinned-streamers", JSON.stringify(updated));
+      } catch {}
+      setToast(updated.includes(id) ? "📌 Streamer pinned to left rail!" : "Streamer unpinned from rail");
+      return updated;
+    });
+  };
+
   useEffect(() => {
     const twitchMembers = allMembers.filter((member) => member.platform === "Twitch" && member.link);
     if (!twitchMembers.length) return;
@@ -620,17 +648,81 @@ function Index() {
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
       {/* Server rail */}
-      <nav className="hidden w-[72px] shrink-0 flex-col items-center gap-2 bg-rail py-3 sm:flex">
-        <CommunityMark community={state.community} size={48} />
-        <div className="h-0.5 w-8 rounded bg-border" />
-        {["NR", "PM", "KV", "+"].map((s) => (
-          <div
-            key={s}
-            className="grid h-12 w-12 place-items-center rounded-3xl bg-accent text-xs font-bold text-muted-foreground transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground"
+      <nav className="hidden w-[72px] shrink-0 flex-col items-center gap-2.5 bg-rail py-3 sm:flex overflow-y-auto">
+        <button onClick={() => setView("home")} title="StreamCore Home" className="transition-transform hover:scale-105">
+          <CommunityMark community={state.community} size={48} />
+        </button>
+        <div className="h-0.5 w-8 rounded bg-border/80" />
+
+        {/* Pinned Streamers */}
+        <div className="flex flex-col items-center gap-2.5 w-full">
+          {effectivePinnedIds.map((id) => {
+            const m = memberById.get(id) || allMembers.find((x) => x.id === id);
+            if (!m) return null;
+            const isLive = m.status === "live";
+            const isOnline = m.status === "online";
+
+            return (
+              <div key={m.id} className="group relative flex items-center justify-center">
+                <span className={`absolute -left-3 w-1 rounded-r transition-all duration-200 ${
+                  isLive ? "h-8 bg-live shadow-[0_0_8px_rgba(239,68,68,0.8)]" : isOnline ? "h-5 bg-online" : "h-0 bg-transparent group-hover:h-3"
+                }`} />
+
+                <button
+                  onClick={() => setProfile(m)}
+                  className={`relative flex h-12 w-12 items-center justify-center rounded-3xl transition-all duration-200 hover:rounded-2xl ${
+                    isLive
+                      ? "ring-2 ring-live ring-offset-2 ring-offset-rail shadow-[0_0_12px_rgba(239,68,68,0.5)]"
+                      : isOnline
+                        ? "hover:ring-2 hover:ring-online hover:ring-offset-2 hover:ring-offset-rail"
+                        : "hover:ring-2 hover:ring-primary/60 hover:ring-offset-2 hover:ring-offset-rail"
+                  }`}
+                  title={`${m.name} (@${m.handle.replace(/^@/, '')}) - ${m.status.toUpperCase()}`}
+                >
+                  <Avatar member={m} size={48} showStatus={false} />
+
+                  <span
+                    className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-rail ${
+                      isLive
+                        ? "bg-live animate-ping"
+                        : isOnline
+                          ? "bg-online"
+                          : "bg-muted-foreground/60"
+                    }`}
+                  />
+                  <span
+                    className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-rail ${
+                      isLive
+                        ? "bg-live"
+                        : isOnline
+                          ? "bg-online"
+                          : "bg-muted-foreground/60"
+                    }`}
+                  />
+                </button>
+
+                {/* Floating tooltip */}
+                <div className="pointer-events-none absolute left-16 z-50 hidden whitespace-nowrap rounded-lg bg-popover px-3 py-1.5 text-xs font-bold text-popover-foreground shadow-xl border border-border/80 group-hover:block">
+                  <div className="flex items-center gap-1.5">
+                    <span>{m.name}</span>
+                    {isLive && <span className="rounded bg-live px-1 py-0.2 text-[9px] text-white font-extrabold uppercase">LIVE</span>}
+                    {!isLive && isOnline && <span className="text-[10px] text-online font-semibold">● Online</span>}
+                  </div>
+                  <div className="text-[10px] font-normal text-muted-foreground">{m.handle} · {m.platform}</div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Add / Manage Pinned Streamers button */}
+          <button
+            onClick={() => setPinModalOpen(true)}
+            className="grid h-12 w-12 place-items-center rounded-3xl bg-accent text-sm font-bold text-muted-foreground transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground hover:shadow-md"
+            title="Pin / Manage Streamers in Rail"
           >
-            {s}
-          </div>
-        ))}
+            +
+          </button>
+        </div>
       </nav>
 
       {/* Channel sidebar */}
@@ -885,23 +977,32 @@ function Index() {
 
             {view === "live-now" && <LiveNowCommunityView members={liveMembers} onPick={setProfile} />}
 
-            {view === "trending" && (
-              <TrendingCommunityView
-                posts={state.posts.filter((post) => post.channel === "trending")}
-                members={memberById}
-                allMemberList={allMembers}
-                isAdmin={isAdmin}
-                currentUserId={myAccount?.id}
-                onCreate={async (post) => {
-                  const authorId = myAccount?.id ?? adminMembers[0]?.id;
-                  if (authorId) await addPost({ ...post, authorId, channel: "trending" });
-                }}
-                onUpdate={updatePost}
-                onDelete={removePost}
-                onPick={setProfile}
-                setToast={setToast}
-              />
-            )}
+            {view === "trending" && (() => {
+              const explicitTrending = state.posts.filter((post) => post.channel === "trending");
+              const trendingPosts = explicitTrending.length
+                ? explicitTrending
+                : state.posts
+                    .filter((p) => (p.reactions && Object.keys(p.reactions).length > 0) || p.image || p.video || (p.comments && p.comments.length > 0))
+                    .slice(0, 15);
+
+              return (
+                <TrendingCommunityView
+                  posts={trendingPosts.length ? trendingPosts : state.posts.slice(0, 10)}
+                  members={memberById}
+                  allMemberList={allMembers}
+                  isAdmin={isAdmin}
+                  currentUserId={myAccount?.id}
+                  onCreate={async (post) => {
+                    const authorId = myAccount?.id ?? adminMembers[0]?.id;
+                    if (authorId) await addPost({ ...post, authorId, channel: "trending" });
+                  }}
+                  onUpdate={updatePost}
+                  onDelete={removePost}
+                  onPick={setProfile}
+                  setToast={setToast}
+                />
+              );
+            })()}
 
             {view.startsWith("channel:") && (() => {
               const channel = state.channels.find((item) => `channel:${item.id}` === view);
@@ -1070,7 +1171,107 @@ function Index() {
         </div>
       </main>
 
-      <ProfileModal member={profile} onClose={() => setProfile(null)} isAdmin={isAdmin} />
+      <ProfileModal
+        member={profile}
+        onClose={() => setProfile(null)}
+        isAdmin={isAdmin}
+        isPinned={profile ? effectivePinnedIds.includes(profile.id) : false}
+        onTogglePin={togglePinStreamer}
+      />
+      {pinModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setPinModalOpen(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl bg-popover p-5 shadow-2xl border border-border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div>
+                <h2 className="text-lg font-black flex items-center gap-2">
+                  <span>📌</span> Pin Streamers to Left Rail
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Pin your favorite creators for quick 1-click access and live status indicators.
+                </p>
+              </div>
+              <button
+                onClick={() => setPinModalOpen(false)}
+                className="grid h-8 w-8 place-items-center rounded-full bg-accent text-sm hover:bg-accent/80 font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="py-3">
+              <input
+                value={pinSearch}
+                onChange={(e) => setPinSearch(e.target.value)}
+                placeholder="Search creators by name, handle, or platform..."
+                className="w-full rounded-xl bg-input px-3.5 py-2 text-xs outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-96">
+              {allMembers
+                .filter((m) =>
+                  `${m.name} ${m.handle} ${m.platform}`.toLowerCase().includes(pinSearch.toLowerCase())
+                )
+                .map((m) => {
+                  const isPinned = effectivePinnedIds.includes(m.id);
+                  const isLive = m.status === "live";
+                  const isOnline = m.status === "online";
+
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex items-center justify-between gap-3 rounded-xl bg-background p-2.5 border border-border/50 hover:border-primary/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative">
+                          <Avatar member={m} size={40} showStatus={false} />
+                          <span
+                            className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+                              isLive ? "bg-live animate-ping" : isOnline ? "bg-online" : "bg-muted-foreground/60"
+                            }`}
+                          />
+                          <span
+                            className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${
+                              isLive ? "bg-live" : isOnline ? "bg-online" : "bg-muted-foreground/60"
+                            }`}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <strong className="text-sm font-bold truncate">{m.name}</strong>
+                            {isLive && (
+                              <span className="rounded bg-live px-1.5 py-0.2 text-[9px] font-extrabold text-white uppercase">
+                                LIVE
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{m.handle} · {m.platform}</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => togglePinStreamer(m.id)}
+                        className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+                          isPinned
+                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                            : "bg-accent text-foreground hover:bg-accent/80"
+                        }`}
+                      >
+                        {isPinned ? "✓ Pinned" : "📌 Pin"}
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
       {channelDetailsOpen && <ChannelDetails members={allMembers} posts={state.posts} onClose={() => setChannelDetailsOpen(false)} onPickMember={(member) => { setChannelDetailsOpen(false); setProfile(member); }} />}
 
       {toast && (

@@ -1,4 +1,4 @@
-import { ExternalLink, MessageSquare, PhoneCall, UserPlus, Radio } from "lucide-react";
+import { ExternalLink, MessageSquare, PhoneCall, UserPlus, Radio, Pin } from "lucide-react";
 import { useState } from "react";
 import { formatDate, type Connection, type Member } from "@/lib/community";
 import { Avatar } from "./Bits";
@@ -34,10 +34,14 @@ export function ProfileModal({
   member,
   onClose,
   isAdmin = false,
+  isPinned = false,
+  onTogglePin,
 }: {
   member: Member | null;
   onClose: () => void;
   isAdmin?: boolean;
+  isPinned?: boolean;
+  onTogglePin?: (id: string) => void;
 }) {
   const [notice, setNotice] = useState("");
   if (!member) return null;
@@ -102,6 +106,19 @@ export function ProfileModal({
             <button onClick={() => setNotice("Private messages are available only to verified Twitch or Kick Partners.")} aria-label="Message" className="grid h-10 w-10 place-items-center rounded-lg bg-accent hover:bg-accent/70"><MessageSquare className="h-4 w-4" /></button>
             <button onClick={() => setNotice("Private calls are available only to verified Twitch or Kick Partners.")} aria-label="Call" className="grid h-10 w-10 place-items-center rounded-lg bg-accent hover:bg-accent/70"><PhoneCall className="h-4 w-4" /></button>
           </div>
+          {onTogglePin && (
+            <button
+              onClick={() => onTogglePin(member.id)}
+              className={`mt-2 flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-xs font-bold transition-all ${
+                isPinned
+                  ? "border-primary/50 bg-primary/15 text-primary hover:bg-primary/25"
+                  : "border-border bg-accent/40 text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <Pin className={`h-3.5 w-3.5 ${isPinned ? "rotate-45 fill-primary text-primary" : ""}`} />
+              <span>{isPinned ? "Pinned to Left Rail (Click to Unpin)" : "📌 Pin Creator to Left Rail"}</span>
+            </button>
+          )}
           {notice && <p className="mt-2 rounded-lg bg-accent/60 px-3 py-2 text-xs text-muted-foreground">{notice}</p>}
 
           <div className="mt-4 grid grid-cols-3 overflow-hidden rounded-xl border border-border bg-background"><div className="p-3 text-center"><p className="text-base font-black">{member.status === "live" ? "LIVE" : "—"}</p><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Stream status</p></div><div className="border-x border-border p-3 text-center"><p className="text-base font-black">{connections.length}</p><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Channels</p></div><div className="p-3 text-center"><p className="text-base font-black">{member.real ? "Verified" : "Creator"}</p><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Network role</p></div></div>
