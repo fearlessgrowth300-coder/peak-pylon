@@ -1,17 +1,15 @@
 export const GEMINI_STORAGE_KEY = "streamcore:gemini-api-key";
 export const GEMINI_KEYS_STORAGE_KEY = "streamcore:gemini-api-keys";
 export const GEMINI_MODEL_KEY = "streamcore:gemini-model";
-export const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 export const ACTIVE_CHAT_CONFIG_KEY = "streamcore:active-chat-config";
 
 export const AVAILABLE_MODELS = [
-  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Recommended, Fast & Stable)" },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (Next Gen)" },
-  { id: "gemini-1.5-flash-latest", label: "Gemini 1.5 Flash Latest" },
-  { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
-  { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro (Deep Reasoning)" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  { id: "gemini-pro", label: "Gemini Pro (Legacy)" },
+  { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash (Recommended, Ultra Fast & Stable)" },
+  { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Fast & Reliable)" },
+  { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite (Lightweight)" },
+  { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash (High Capacity)" },
+  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Deep Reasoning)" },
 ];
 
 export interface ActiveChatConfig {
@@ -128,11 +126,11 @@ export async function testGeminiConnection(apiKey?: string, model?: string): Pro
   let selectedModel = model || getGeminiModel();
   const candidateModels = [
     selectedModel,
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.7-flash",
+    "gemini-3.1-pro-preview",
   ];
   const uniqueCandidates = Array.from(new Set(candidateModels.filter(Boolean)));
   let lastErrorMessage = "";
@@ -202,11 +200,11 @@ async function callGeminiGenerate(prompt: string, specificKey?: string, specific
   const selectedModel = specificModel || getGeminiModel();
   const candidateModels = [
     selectedModel,
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.7-flash",
+    "gemini-3.1-pro-preview",
   ];
   const uniqueCandidates = Array.from(new Set(candidateModels.filter(Boolean)));
 
