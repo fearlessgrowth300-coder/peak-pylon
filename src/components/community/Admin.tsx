@@ -121,6 +121,7 @@ export function AdminView({
   const [generatingActiveChat, setGeneratingActiveChat] = useState(false);
   const [resendConfig, setLocalResendConfig] = useState<ResendNotificationConfig>(() => getResendNotificationConfig());
   const [testingResend, setTestingResend] = useState(false);
+  const [testEmailTarget, setTestEmailTarget] = useState("");
   const [testingTwitch, setTestingTwitch] = useState(false);
   const [twitchStatus, setTwitchStatus] = useState<string | null>(null);
   const [syncingAllTwitch, setSyncingAllTwitch] = useState(false);
