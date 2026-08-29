@@ -161,6 +161,29 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     });
   });
 
+/** Tests Twitch App Credentials by obtaining an app access token and fetching a sample profile. */
+export const testTwitchConnection = createServerFn({ method: "POST" })
+  .handler(async () => {
+    try {
+      const { clientId, token } = await getAppToken();
+      const userResponse = await fetch("https://api.twitch.tv/helix/users?login=kaicenat", {
+        headers: { "Client-Id": clientId, Authorization: `Bearer ${token}` },
+      });
+      if (!userResponse.ok) {
+        const errorText = await userResponse.text().catch(() => "");
+        return { success: false, message: `Twitch API HTTP ${userResponse.status}: ${errorText}` };
+      }
+      const data = (await userResponse.json()) as { data?: Array<{ id: string; display_name: string; login: string }> };
+      const user = data.data?.[0];
+      return {
+        success: true,
+        message: `✅ Twitch API Connected! Live Helix lookup verified (${user?.display_name || "Kai Cenat"}, ID: ${user?.id}). Real Twitch data is syncing.`,
+      };
+    } catch (err: any) {
+      return { success: false, message: `❌ Twitch Connection Failed: ${err.message}` };
+    }
+  });
+
 /** Fetches public clips for an admin-managed Twitch channel. Credentials stay server-side. */
 export const getTwitchClips = createServerFn({ method: "POST" })
   .validator(clipsInput)

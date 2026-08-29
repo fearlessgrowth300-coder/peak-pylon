@@ -13,8 +13,7 @@ import {
   uid,
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
-import { getChannelMetadata } from "@/lib/channel-metadata";
-import { getTwitchChannel } from "@/lib/twitch.functions";
+import { getTwitchChannel, testTwitchConnection } from "@/lib/twitch.functions";
 import {
   getGeminiApiKeys,
   setGeminiApiKeys,
@@ -123,6 +122,8 @@ export function AdminView({
   const [resendConfig, setLocalResendConfig] = useState<ResendNotificationConfig>(() => getResendNotificationConfig());
   const [testingResend, setTestingResend] = useState(false);
   const [testEmailTarget, setTestEmailTarget] = useState("");
+  const [testingTwitch, setTestingTwitch] = useState(false);
+  const [twitchStatus, setTwitchStatus] = useState<string | null>(null);
 
   async function submitMember(e: FormEvent) {
     e.preventDefault();
@@ -591,6 +592,54 @@ export function AdminView({
             </div>
           ))}
         </div>
+      </div>
+
+      {/* 06 · Twitch API Live Diagnostics & Real-Time Sync */}
+      <div className="space-y-4 rounded-xl bg-popover p-4 border border-[#9146FF]/30 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-foreground flex items-center gap-2">
+              <span className="text-[#9146FF]">🎮</span> 06 · Twitch API Real-Time Connection & Helix Sync
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Syncs live broadcaster statuses, real viewer counts, official Twitch avatars, stream titles, and categories in real time.
+            </p>
+          </div>
+          <span className="rounded-full bg-[#9146FF]/20 px-2.5 py-1 text-xs font-bold text-[#9146FF]">
+            Twitch Helix API
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={testingTwitch}
+            onClick={async () => {
+              setTestingTwitch(true);
+              setTwitchStatus(null);
+              try {
+                const result = await testTwitchConnection();
+                setTwitchStatus(result.message);
+                notify(result.message);
+              } catch (err: any) {
+                const msg = `❌ Twitch Connection Failed: ${err.message}`;
+                setTwitchStatus(msg);
+                notify(msg);
+              } finally {
+                setTestingTwitch(false);
+              }
+            }}
+            className="rounded-lg bg-[#9146FF] px-4 py-2 text-xs font-bold text-white shadow hover:bg-[#772CE8] transition-colors cursor-pointer flex items-center gap-2"
+          >
+            {testingTwitch ? "Testing Helix API…" : "⚡ Test Live Twitch API Connection"}
+          </button>
+        </div>
+
+        {twitchStatus && (
+          <div className="rounded-lg bg-accent/60 p-3 text-xs font-semibold text-foreground border border-border">
+            {twitchStatus}
+          </div>
+        )}
       </div>
 
       {/* 07 · Gemini AI Multi-Key Pool & Model Engine */}
