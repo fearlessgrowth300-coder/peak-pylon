@@ -10,6 +10,10 @@ import { MembersCRM } from "@/components/community/MembersCRM";
 import { ProfileEditor } from "@/components/community/ProfileEditor";
 import { CreatorRankingsView } from "@/components/community/CreatorRankingsView";
 import { CreatorDirectoryView } from "@/components/community/CreatorDirectoryView";
+import { FeaturedCreatorsView } from "@/components/community/FeaturedCreatorsView";
+import { PartnersView } from "@/components/community/PartnersView";
+import { CreatorAnalyticsView } from "@/components/community/CreatorAnalyticsView";
+import { NotificationsView } from "@/components/community/NotificationsView";
 import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget";
 import { computeRankings } from "@/lib/rankings";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
@@ -54,7 +58,7 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "me" | `channel:${string}`;
+type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "moderation" | "integrations" | "me" | `channel:${string}`;
 
 function Index() {
   const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
@@ -1150,25 +1154,65 @@ function Index() {
               ) : null;
             })()}
 
-            {(view === "creators" || view === "featured" || view === "partners" || view === "rising") && (
+            {view === "featured" && (
+              <FeaturedCreatorsView
+                members={allMembers}
+                posts={state.posts}
+                onPick={setProfile}
+                isAdmin={isAdmin}
+                setToast={setToast}
+              />
+            )}
+
+            {view === "partners" && (
+              <PartnersView
+                members={allMembers}
+                posts={state.posts}
+                onPick={setProfile}
+                isAdmin={isAdmin}
+                currentUserId={myAccount?.id}
+                setToast={setToast}
+                onSendMessage={(m) => {
+                  setProfile(m);
+                  setToast(`Opened profile for ${m.name}`);
+                }}
+              />
+            )}
+
+            {view === "analytics" && (
+              <CreatorAnalyticsView
+                myMember={myAccount ? accountToMember(myAccount) : allMembers[0]}
+                posts={state.posts}
+                setToast={setToast}
+              />
+            )}
+
+            {view === "notifications" && (
+              <NotificationsView
+                onNavigate={(v) => {
+                  setView(v as View);
+                }}
+                onPickMember={setProfile}
+                members={allMembers}
+                setToast={setToast}
+              />
+            )}
+
+            {(view === "creators" || view === "rising") && (
               <CreatorDirectoryView
                 members={allMembers}
                 posts={state.posts}
                 onPick={setProfile}
                 setToast={setToast}
                 initialFilter={
-                  view === "featured"
-                    ? "featured"
-                    : view === "partners"
-                      ? "partners"
-                      : view === "rising"
-                        ? "rising"
-                        : "all"
+                  view === "rising"
+                    ? "rising"
+                    : "all"
                 }
               />
             )}
 
-            {(view === "analytics" || view === "notifications" || view === "messages" || view === "moderation" || view === "integrations") && (
+            {(view === "messages" || view === "moderation" || view === "integrations") && (
               <div className="space-y-4 px-4 py-5">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
