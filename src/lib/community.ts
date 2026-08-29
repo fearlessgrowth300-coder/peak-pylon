@@ -22,6 +22,10 @@ export type Member = {
   bio: string;
   avatar: string;
   banner: string;
+  followers?: number | undefined;
+  viewerCount?: number | undefined;
+  gameName?: string | undefined;
+  streamTitle?: string | undefined;
   joined?: number | undefined;
   real?: boolean | undefined;
   role?: string | undefined;

@@ -121,9 +121,10 @@ export function AdminView({
   const [generatingActiveChat, setGeneratingActiveChat] = useState(false);
   const [resendConfig, setLocalResendConfig] = useState<ResendNotificationConfig>(() => getResendNotificationConfig());
   const [testingResend, setTestingResend] = useState(false);
-  const [testEmailTarget, setTestEmailTarget] = useState("");
   const [testingTwitch, setTestingTwitch] = useState(false);
   const [twitchStatus, setTwitchStatus] = useState<string | null>(null);
+  const [syncingAllTwitch, setSyncingAllTwitch] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; logs: string[] } | null>(null);
 
   async function submitMember(e: FormEvent) {
     e.preventDefault();
@@ -602,7 +603,7 @@ export function AdminView({
               <span className="text-[#9146FF]">🎮</span> 06 · Twitch API Real-Time Connection & Helix Sync
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Syncs live broadcaster statuses, real viewer counts, official Twitch avatars, stream titles, and categories in real time.
+              Syncs real follower counts, live broadcaster statuses, viewer counts, official avatars, and stream titles directly from Twitch Helix.
             </p>
           </div>
           <span className="rounded-full bg-[#9146FF]/20 px-2.5 py-1 text-xs font-bold text-[#9146FF]">
@@ -633,11 +634,85 @@ export function AdminView({
           >
             {testingTwitch ? "Testing Helix API…" : "⚡ Test Live Twitch API Connection"}
           </button>
+
+          <button
+            type="button"
+            disabled={syncingAllTwitch}
+            onClick={async () => {
+              const twitchMembers = state.members.filter((m) => m.platform === "Twitch" && m.link);
+              if (!twitchMembers.length) {
+                return notify("No Twitch creators found in the community to sync.");
+              }
+              setSyncingAllTwitch(true);
+              const logs: string[] = [];
+              setSyncProgress({ current: 0, total: twitchMembers.length, logs: [] });
+
+              for (let i = 0; i < twitchMembers.length; i++) {
+                const member = twitchMembers[i];
+                try {
+                  const channelData = await getTwitchChannel({ data: { channelUrl: member.link } });
+                  const patch: Partial<Member> = {
+                    name: channelData.name || member.name,
+                    handle: channelData.handle || member.handle,
+                    bio: channelData.bio || member.bio,
+                    avatar: channelData.avatar || member.avatar,
+                    banner: channelData.banner || member.banner,
+                    status: channelData.status as any,
+                    followers: channelData.followers,
+                    viewerCount: channelData.viewerCount,
+                    gameName: channelData.gameName,
+                    streamTitle: channelData.streamTitle,
+                  };
+                  await updateMember(member.id, patch);
+                  const followerText = channelData.followers ? `${channelData.followers.toLocaleString()} followers` : "followers updated";
+                  const statusText = channelData.status === "live" ? `🔴 LIVE (${channelData.viewerCount?.toLocaleString()} viewers)` : "Offline";
+                  const log = `[${i + 1}/${twitchMembers.length}] ✅ ${member.name} (${member.handle}): ${followerText} | ${statusText}`;
+                  logs.push(log);
+                  setSyncProgress({ current: i + 1, total: twitchMembers.length, logs: [...logs] });
+                } catch (err: any) {
+                  const log = `[${i + 1}/${twitchMembers.length}] ⚠️ ${member.name}: ${err.message || "Failed to fetch"}`;
+                  logs.push(log);
+                  setSyncProgress({ current: i + 1, total: twitchMembers.length, logs: [...logs] });
+                }
+              }
+              setSyncingAllTwitch(false);
+              notify(`🎉 Finished syncing all ${twitchMembers.length} creators from Twitch!`);
+            }}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-emerald-500 transition-colors cursor-pointer flex items-center gap-2"
+          >
+            {syncingAllTwitch
+              ? `🔄 Syncing (${syncProgress?.current ?? 0}/${syncProgress?.total ?? 0})…`
+              : `🔄 Re-Pull & Sync All ${state.members.filter((m) => m.platform === "Twitch").length} Creators from Twitch`}
+          </button>
         </div>
 
         {twitchStatus && (
           <div className="rounded-lg bg-accent/60 p-3 text-xs font-semibold text-foreground border border-border">
             {twitchStatus}
+          </div>
+        )}
+
+        {syncProgress && (
+          <div className="space-y-2 rounded-xl bg-background/90 p-3 border border-border">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span>Syncing Community Creators from Twitch:</span>
+              <span className="text-primary font-mono">
+                {syncProgress.current} / {syncProgress.total} ({Math.round((syncProgress.current / syncProgress.total) * 100)}%)
+              </span>
+            </div>
+            <div className="w-full bg-accent rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-primary h-full transition-all duration-300 rounded-full"
+                style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}
+              />
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-1 font-mono text-[11px] bg-popover/80 p-2.5 rounded-lg border border-border">
+              {syncProgress.logs.map((log, idx) => (
+                <div key={idx} className={log.includes("✅") ? "text-emerald-400" : "text-amber-400"}>
+                  {log}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

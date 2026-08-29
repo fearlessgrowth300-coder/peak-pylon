@@ -73,12 +73,26 @@ export const getTwitchChannel = createServerFn({ method: "POST" })
       fetch(`https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(login)}`, { headers }),
     ]);
     if (!userResponse.ok) throw new Error("Twitch profile lookup failed");
-    const users = (await userResponse.json()) as { data?: Array<{ display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
+    const users = (await userResponse.json()) as { data?: Array<{ id: string; display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
     const user = users.data?.[0];
     if (!user) throw new Error("Twitch channel not found");
+
+    let followersCount = 0;
+    try {
+      const followersRes = await fetch(`https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(user.id)}`, { headers });
+      if (followersRes.ok) {
+        const followersPayload = (await followersRes.json()) as { total?: number };
+        if (typeof followersPayload.total === "number") {
+          followersCount = followersPayload.total;
+        }
+      }
+    } catch {
+      // fallback
+    }
+
     const streams = streamResponse.ok
       ? ((await streamResponse.json()) as {
-          data?: Array<{ title?: string; game_name?: string; thumbnail_url?: string }>;
+          data?: Array<{ title?: string; game_name?: string; thumbnail_url?: string; viewer_count?: number }>;
         })
       : { data: [] };
     const stream = streams.data?.[0];
@@ -91,10 +105,12 @@ export const getTwitchChannel = createServerFn({ method: "POST" })
       handle: `@${user.login}`,
       bio: user.description || fallbackBio,
       avatar: user.profile_image_url ?? "",
-      // Twitch exposes an offline player image even while a channel is live. Prefer
-      // the live preview when available, then retain the creator's offline banner.
       banner: liveBanner || user.offline_image_url || "",
       status: stream ? "live" : "offline",
+      followers: followersCount > 0 ? followersCount : undefined,
+      viewerCount: stream?.viewer_count ?? 0,
+      gameName: stream?.game_name ?? "",
+      streamTitle: stream?.title ?? "",
       platform: "Twitch",
     };
   });
@@ -126,6 +142,7 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     const users = usersResponse.ok
       ? ((await usersResponse.json()) as {
           data?: Array<{
+            id: string;
             login: string;
             offline_image_url?: string;
             profile_image_url?: string;
@@ -133,6 +150,25 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
           }>;
         })
       : { data: [] };
+
+    // Fetch real follower counts for each creator via Helix followers endpoint
+    const followersMap = new Map<string, number>();
+    await Promise.all(
+      (users.data ?? []).map(async (u) => {
+        try {
+          const followersRes = await fetch(`https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(u.id)}`, { headers });
+          if (followersRes.ok) {
+            const fData = (await followersRes.json()) as { total?: number };
+            if (typeof fData.total === "number") {
+              followersMap.set(u.login.toLowerCase(), fData.total);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      })
+    );
+
     const live = new Set((payload.data ?? []).map((stream) => stream.user_login.toLowerCase()));
     const streamByLogin = new Map((payload.data ?? []).map((stream) => [stream.user_login.toLowerCase(), stream]));
     const userByLogin = new Map((users.data ?? []).map((user) => [user.login.toLowerCase(), user]));
@@ -145,6 +181,7 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
       const streamTitle = stream?.title || "";
       const gameName = stream?.game_name || "";
       const viewerCount = stream?.viewer_count || 0;
+      const realFollowers = followersMap.get(channel.login);
 
       return {
         id: channel.id,
@@ -157,6 +194,7 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
         gameName,
         viewerCount,
         title: streamTitle,
+        followers: realFollowers,
       };
     });
   });

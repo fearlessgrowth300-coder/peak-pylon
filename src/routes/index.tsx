@@ -350,6 +350,10 @@ function Index() {
             ...(update.banner ? { banner: update.banner } : {}),
             ...(update.avatar ? { avatar: update.avatar } : {}),
             ...(update.bio ? { bio: update.bio } : {}),
+            ...(typeof update.followers === "number" && update.followers > 0 ? { followers: update.followers } : {}),
+            ...(typeof update.viewerCount === "number" ? { viewerCount: update.viewerCount } : {}),
+            ...(update.gameName ? { gameName: update.gameName } : {}),
+            ...(update.title ? { streamTitle: update.title } : {}),
           };
 
           const realAccount = accounts.find((account) => account.id === member.id);
@@ -364,9 +368,8 @@ function Index() {
                 ...(update.bio ? { bio: update.bio } : {}),
               })
               .eq("id", realAccount.id);
-          } else {
-            updateMember(member.id, patch);
           }
+          updateMember(member.id, patch);
         });
         if (realProfileChanged) void refresh();
       } catch { /* Keep the last known status if Twitch is temporarily unavailable. */ }
