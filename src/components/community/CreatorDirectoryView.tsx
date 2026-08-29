@@ -49,14 +49,24 @@ export function CreatorDirectoryView({
   posts,
   onPick,
   setToast,
+  initialFilter,
 }: {
   members: Member[];
   posts: Post[];
   onPick: (member: Member) => void;
   setToast?: (msg: string) => void;
+  initialFilter?: DirectoryQuickFilter;
 }) {
   const [search, setSearch] = useState("");
-  const [quickFilter, setQuickFilter] = useState<DirectoryQuickFilter>("all");
+  const [quickFilter, setQuickFilter] = useState<DirectoryQuickFilter>(initialFilter ?? "all");
+
+  // Keep quickFilter in sync if parent navigates between featured/partners/creators
+  useEffect(() => {
+    if (initialFilter) {
+      setQuickFilter(initialFilter);
+    }
+  }, [initialFilter]);
+
   const [sortBy, setSortBy] = useState<DirectorySort>("recommended");
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
 
@@ -270,10 +280,26 @@ export function CreatorDirectoryView({
               </span>
             </div>
             <h1 className="mt-1 text-3xl font-black tracking-tight text-foreground flex items-center gap-2">
-              🔍 CREATOR DIRECTORY
+              {quickFilter === "partners"
+                ? "💎 PARTNER CREATORS"
+                : quickFilter === "featured"
+                  ? "⭐ FEATURED CREATORS"
+                  : quickFilter === "rising"
+                    ? "🚀 RISING CREATORS"
+                    : quickFilter === "live"
+                      ? "🔴 LIVE NOW ON STREAM"
+                      : "🔍 CREATOR DIRECTORY"}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-              Discover creators across Twitch, YouTube, and Kick. Find peers at your level, rising stars, and collaboration partners.
+              {quickFilter === "partners"
+                ? "Official verified StreamCore partners with established viewership, verified badges, and active creator collaborations."
+                : quickFilter === "featured"
+                  ? "Top-tier spotlight creators recognized for exceptional broadcasts, community leadership, and high viewer engagement."
+                  : quickFilter === "rising"
+                    ? "Fast-emerging creators and high-growth streamers building audience momentum across the platform."
+                    : quickFilter === "live"
+                      ? "Community creators broadcasting live right now. Tune in, support their channels, and chat with fellow members."
+                      : "Discover creators across Twitch, YouTube, and Kick. Find peers at your level, rising stars, and collaboration partners."}
             </p>
           </div>
 

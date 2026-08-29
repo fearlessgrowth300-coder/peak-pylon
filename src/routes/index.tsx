@@ -331,17 +331,22 @@ function Index() {
   };
 
   useEffect(() => {
-    const twitchMembers = allMembers.filter((member) => member.platform === "Twitch" && member.link);
-    if (!twitchMembers.length) return;
     let active = true;
     const refreshTwitch = async () => {
+      const currentAll = allMembersRef.current;
+      const twitchMembers = currentAll.filter(
+        (member) => (member.platform?.toLowerCase() === "twitch" || member.link?.includes("twitch.tv")) && Boolean(member.link?.trim())
+      );
+      if (!twitchMembers.length) return;
       try {
-        const updates = await refreshTwitchStatuses({ data: { channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link })) } });
+        const updates = await refreshTwitchStatuses({
+          data: { channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link })) },
+        });
         if (!active) return;
         let realProfileChanged = false;
-        updates.forEach((update) => {
+        for (const update of updates) {
           const member = twitchMembers.find((item) => item.id === update.id);
-          if (!member) return;
+          if (!member) continue;
           const wasLive = member.status === "live";
           const isNowLive = update.status === "live";
 
@@ -360,7 +365,7 @@ function Index() {
           }
 
           const patch: Partial<Member> = {
-            status: nextStatus,
+            status: update.status as any,
             ...(update.banner ? { banner: update.banner } : {}),
             ...(update.avatar ? { avatar: update.avatar } : {}),
             ...(update.bio ? { bio: update.bio } : {}),
@@ -383,15 +388,21 @@ function Index() {
               })
               .eq("id", realAccount.id);
           }
-          updateMember(member.id, patch);
-        });
+          await updateMember(member.id, patch);
+        }
         if (realProfileChanged) void refresh();
-      } catch { /* Keep the last known status if Twitch is temporarily unavailable. */ }
+      } catch {
+        /* Keep the last known status if Twitch is temporarily unavailable. */
+      }
     };
+
     void refreshTwitch();
-    const timer = window.setInterval(() => void refreshTwitch(), 60_000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [accounts, allMembers, refresh, state.members, updateMember]);
+    const timer = window.setInterval(() => void refreshTwitch(), 45_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [accounts, refresh, updateMember, addPost]);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -584,6 +595,11 @@ function Index() {
         platform: m.platform,
         bio: m.bio,
         status: m.status,
+        gameName: m.gameName,
+        streamTitle: m.streamTitle,
+        viewerCount: m.viewerCount,
+        followers: m.followers,
+        link: m.link,
       })),
       recentMessages: recentGeneralPosts,
       availableStickers: shouldSendSticker
@@ -1134,12 +1150,21 @@ function Index() {
               ) : null;
             })()}
 
-            {(view === "creators" || view === "featured" || view === "partners") && (
+            {(view === "creators" || view === "featured" || view === "partners" || view === "rising") && (
               <CreatorDirectoryView
                 members={allMembers}
                 posts={state.posts}
                 onPick={setProfile}
                 setToast={setToast}
+                initialFilter={
+                  view === "featured"
+                    ? "featured"
+                    : view === "partners"
+                      ? "partners"
+                      : view === "rising"
+                        ? "rising"
+                        : "all"
+                }
               />
             )}
 

@@ -84,7 +84,7 @@ export type State = {
 };
 
 const KEY = "streamcore-demo-v1";
-const POSTS_PAGE_SIZE = 30;
+const POSTS_PAGE_SIZE = 120;
 
 export const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -153,7 +153,28 @@ export function defaultState(): State {
 }
 
 export function useCommunity() {
-  const [state, setState] = useState<State>(() => defaultState());
+  const [state, setState] = useState<State>(() => {
+    if (typeof window === "undefined") return defaultState();
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<State>;
+        return {
+          ...defaultState(),
+          ...parsed,
+          community: { ...defaultCommunity, ...(parsed.community ?? {}) },
+          channels: defaultState().channels.map((dc) => {
+            const found = parsed.channels?.find((c: CommunityChannel) => c.id === dc.id);
+            return found ? { ...dc, ...found } : dc;
+          }),
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+    return defaultState();
+  });
+
   const [hydrated, setHydrated] = useState(false);
   const [hasOlderPosts, setHasOlderPosts] = useState(true);
   const [loadingOlderPosts, setLoadingOlderPosts] = useState(false);
@@ -161,34 +182,6 @@ export function useCommunity() {
   const oldestPostCreatedAt = useRef<string | null>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<State>;
-        const isLegacyMockPost = (p: Post) => {
-          if (!p || typeof p.text !== "string") return false;
-          return (
-            p.text.includes("VTubers take over") ||
-            p.text.includes("Tonight we are spotlighting competitive creators") ||
-            p.text.includes("Creator tip: make your profile instantly understandable")
-          );
-        };
-
-        const cleanPosts = Array.isArray(parsed.posts)
-          ? parsed.posts.filter((p) => p && !isLegacyMockPost(p))
-          : [];
-
-        setState((s) => ({
-          ...s,
-          ...parsed,
-          community: { ...defaultCommunity, ...(parsed.community ?? {}) },
-          channels: Array.isArray(parsed.channels) && parsed.channels.length ? parsed.channels : s.channels,
-          posts: cleanPosts,
-        }));
-      }
-    } catch {
-      /* ignore */
-    }
     setHydrated(true);
   }, []);
 
@@ -213,9 +206,14 @@ export function useCommunity() {
     };
     const loadInitial = async () => {
       const versionAtStart = mutationVersion.current;
-      const [{ data: memberRows, error: memberError }, { data: postRows, error: postError }] = await Promise.all([
+      const [
+        { data: memberRows, error: memberError },
+        { data: postRows, error: postError },
+        { data: clipRows },
+      ] = await Promise.all([
         db.from("community_listed_members").select("id, data").limit(100),
         db.from("community_posts").select("id, data, created_at").order("created_at", { ascending: false }).limit(POSTS_PAGE_SIZE),
+        db.from("community_posts").select("id, data, created_at").contains("data", { channel: "clips" }).limit(50),
       ]);
       if (!active || versionAtStart !== mutationVersion.current) return;
       if (!memberError && memberRows && memberRows.length > 0) {
@@ -224,7 +222,15 @@ export function useCommunity() {
       }
       if (!postError) {
         const rows = postRows ?? [];
-        const posts = rows.map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
+        const extraClips = clipRows ?? [];
+        const combinedRows = [...rows, ...extraClips];
+        const postMap = new Map<string, Post>();
+        for (const r of combinedRows) {
+          if (r?.id && r?.data) {
+            postMap.set(r.id, { ...r.data, id: r.id });
+          }
+        }
+        const posts = Array.from(postMap.values()).sort((a, b) => b.time - a.time);
         oldestPostCreatedAt.current = rows.at(-1)?.created_at ?? null;
         setHasOlderPosts(rows.length === POSTS_PAGE_SIZE);
         setState((current) => ({

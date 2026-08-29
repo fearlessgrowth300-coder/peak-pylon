@@ -186,6 +186,11 @@ export interface MemberProfile {
   platform?: string;
   bio?: string;
   status?: string;
+  gameName?: string;
+  streamTitle?: string;
+  viewerCount?: number;
+  followers?: number;
+  link?: string;
 }
 
 export interface GeneratedComment {
@@ -366,11 +371,19 @@ export async function generateActiveChatMessage({
     return `${msg.authorName} (${msg.id}): ${msg.text || `[sticker: ${msg.sticker}]`}`;
   }).join("\n");
 
+  const creatorsContext = members.map((m) => {
+    const isLive = m.status === "live";
+    const liveDetails = isLive
+      ? `[🔴 LIVE STREAMING: playing "${m.gameName || "Gaming"}" | Title: "${m.streamTitle || "Live Stream"}" | ${m.viewerCount ? `${m.viewerCount.toLocaleString()} viewers` : "Live on Twitch"}]`
+      : `[Offline | Followers: ${m.followers ? m.followers.toLocaleString() : "active"}]`;
+    return `- ID: "${m.id}", Name: "${m.name}" (@${m.handle?.replace(/^@/, "")}): Status: ${m.status || "online"} ${liveDetails}. Bio: "${m.bio || ""}"`;
+  }).join("\n");
+
   const prompt = `You are the 24/7 AI Streamer Community Chat Engine for StreamCore (#general chat).
 Your job is to simulate authentic, high-energy live streamer and viewer discussions between verified Twitch creators and community members.
 
 Community Creators available in chat:
-${members.map((m) => `- ID: "${m.id}", Name: "${m.name}", Status: "${m.status || "online"}", Bio/Game: "${m.bio || "Twitch streaming & gaming"}"`).join("\n")}
+${creatorsContext}
 
 Recent chat history in #general:
 ${recentHistory || "No previous messages yet. Kick off a lively discussion about gaming, streams, rank grinds, or tournament clips."}
@@ -385,16 +398,18 @@ STRICT RULES:
    - Welcome them warmly by name to StreamCore (e.g., "Welcome to the squad!", "Ayy welcome in!", "Glad to have you here! What games do you stream or play?").
    - NEVER ignore a real user's greeting or question!
 
-2. STREAM & GAMING CONTEXT ONLY:
-   - All conversations MUST strictly be about: Twitch live streams, gaming meta (Valorant, Fortnite, GTA V, Apex, Just Chatting, Elden Ring, Warzone), streaming setups, viewer milestones, raid hype, crazy clutches, and creator collabs.
-   - NEVER talk about mundane non-streaming topics like grocery stores, supermarkets, frozen aisles, food shopping, or irrelevant real-life errands.
+2. LIVE BROADCASTS & STREAMING GROUNDING:
+   - When a creator is LIVE (🔴 LIVE STREAMING):
+     - They can talk naturally about what is happening on their stream right now (e.g. "Streaming some high-rank ${members.find(m => m.status === "live")?.gameName || "Rust"} right now, chat is going crazy", "Currently live doing 24hr grind, come stop by!").
+     - Other community members can hype them up, ask about their stream, or talk about the game.
+   - When creators are offline, they discuss upcoming streams, game patches, rank grinds (Valorant, Fortnite, Rust, GTA V, Apex), crazy clips, setup upgrades, or collabs.
 
 3. STREAMER DIALOGUE STYLE:
    - Use authentic Twitch/Discord community slang: "W", "LMAO", "nah that clutch was insane", "who's streaming tonight?", "GGs", "sub goal hit", "clip it!".
    - Keep messages punchy, natural, and conversational (1-2 sentences).
    - Sometimes attach a verified sticker from the available list.
    - Optionally react to a recent message ID with an emoji (🔥, 😂, 👑, ❤️, 🎮, 👏).
-   - CRITICAL: NEVER put URLs inside the 'text' property.
+   - NEVER put URLs inside the 'text' property.
 
 Respond ONLY with a valid JSON object:
 {
