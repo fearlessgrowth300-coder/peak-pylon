@@ -328,7 +328,22 @@ function Index() {
         updates.forEach((update) => {
           const member = twitchMembers.find((item) => item.id === update.id);
           if (!member) return;
-          const nextStatus = update.status === "live" ? "live" : member.manualStatus ?? "offline";
+          const wasLive = member.status === "live";
+          const isNowLive = update.status === "live";
+
+          // Auto-broadcast when a creator goes live!
+          if (!wasLive && isNowLive) {
+            const streamTitle = update.title || update.bio || "Live streaming right now!";
+            const gameTag = update.gameName ? `[${update.gameName}] ` : "";
+            void addPost({
+              authorId: member.id,
+              channel: "general",
+              text: `🔴 I'm LIVE now on Twitch streaming ${gameTag}${streamTitle}! Come hang out and join the stream: ${member.link}`,
+              image: update.banner || "",
+              reactions: { "🔥": 3, "❤️": 2, "🎮": 2 },
+            });
+            setToast(`🔴 ${member.name} just went LIVE on Twitch!`);
+          }
 
           const patch: Partial<Member> = {
             status: nextStatus,
@@ -535,7 +550,7 @@ function Index() {
 
     const recentGeneralPosts = currentPosts
       .filter((p) => !p.channel || p.channel === (config.channel || "general"))
-      .slice(0, 10)
+      .slice(-12)
       .map((p) => ({
         id: p.id,
         authorId: p.authorId,
@@ -1220,11 +1235,16 @@ function Index() {
               setAuthorId={setChatAuthor}
               replyTo={replyTo}
               clearReply={() => setReplyTo(null)}
-              onSend={(post: PostInput) => addPost(post)}
+              onSend={async (post: PostInput) => {
+                await addPost(post);
+                setTimeout(() => {
+                  void triggerActiveChatMessageRound();
+                }, 2200);
+              }}
               onTyping={broadcastTyping}
             />
           )}
-          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={(post: PostInput) => addPost({ ...post, channel: channel.name })} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
+          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={async (post: PostInput) => { await addPost({ ...post, channel: channel.name }); setTimeout(() => { void triggerActiveChatMessageRound(); }, 2200); }} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
           </div>
 
           {/* Member list */}

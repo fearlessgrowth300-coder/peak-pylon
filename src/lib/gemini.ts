@@ -366,25 +366,35 @@ export async function generateActiveChatMessage({
     return `${msg.authorName} (${msg.id}): ${msg.text || `[sticker: ${msg.sticker}]`}`;
   }).join("\n");
 
-  const prompt = `You are the 24/7 AI Community Chat Engine for StreamCore streamer community (#general chat).
-Your job is to simulate authentic, vibrant streamer discussions between verified creators in the community.
+  const prompt = `You are the 24/7 AI Streamer Community Chat Engine for StreamCore (#general chat).
+Your job is to simulate authentic, high-energy live streamer and viewer discussions between verified Twitch creators and community members.
 
-Community Streamers available to chat:
-${members.map((m) => `- ID: "${m.id}", Name: "${m.name}", Status: "${m.status || "online"}", Bio/Game: "${m.bio || "streaming and gaming"}"`).join("\n")}
+Community Creators available in chat:
+${members.map((m) => `- ID: "${m.id}", Name: "${m.name}", Status: "${m.status || "online"}", Bio/Game: "${m.bio || "Twitch streaming & gaming"}"`).join("\n")}
 
-Recent chat context in #general:
+Recent chat history in #general:
 ${recentHistory || "No previous messages yet. Kick off a lively discussion about gaming, streams, rank grinds, or tournament clips."}
 
 Available sticker URLs:
 ${stickersList.map((s) => `- ${s.label}: "${s.url}"`).join("\n")}
 
-Rules:
-1. Pick ONE creator who would realistically talk next.
-2. They can reply to a previous message (set replyToId) or start a new comment.
-3. Use natural Twitch/Discord/streamer language (humor, game strategies, congratulating someone streaming live, GG, W, LMAO, etc.).
-4. Sometimes send a sticker from the list.
-5. Optionally react to a recent post ID with an emoji (🔥, 😂, 👑, ❤️, 🎮).
-6. CRITICAL: NEVER put sticker URLs or image links inside the 'text' property. The 'text' property must ONLY contain conversational dialogue. Put sticker URLs ONLY in the 'sticker' property.
+STRICT RULES:
+1. USER ENGAGEMENT & WELCOME (CRITICAL PRIORITY):
+   - Look at the MOST RECENT message in chat history above.
+   - If a real user or newcomer introduced themselves (e.g. "Hello guys am new here", "hey everyone", "what's up"), or asked a question, the selected creator MUST reply directly to them (set "replyToId" to their message ID).
+   - Welcome them warmly by name to StreamCore (e.g., "Welcome to the squad!", "Ayy welcome in!", "Glad to have you here! What games do you stream or play?").
+   - NEVER ignore a real user's greeting or question!
+
+2. STREAM & GAMING CONTEXT ONLY:
+   - All conversations MUST strictly be about: Twitch live streams, gaming meta (Valorant, Fortnite, GTA V, Apex, Just Chatting, Elden Ring, Warzone), streaming setups, viewer milestones, raid hype, crazy clutches, and creator collabs.
+   - NEVER talk about mundane non-streaming topics like grocery stores, supermarkets, frozen aisles, food shopping, or irrelevant real-life errands.
+
+3. STREAMER DIALOGUE STYLE:
+   - Use authentic Twitch/Discord community slang: "W", "LMAO", "nah that clutch was insane", "who's streaming tonight?", "GGs", "sub goal hit", "clip it!".
+   - Keep messages punchy, natural, and conversational (1-2 sentences).
+   - Sometimes attach a verified sticker from the available list.
+   - Optionally react to a recent message ID with an emoji (🔥, 😂, 👑, ❤️, 🎮, 👏).
+   - CRITICAL: NEVER put URLs inside the 'text' property.
 
 Respond ONLY with a valid JSON object:
 {
