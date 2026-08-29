@@ -46,8 +46,10 @@ export function AdminView({
   removeChannel,
   generateClips,
   triggerActiveChatMessage,
+  allMembers,
 }: {
   state: State;
+  allMembers?: Member[];
   addMember: (m: Omit<Member, "id">) => Promise<void>;
   removeMember: (id: string) => Promise<void>;
   addPost: (post: PostInput) => Promise<void>;
@@ -652,7 +654,10 @@ export function AdminView({
             type="button"
             disabled={syncingAllTwitch}
             onClick={async () => {
-              const twitchMembers = state.members.filter((m) => m.platform === "Twitch" && m.link);
+              const targetPool = allMembers && allMembers.length > 0 ? allMembers : state.members;
+              const twitchMembers = targetPool.filter(
+                (m) => (m.platform?.toLowerCase() === "twitch" || m.link?.includes("twitch.tv")) && Boolean(m.link?.trim())
+              );
               if (!twitchMembers.length) {
                 return notify("No Twitch creators found in the community to sync.");
               }
@@ -695,7 +700,7 @@ export function AdminView({
           >
             {syncingAllTwitch
               ? `🔄 Syncing (${syncProgress?.current ?? 0}/${syncProgress?.total ?? 0})…`
-              : `🔄 Re-Pull & Sync All ${state.members.filter((m) => m.platform === "Twitch").length} Creators from Twitch`}
+              : `🔄 Re-Pull & Sync All ${(allMembers && allMembers.length > 0 ? allMembers : state.members).filter((m) => (m.platform?.toLowerCase() === "twitch" || m.link?.includes("twitch.tv")) && m.link).length} Creators from Twitch`}
           </button>
         </div>
 

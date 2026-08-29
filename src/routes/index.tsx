@@ -199,6 +199,20 @@ function Index() {
     const seenLinks = new Set<string>();
 
     for (const m of realMembers) {
+      const matchingStateMember = state.members.find(
+        (sm) => (sm.id && m.id && sm.id.toLowerCase() === m.id.toLowerCase()) ||
+                (sm.handle && m.handle && sm.handle.replace(/^@/, "").toLowerCase() === m.handle.replace(/^@/, "").toLowerCase()) ||
+                (sm.link && m.link && sm.link.trim().toLowerCase() === m.link.trim().toLowerCase())
+      );
+
+      const mergedMember: Member = {
+        ...m,
+        followers: matchingStateMember?.followers ?? m.followers,
+        viewerCount: matchingStateMember?.viewerCount ?? m.viewerCount,
+        gameName: matchingStateMember?.gameName ?? m.gameName,
+        streamTitle: matchingStateMember?.streamTitle ?? m.streamTitle,
+      };
+
       const idKey = m.id?.toLowerCase() || "";
       const nameKey = m.name ? m.name.trim().toLowerCase() : "";
       const handleKey = m.handle ? m.handle.replace(/^@/, "").trim().toLowerCase() : "";
@@ -208,7 +222,7 @@ function Index() {
       if (nameKey) seenNames.add(nameKey);
       if (handleKey) seenHandles.add(handleKey);
       if (linkKey) seenLinks.add(linkKey);
-      list.push(m);
+      list.push(mergedMember);
     }
 
     for (const m of state.members) {
@@ -1196,6 +1210,7 @@ function Index() {
               <ErrorBoundary fallbackTitle="Control Center error">
                 <AdminView
                   state={state}
+                  allMembers={allMembers}
                   addMember={addMember}
                   removeMember={removeMember}
                   addPost={addPost}

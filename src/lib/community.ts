@@ -328,10 +328,15 @@ export function useCommunity() {
   const updateMember = useCallback(async (id: string, patch: Partial<Member>) => {
     mutationVersion.current += 1;
     const db = supabase as any;
-    const { data, error: readError } = await db.from("community_listed_members").select("data").eq("id", id).maybeSingle();
-    if (readError || !data) throw readError ?? new Error("Member record was not found");
-    const { error } = await db.from("community_listed_members").update({ data: { ...data.data, ...patch } }).eq("id", id);
-    if (error) throw error;
+    const { data } = await db.from("community_listed_members").select("data").eq("id", id).maybeSingle();
+    if (data?.data) {
+      await db.from("community_listed_members").update({ data: { ...data.data, ...patch } }).eq("id", id);
+    } else {
+      const currentListed = state.members.find((m) => m.id === id);
+      if (currentListed) {
+        await db.from("community_listed_members").upsert({ id, data: { ...currentListed, ...patch } });
+      }
+    }
 
     try {
       const profilePatch: any = {};
@@ -351,8 +356,27 @@ export function useCommunity() {
       // ignore
     }
 
-    setState((s) => ({ ...s, members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) }));
-  }, []);
+    setState((s) => {
+      const exists = s.members.some((m) => m.id === id);
+      if (exists) {
+        return { ...s, members: s.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
+      } else {
+        const dummy: Member = {
+          id,
+          name: patch.name || "Streamer",
+          handle: patch.handle || "@streamer",
+          platform: patch.platform || "Twitch",
+          status: patch.status || "online",
+          link: patch.link || "",
+          bio: patch.bio || "",
+          avatar: patch.avatar || "",
+          banner: patch.banner || "",
+          ...patch,
+        };
+        return { ...s, members: [dummy, ...s.members] };
+      }
+    });
+  }, [state.members]);
 
   const removeMember = useCallback(async (id: string) => {
     mutationVersion.current += 1;
