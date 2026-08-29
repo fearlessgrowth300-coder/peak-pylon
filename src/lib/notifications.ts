@@ -1,7 +1,6 @@
 import { sendResendEmailServer } from "@/lib/resend.functions";
 
 export interface ResendNotificationConfig {
-  apiKey: string;
   fromEmail: string;
   notifyNewAnnouncement: boolean;
   notifyRepliesAndMentions: boolean;
@@ -14,7 +13,6 @@ const STORAGE_KEY = "streamcore:resend-notification-config";
 export function getResendNotificationConfig(): ResendNotificationConfig {
   if (typeof window === "undefined") {
     return {
-      apiKey: "",
       fromEmail: "StreamCore Alerts <noreply@authenticcommunity.fun>",
       notifyNewAnnouncement: true,
       notifyRepliesAndMentions: true,
@@ -28,7 +26,6 @@ export function getResendNotificationConfig(): ResendNotificationConfig {
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
-        apiKey: parsed.apiKey || "",
         fromEmail: parsed.fromEmail || "StreamCore Alerts <noreply@authenticcommunity.fun>",
         notifyNewAnnouncement: parsed.notifyNewAnnouncement ?? true,
         notifyRepliesAndMentions: parsed.notifyRepliesAndMentions ?? true,
@@ -41,7 +38,6 @@ export function getResendNotificationConfig(): ResendNotificationConfig {
   }
 
   return {
-    apiKey: "",
     fromEmail: "StreamCore Alerts <noreply@authenticcommunity.fun>",
     notifyNewAnnouncement: true,
     notifyRepliesAndMentions: true,
@@ -61,18 +57,15 @@ export async function sendResendEmail({
   subject,
   html,
   text,
-  apiKey,
   from,
 }: {
   to: string | string[];
   subject: string;
   html: string;
   text?: string;
-  apiKey?: string;
   from?: string;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
   const config = getResendNotificationConfig();
-  const key = apiKey?.trim() || config.apiKey.trim();
   const sender = from?.trim() || config.fromEmail.trim() || "StreamCore Alerts <noreply@authenticcommunity.fun>";
   const recipients = Array.isArray(to) ? to : [to];
   const validRecipients = recipients.filter((e) => Boolean(e && e.includes("@")));
@@ -84,7 +77,6 @@ export async function sendResendEmail({
   try {
     const result = await sendResendEmailServer({
       data: {
-        apiKey: key || undefined,
         from: sender,
         to: validRecipients,
         subject,

@@ -276,8 +276,8 @@ export const COMMUNITY_STICKERS: CommunitySticker[] = [
     "url": "https://media.giphy.com/media/9xt1MUZqkneKDinpby/giphy.gif"
   },
   {
-    "id": "st-spongebob-mock",
-    "name": "Sponge Mock",
+    "id": "st-spongebob",
+    "name": "Sponge Reaction",
     "category": "memes",
     "animated": true,
     "url": "https://media.giphy.com/media/l2JdTa0yVuHBpzIE8/giphy.gif"

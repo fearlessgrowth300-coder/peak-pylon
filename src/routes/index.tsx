@@ -15,23 +15,11 @@ import { PartnersView } from "@/components/community/PartnersView";
 import { CreatorAnalyticsView } from "@/components/community/CreatorAnalyticsView";
 import { NotificationsView } from "@/components/community/NotificationsView";
 import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget";
-import { computeRankings } from "@/lib/rankings";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
+import { saveCustomSticker, isStickerSaved } from "@/lib/stickers";
 import {
-  generateAiCommentsForPost,
-  generateAiClipComments,
-  generateActiveChatMessage,
-  getActiveChatConfig,
-  getGeminiApiKey,
-  getGeminiApiKeys,
-  setGeminiApiKey,
-  getGeminiModel,
-} from "@/lib/gemini";
-import { saveCustomSticker, isStickerSaved, COMMUNITY_STICKERS } from "@/lib/stickers";
-import {
-  notifyRealMemberOfReply,
   notifyRealMembersOfAnnouncement,
   notifyRealMembersOfStreamerLive,
 } from "@/lib/notifications";
@@ -65,13 +53,9 @@ function Index() {
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
-  const [view, setView] = useState<View>(() => {
-    if (typeof window === "undefined") return "home";
-    const saved = localStorage.getItem("streamcore:last-view") as View | null;
-    const migrated = saved === "general" ? "home" : saved;
-    return migrated && (migrated === "home" || migrated === "rules" || migrated === "general" || migrated === "creators" || migrated === "live-now" || migrated === "trending" || migrated === "rankings" || migrated === "announcements" || migrated === "featured" || migrated === "rising" || migrated === "partners" || migrated === "events" || migrated === "analytics" || migrated === "notifications" || migrated === "messages" || migrated === "admin" || migrated === "me" || migrated.startsWith("channel:")) ? migrated : "home";
-
-  });
+  // Keep the SSR and browser's first render identical. View changes happen only
+  // from real user navigation after React has hydrated.
+  const [view, setView] = useState<View>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [channelDetailsOpen, setChannelDetailsOpen] = useState(false);
@@ -83,6 +67,27 @@ function Index() {
   const [typingName, setTypingName] = useState<string | null>(null);
   const typingTimer = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Remove credentials and the retired artificial-chat flag left by older builds.
+    localStorage.removeItem("streamcore:gemini-api-key");
+    localStorage.removeItem("streamcore:gemini-api-keys");
+    localStorage.removeItem("streamcore:gemini-model");
+    localStorage.removeItem("streamcore:active-chat-config");
+    try {
+      const key = "streamcore:resend-notification-config";
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        if ("apiKey" in parsed) {
+          delete parsed["apiKey"];
+          localStorage.setItem(key, JSON.stringify(parsed));
+        }
+      }
+    } catch {
+      localStorage.removeItem("streamcore:resend-notification-config");
+    }
+  }, []);
 
   const userId = session?.user.id;
   const myAccount = useMemo(
@@ -276,11 +281,6 @@ function Index() {
 
   const allMembersRef = useRef(allMembers);
   allMembersRef.current = allMembers;
-  const postsRef = useRef(state.posts);
-  postsRef.current = state.posts;
-  const memberByIdRef = useRef(memberById);
-  memberByIdRef.current = memberById;
-  const recentAiSpeakersRef = useRef<string[]>([]);
 
   const postingAuthors = useMemo(() => {
     if (!myAccount) return [];
@@ -306,14 +306,19 @@ function Index() {
   const online = allMembers.filter((m) => m.status !== "offline" && m.role !== "admin");
   const offline = allMembers.filter((m) => m.status === "offline" && m.role !== "admin");
 
-  const [pinnedStreamerIds, setPinnedStreamerIds] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
+  const [pinnedStreamerIds, setPinnedStreamerIds] = useState<string[]>([]);
+
+  useEffect(() => {
     try {
       const saved = localStorage.getItem("streamcore:pinned-streamers");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
+          setPinnedStreamerIds(parsed);
+        }
+      }
     } catch {}
-    return [];
-  });
+  }, []);
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinSearch, setPinSearch] = useState("");
 
@@ -363,7 +368,7 @@ function Index() {
               channel: "general",
               text: `🔴 I'm LIVE now on Twitch streaming ${gameTag}${streamTitle}! Come hang out and join the stream: ${member.link}`,
               image: update.banner || "",
-              reactions: { "🔥": 3, "❤️": 2, "🎮": 2 },
+              reactions: {},
             });
             setToast(`🔴 ${member.name} just went LIVE on Twitch!`);
           }
@@ -417,12 +422,6 @@ function Index() {
   async function generateManagedMemberClips(
     member: Member,
     amount = 6,
-    options?: {
-      commentsCount?: number;
-      likesCount?: number;
-      sharesCount?: number;
-      selectedMemberIds?: string[];
-    }
   ) {
     if (!member.link) return;
     try {
@@ -432,291 +431,24 @@ function Index() {
         return;
       }
 
-      const streamChatTemplates = [
-        "LMAOOOO no way this happened 💀💀",
-        "W STREAM FR FR 🔥🔥",
-        "bro was NOT ready for that 😂",
-        "clip of the year honestly 🏆",
-        "chat was moving at the speed of light lmao",
-        "the comedic timing was unreal 😭",
-        "WWWWWWWWWW",
-        "I cannot breathe right now 💀😂",
-        "classic stream moment honestly ✨",
-        "AYOOOO WHAT 😭😭",
-        "legendary clip haha",
-        "top tier content right here 🎮",
-        "BROOO WHAT JUST HAPPENED 😂",
-        "clip that right now!! 🚀",
-        "this had me dying laughing 😭🔥",
-        "the face expression killed me 💀",
-        "W energy as always! 👑",
-        "instant favorite moment 🙌",
-        "literally crying laughing haha",
-        "goat stream honestly 🐐"
-      ];
-
-      // Determine commenter candidates
-      const specifiedCommenters = options?.selectedMemberIds && options.selectedMemberIds.length > 0
-        ? allMembers.filter((m) => options.selectedMemberIds!.includes(m.id))
-        : [];
-
-      const otherMembers = allMembers.filter((m) => m.id !== member.id);
-      const defaultPool = otherMembers.length >= 2 ? otherMembers : allMembers;
-      const memberPool = specifiedCommenters.length > 0 ? specifiedCommenters : defaultPool;
-
-      const targetCommentCount = options?.commentsCount !== undefined
-        ? Math.min(memberPool.length, options.commentsCount)
-        : Math.min(memberPool.length, Math.floor(Math.random() * 4) + 4);
-
-      const targetLikeCount = options?.likesCount !== undefined
-        ? Math.min(allMembers.length, options.likesCount)
-        : Math.min(allMembers.length, Math.floor(Math.random() * 5) + 5);
-
-      const targetShares = options?.sharesCount !== undefined
-        ? options.sharesCount
-        : Math.floor(Math.random() * 9) + 3;
-
-      const apiKey = getGeminiApiKey();
-
       for (const clip of clips) {
-        // Pick commenters
-        const shuffled = [...memberPool].sort(() => 0.5 - Math.random());
-        const commenterMembers = targetCommentCount >= memberPool.length
-          ? memberPool
-          : shuffled.slice(0, targetCommentCount);
-
-        let commentTexts: string[] = [];
-
-        if (apiKey && commenterMembers.length > 0) {
-          try {
-            const aiComments = await generateAiClipComments({
-              clipTitle: clip.title,
-              streamerName: member.name,
-              members: commenterMembers,
-              apiKey,
-            });
-            if (aiComments && aiComments.length > 0) {
-              const map = new Map(aiComments.map((c) => [c.authorId, c.text]));
-              commentTexts = commenterMembers.map(
-                (m, idx) => map.get(m.id) || streamChatTemplates[idx % streamChatTemplates.length]
-              );
-            }
-          } catch {
-            // fallback
-          }
-        }
-
-        if (commentTexts.length === 0) {
-          const chatShuffled = [...streamChatTemplates].sort(() => 0.5 - Math.random());
-          commentTexts = commenterMembers.map((_, i) => chatShuffled[i % chatShuffled.length]);
-        }
-
-        // Pick likers
-        const likerShuffled = [...allMembers].sort(() => 0.5 - Math.random());
-        const likerIds = likerShuffled.slice(0, targetLikeCount).map((m) => m.id);
-
-        const now = Date.now();
-        const postComments = commenterMembers.map((m, idx) => ({
-          id: Math.random().toString(36).slice(2, 9),
-          authorId: m.id,
-          text: commentTexts[idx] || "W CLIP 🔥",
-          time: now - (commenterMembers.length - idx) * 35000,
-        }));
-
         await addPost({
           authorId: member.id,
           channel: "clips",
           text: `${clip.title}\n${clip.url}\n👁 ${clip.view_count.toLocaleString()} views`,
           image: clip.thumbnail_url,
-          likes: likerIds,
-          shares: targetShares,
-          comments: postComments,
+          likes: [],
+          shares: 0,
+          comments: [],
         });
       }
-      setToast(`Generated ${clips.length} clips with ${targetCommentCount} comments and ${targetLikeCount} likes!`);
+      setToast(`Posted ${clips.length} real Twitch clip${clips.length === 1 ? "" : "s"} to #clips.`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Could not fetch Twitch clips");
     }
   }
 
-  const triggerActiveChatMessageRound = async () => {
-    const currentMembers = allMembersRef.current;
-    if (currentMembers.length < 2) return;
-    const config = getActiveChatConfig();
-    const currentPosts = postsRef.current;
-    const currentMemberById = memberByIdRef.current;
-
-    // Isolate real signed-up users with authentic emails:
-    // AI simulation will NEVER fake a post on behalf of a real user
-    const realUserIds = new Set(
-      accounts
-        .filter((a) => a.email && !a.is_banned)
-        .map((a) => a.id.toLowerCase())
-    );
-
-    // Only online & live simulated streamer members are eligible to speak
-    const onlineSimulatedSpeakers = currentMembers.filter((m) => {
-      if (realUserIds.has(m.id.toLowerCase())) return false;
-      return m.status !== "offline";
-    });
-
-    const speakerPool = onlineSimulatedSpeakers.length >= 2 ? onlineSimulatedSpeakers : currentMembers.filter((m) => !realUserIds.has(m.id.toLowerCase()));
-    if (speakerPool.length < 1) return;
-
-    // Strict round-robin rotation:
-    // Exclude creators who spoke in the last 6-8 AI rounds so one person never speaks 4-5 times in a row!
-    const recentSpeakers = recentAiSpeakersRef.current;
-    let availableSpeakers = speakerPool.filter((m) => !recentSpeakers.includes(m.id));
-    if (availableSpeakers.length < 2) {
-      // If most members already spoke, keep only the latest 2 in history to restart rotation
-      recentAiSpeakersRef.current = recentSpeakers.slice(-2);
-      availableSpeakers = speakerPool.filter((m) => !recentAiSpeakersRef.current.includes(m.id));
-    }
-    if (availableSpeakers.length === 0) availableSpeakers = speakerPool;
-
-    // Randomize/shuffle candidates so all 20+ online creators get equal turns
-    const candidatePool = [...availableSpeakers].sort(() => Math.random() - 0.5);
-
-    // Limit sticker frequency: offer stickers ~25% of the time (1 in 4 messages) to avoid sticker spam
-    const shouldSendSticker = Boolean(config.sendStickers && Math.random() < 0.25);
-
-    const recentGeneralPosts = currentPosts
-      .filter((p) => !p.channel || p.channel === (config.channel || "general"))
-      .slice(-12)
-      .map((p) => ({
-        id: p.id,
-        authorId: p.authorId,
-        authorName: currentMemberById.get(p.authorId)?.name ?? "Streamer",
-        text: p.text,
-        sticker: p.sticker,
-      }));
-
-    const result = await generateActiveChatMessage({
-      members: candidatePool.map((m) => ({
-        id: m.id,
-        name: m.name,
-        handle: m.handle,
-        platform: m.platform,
-        bio: m.bio,
-        status: m.status,
-        gameName: m.gameName,
-        streamTitle: m.streamTitle,
-        viewerCount: m.viewerCount,
-        followers: m.followers,
-        link: m.link,
-      })),
-      recentMessages: recentGeneralPosts,
-      availableStickers: shouldSendSticker
-        ? COMMUNITY_STICKERS.map((s) => ({ id: s.id, label: s.name, url: s.url }))
-        : undefined,
-    });
-
-    if (!result) return;
-
-    // Double check: ensure AI did not impersonate a real signed-up user
-    if (realUserIds.has(result.authorId.toLowerCase())) {
-      const fallbackSpeaker = candidatePool[0];
-      if (fallbackSpeaker) result.authorId = fallbackSpeaker.id;
-    }
-
-    // Record author in recent speakers history
-    recentAiSpeakersRef.current = [...recentAiSpeakersRef.current.slice(-8), result.authorId];
-
-    const chosenAuthor = currentMemberById.get(result.authorId) || currentMembers.find((m) => m.id === result.authorId);
-    const authorDisplayName = chosenAuthor?.name || "Streamer";
-
-    // Broadcast and show typing indicator on screen
-    setTypingName(authorDisplayName);
-    void supabase.channel("streamcore-typing").send({
-      type: "broadcast",
-      event: "typing",
-      payload: { userId: result.authorId, name: authorDisplayName, typing: true },
-    });
-
-    // Wait 2.2s for realistic typing animation
-    await new Promise((r) => setTimeout(r, 2200));
-
-    // Clear typing
-    setTypingName(null);
-    void supabase.channel("streamcore-typing").send({
-      type: "broadcast",
-      event: "typing",
-      payload: { userId: result.authorId, name: authorDisplayName, typing: false },
-    });
-
-    // Generate random 1 to 3 lively reactions so posts never show 0 reactions
-    const sampleReactions = ["🔥", "👏", "🚀", "😂", "👑", "❤️", "🎮"];
-    const randomEmoji1 = sampleReactions[Math.floor(Math.random() * sampleReactions.length)] || "🔥";
-    const randomEmoji2 = sampleReactions[Math.floor(Math.random() * sampleReactions.length)] || "👏";
-    const initialReactions: Record<string, number> = {
-      [randomEmoji1]: Math.floor(Math.random() * 2) + 1,
-    };
-    if (randomEmoji2 !== randomEmoji1) {
-      initialReactions[randomEmoji2] = Math.floor(Math.random() * 2) + 1;
-    }
-
-    await addPost({
-      authorId: result.authorId,
-      channel: config.channel || "general",
-      text: result.text || "",
-      sticker: result.sticker,
-      replyToId: result.replyToId,
-      reactions: initialReactions,
-    });
-
-    // If reply was sent to a real member with email, send Resend email alert
-    if (result.replyToId) {
-      const parentMsg = currentPosts.find((p) => p.id === result.replyToId);
-      if (parentMsg) {
-        const parentAcc = accounts.find((a) => a.id.toLowerCase() === parentMsg.authorId.toLowerCase());
-        if (parentAcc?.email) {
-          void notifyRealMemberOfReply({
-            recipientEmail: parentAcc.email,
-            parentAuthorName: parentAcc.display_name || parentAcc.handle || "Streamer",
-            replyAuthorName: authorDisplayName,
-            replyText: result.text || "Sent a sticker",
-            communityName: state.community.name,
-          });
-        }
-      }
-    }
-
-    if (result.reactions?.postId && result.reactions?.emoji) {
-      void toggleReaction(result.reactions.postId, result.reactions.emoji);
-    }
-  };
-
-  useEffect(() => {
-    let running = false;
-    const checkAndRun = async () => {
-      if (running) return;
-      const config = getActiveChatConfig();
-      if (!config.enabled) return;
-      const keys = getGeminiApiKeys();
-      if (!keys.length) return;
-      running = true;
-      try {
-        await triggerActiveChatMessageRound();
-      } catch {
-        // ignore background error
-      } finally {
-        running = false;
-      }
-    };
-
-    let lastRunTime = Date.now();
-    const intervalChecker = window.setInterval(() => {
-      const config = getActiveChatConfig();
-      if (!config.enabled) return;
-      const intervalMs = Math.max(15, config.intervalSeconds || 60) * 1000;
-      if (Date.now() - lastRunTime >= intervalMs) {
-        lastRunTime = Date.now();
-        void checkAndRun();
-      }
-    }, 3000);
-
-    return () => window.clearInterval(intervalChecker);
-  }, []);
+  // Artificial 24/7 posting was removed. Community messages now come only from real users.
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
@@ -891,7 +623,7 @@ function Index() {
           {view !== "home" && <button onClick={() => view === "general" && setChannelDetailsOpen(true)} className="flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default" disabled={view !== "general"} title={view === "general" ? "Open channel details" : undefined}>
             <span className="text-xl text-muted-foreground">#</span>
             <strong className="truncate">
-               {view === "home" ? "StreamCore" : view === "admin" ? "control-center" : view === "me" ? "my-profile" : view.startsWith("channel:") ? state.channels.find((channel) => `channel:${channel.id}` === view)?.name ?? "channel" : view.replaceAll("-", " ")}
+               {view === "admin" ? "control-center" : view === "me" ? "my-profile" : view.startsWith("channel:") ? state.channels.find((channel) => `channel:${channel.id}` === view)?.name ?? "channel" : view.replaceAll("-", " ")}
             </strong>
           </button>}
           {view === "home" && <div className="hidden min-w-0 max-w-md flex-1 items-center rounded-lg border border-border bg-input/60 px-3 py-1.5 text-xs text-muted-foreground sm:flex"><span className="mr-2 text-sm">⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search creators, posts, clips, or communities..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground" /></div>}
@@ -1171,6 +903,7 @@ function Index() {
                 onPick={setProfile}
                 isAdmin={isAdmin}
                 currentUserId={myAccount?.id}
+                onCreate={addPost}
                 setToast={setToast}
                 onSendMessage={(m) => {
                   setProfile(m);
@@ -1194,6 +927,8 @@ function Index() {
                 }}
                 onPickMember={setProfile}
                 members={allMembers}
+                posts={state.posts}
+                currentUserId={myAccount?.id}
                 setToast={setToast}
               />
             )}
@@ -1213,55 +948,11 @@ function Index() {
             )}
 
             {(view === "messages" || view === "moderation" || view === "integrations") && (
-              <div className="space-y-4 px-4 py-5">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                    Creator directory
-                  </p>
-                  <h1 className="text-xl font-extrabold">
-                    {view === "live-now" ? "Live & online now" : view === "creators" ? "Meet the community" : view.replaceAll("-", " ")}
-                  </h1>
-                </div>
-                {(view === "creators" || view === "featured" || view === "rising" || view === "partners") && (
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search creators"
-                    className="w-full rounded-md bg-input px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
-                  />
-                )}
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {(view === "live-now" ? liveMembers : view === "featured" ? allMembers.slice(0, 6) : view === "rising" ? allMembers.slice().reverse().slice(0, 6) : view === "partners" ? allMembers.filter((m) => m.role === "partner" || m.role === "admin") : filtered).map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => setProfile(m)}
-                      className="overflow-hidden rounded-xl bg-popover text-left transition-colors hover:bg-accent/40"
-                    >
-                      <div
-                        className="h-16 bg-primary/50 bg-cover bg-center"
-                        style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined}
-                      />
-                      <div className="-mt-6 p-4">
-                        <div className="w-fit rounded-full border-4 border-popover">
-                          <Avatar member={m} size={48} />
-                        </div>
-                        <p className="mt-2 truncate font-bold">{m.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{m.handle}</p>
-                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                          {m.bio || "Community creator profile."}
-                        </p>
-                        <div className="mt-3 flex items-center justify-between text-xs">
-                          <span className="rounded bg-accent px-2 py-1 font-semibold">
-                            {m.platform}
-                          </span>
-                          <span className="text-muted-foreground">Open profile →</span>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                  {(view === "live-now" ? liveMembers : filtered).length === 0 && (
-                    <p className="text-sm text-muted-foreground">Nothing to show yet. This space will fill as your network grows.</p>
-                  )}
+              <div className="space-y-3 px-4 py-8">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">StreamCore</p>
+                <h1 className="text-2xl font-black">{view.replaceAll("-", " ")}</h1>
+                <div className="rounded-2xl border border-dashed border-border p-8 text-sm text-muted-foreground">
+                  No connected data source is configured for this section yet. Nothing simulated is being displayed.
                 </div>
               </div>
             )}
@@ -1290,7 +981,6 @@ function Index() {
                   addChannel={addChannel}
                   removeChannel={removeChannel}
                   generateClips={generateManagedMemberClips}
-                  triggerActiveChatMessage={triggerActiveChatMessageRound}
                   crm={
                     <MembersCRM
                       accounts={accounts}
@@ -1324,14 +1014,11 @@ function Index() {
               clearReply={() => setReplyTo(null)}
               onSend={async (post: PostInput) => {
                 await addPost(post);
-                setTimeout(() => {
-                  void triggerActiveChatMessageRound();
-                }, 2200);
               }}
               onTyping={broadcastTyping}
             />
           )}
-          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={async (post: PostInput) => { await addPost({ ...post, channel: channel.name }); setTimeout(() => { void triggerActiveChatMessageRound(); }, 2200); }} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
+          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={async (post: PostInput) => { await addPost({ ...post, channel: channel.name }); }} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
           </div>
 
           {/* Member list */}
@@ -1478,242 +1165,73 @@ function Index() {
 }
 
 function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: { state: ReturnType<typeof useCommunity>["state"]; liveMembers: Member[]; members: Member[]; posts: Post[]; onPick: (member: Member) => void; onOpen: (view: View) => void }) {
-  const trending = [...posts].sort((a, b) => b.time - a.time).slice(0, 3);
-  const risingRanked = useMemo(() => {
-    return computeRankings(members, posts, "rising").slice(0, 3);
-  }, [members, posts]);
-  const clips = posts.filter((post) => post.image || post.video).slice(0, 4);
-  const totalMembers = members.length;
-  const onlineMembers = members.filter((m) => m.status === "online" || m.status === "live").length;
-  const liveCount = members.filter((m) => m.status === "live").length;
-  const activeToday = Math.max(onlineMembers, members.length);
-  const totalPosts = posts.length;
+  const trending = posts.filter((post) => post.channel === "trending").sort((a, b) => b.time - a.time).slice(0, 3);
+  const announcements = posts.filter((post) => post.channel === "announcements").sort((a, b) => b.time - a.time).slice(0, 3);
+  const clips = posts.filter((post) => post.channel === "clips").sort((a, b) => b.time - a.time).slice(0, 4);
+  const creatorActivity = members
+    .map((member) => ({
+      member,
+      posts: posts.filter((post) => post.authorId === member.id).length,
+    }))
+    .sort((left, right) => {
+      if (left.member.status === "live" && right.member.status !== "live") return -1;
+      if (right.member.status === "live" && left.member.status !== "live") return 1;
+      return (right.member.followers ?? 0) - (left.member.followers ?? 0) || right.posts - left.posts;
+    })
+    .slice(0, 3);
+  const onlineMembers = members.filter((member) => member.status === "online" || member.status === "live").length;
+  const partnerCount = members.filter((member) => member.role === "partner").length;
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 lg:px-7">
       <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-[radial-gradient(circle_at_top_right,_oklch(0.577_0.209_273.9_/_0.42),_transparent_44%),linear-gradient(135deg,_oklch(0.25_0.018_270),_oklch(0.17_0.015_270))] p-6 lg:p-9">
-        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/25 blur-3xl" />
         <div className="relative max-w-3xl">
           <p className="text-xs font-black tracking-[0.25em] text-primary">STREAMCORE</p>
-          <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">One network.<br />Millions of creators.</h1>
-          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-            A premium creator network built for discovery, collaboration, and the conversations that move culture.
-          </p>
+          <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">Your creator network,<br />live and connected.</h1>
+          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">Discover the actual creators, live streams, posts and clips currently connected to this community.</p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-elevated">Explore creators</button>
-            <button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold backdrop-blur hover:bg-accent">Watch live now</button>
+            <button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground">Explore creators</button>
+            <button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold">Watch live now</button>
           </div>
         </div>
         <div className="relative mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-4">
           {[
-            [totalMembers.toLocaleString(), "Members"],
+            [members.length.toLocaleString(), "Members"],
             [onlineMembers.toLocaleString(), "Online now"],
-            [activeToday.toLocaleString(), "Active today"],
-            [liveCount.toLocaleString(), "Streams live"]
-          ].map(([value, label]) => (
-            <div key={label} className="bg-background/45 px-4 py-4 backdrop-blur">
-              <p className="text-lg font-black sm:text-2xl">{value}</p>
-              <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
-            </div>
-          ))}
+            [liveMembers.length.toLocaleString(), "Streams live"],
+            [posts.length.toLocaleString(), "Recent posts loaded"],
+          ].map(([value, label]) => <div key={label} className="bg-background/45 px-4 py-4"><p className="text-2xl font-black">{value}</p><p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">{label}</p></div>)}
         </div>
-        <p className="relative mt-3 text-xs text-muted-foreground">Live activity is based on current verified community data.</p>
       </section>
 
       <section className="rounded-2xl border border-border bg-popover p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-black tracking-widest text-live">● LIVE NOW</p>
-            <h2 className="text-xl font-extrabold">Streamers live in the network</h2>
-          </div>
-          <button onClick={() => onOpen("live-now")} className="text-sm font-bold text-primary">View all →</button>
-        </div>
+        <div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-live">● LIVE NOW</p><h2 className="text-xl font-extrabold">Streamers live in the network</h2></div><button onClick={() => onOpen("live-now")} className="text-sm font-bold text-primary">View all →</button></div>
         <div className="flex gap-3 overflow-x-auto pb-1">
-          {liveMembers.filter((m) => m.status === "live").slice(0, 6).map((m) => (
-            <button key={m.id} onClick={() => onPick(m)} className="w-40 shrink-0 overflow-hidden rounded-xl bg-background text-left hover:ring-2 hover:ring-primary">
-              <div className="h-16 bg-primary/30 bg-cover bg-center" style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined} />
-              <div className="relative -mt-5 px-3 pb-3">
-                <Avatar member={m} size={42} showStatus={false} />
-                <p className="mt-2 truncate text-sm font-bold">{m.name}</p>
-                <p className="mt-0.5 text-xs text-live">● LIVE · {m.platform}</p>
-              </div>
-            </button>
-          ))}
-          {!liveMembers.filter((m) => m.status === "live").length && (
-            <p className="px-2 py-6 text-sm text-muted-foreground">Live creator cards will appear here automatically.</p>
-          )}
+          {liveMembers.slice(0, 6).map((member) => <button key={member.id} onClick={() => onPick(member)} className="w-44 shrink-0 overflow-hidden rounded-xl bg-background text-left hover:ring-2 hover:ring-primary"><div className="h-20 bg-accent bg-cover bg-center" style={member.banner ? { backgroundImage: `url(${member.banner})` } : undefined} /><div className="-mt-5 px-3 pb-3"><Avatar member={member} size={42} showStatus={false} /><p className="mt-2 truncate text-sm font-bold">{member.name}</p><p className="truncate text-xs text-live">● {(member.viewerCount ?? 0).toLocaleString()} viewers · {member.gameName || member.platform}</p></div></button>)}
+          {!liveMembers.length && <p className="px-2 py-6 text-sm text-muted-foreground">No connected creator is live right now.</p>}
         </div>
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_.85fr]">
         <section className="rounded-2xl border border-border bg-popover p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING RIGHT NOW</p>
-              <h2 className="text-xl font-extrabold">What creators are talking about</h2>
-            </div>
-            <button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary">Open feed →</button>
-          </div>
-          <div className="space-y-2">
-            {trending.map((post) => {
-              const author = members.find((m) => m.id === post.authorId);
-              return (
-                <article key={post.id} className="rounded-xl bg-background p-3">
-                  <div className="flex gap-3">
-                    <Avatar member={author ?? { name: "Community", avatar: "", status: "offline" }} size={36} showStatus={false} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold">
-                        {author?.name ?? "Community"} <span className="font-normal text-muted-foreground">· {timeAgo(post.time)}</span>
-                      </p>
-                      <p className="mt-2 text-xs font-semibold text-muted-foreground">
-                        {Math.max(
-                          1,
-                          Object.values(post.reactions ?? {}).reduce((a, b) => a + b, 0) + (post.likes?.length || 0)
-                        )}{" "}
-                        reactions · Community discussion
-                      </p>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-            {!trending.length && <p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">Fresh creator conversations will show up here.</p>}
-          </div>
+          <div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING</p><h2 className="text-xl font-extrabold">Admin trending posts</h2></div><button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary">Open feed →</button></div>
+          <div className="space-y-2">{trending.map((post) => { const author=members.find((member)=>member.id===post.authorId); const reactions=Object.values(post.reactions??{}).reduce((sum,count)=>sum+count,0)+(post.likes?.length??0); return <article key={post.id} className="rounded-xl bg-background p-3"><div className="flex gap-3"><Avatar member={author??{name:"StreamCore",avatar:"",status:"offline"}} size={36} showStatus={false}/><div className="min-w-0"><p className="text-sm font-bold">{post.text.split("\n")[0] || "Trending post"}</p><p className="mt-1 text-xs text-muted-foreground">{author?.name??"StreamCore"} · {timeAgo(post.time)} · {reactions} reactions</p></div></div></article>; })}{!trending.length&&<p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">No real trending posts yet.</p>}</div>
         </section>
-
         <section className="rounded-2xl border border-border bg-popover p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-black tracking-widest text-primary">🌟 RISING CREATORS</p>
-              <h2 className="mt-1 text-xl font-extrabold">Creators building momentum</h2>
-            </div>
-            <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary">
-              AI RANKED
-            </span>
-          </div>
-          <div className="mt-3 space-y-2">
-            {risingRanked.map((item, index) => (
-              <button
-                key={item.member.id}
-                onClick={() => onPick(item.member)}
-                className="group flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent hover:border-primary/40 border border-transparent transition-all"
-              >
-                <span className={`grid h-6 w-6 place-items-center rounded-lg text-xs font-black ${
-                  index === 0 ? "bg-amber-500/20 text-amber-400" : index === 1 ? "bg-zinc-400/20 text-zinc-300" : "bg-amber-700/20 text-amber-500"
-                }`}>
-                  #{index + 1}
-                </span>
-                <Avatar member={item.member} size={36} showStatus={true} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 truncate text-sm font-bold">
-                    <span className="truncate">{item.member.name}</span>
-                    <span className={`hidden sm:inline-flex rounded-full border px-1.5 py-0.2 text-[9px] font-bold ${item.badge.color}`}>
-                      {item.badge.icon} {item.badge.text}
-                    </span>
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">{item.member.platform} · {item.metrics.followers.toLocaleString()} followers</span>
-                </span>
-                <div className="text-right shrink-0">
-                  <span className="block text-xs font-black text-emerald-400">+{item.metrics.followerGrowthRate}%</span>
-                  <span className="block text-[10px] font-bold text-primary">{item.scores.totalScore} pts</span>
-                </div>
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => onOpen("rising")}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-accent py-2.5 text-xs font-bold text-foreground hover:bg-accent/80 transition-colors"
-          >
-            <span>Discover all rising creators →</span>
-          </button>
+          <p className="text-xs font-black tracking-widest text-primary">CREATOR ACTIVITY</p><h2 className="mt-1 text-xl font-extrabold">Current network leaders</h2><p className="mt-1 text-xs text-muted-foreground">Sorted only by live state, synced followers and real post counts.</p>
+          <div className="mt-3 space-y-2">{creatorActivity.map(({member,posts:postCount},index)=><button key={member.id} onClick={()=>onPick(member)} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left hover:bg-accent"><span className="text-xs font-black">#{index+1}</span><Avatar member={member} size={36}/><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{member.name}</strong><span className="block truncate text-xs text-muted-foreground">{member.followers?.toLocaleString()??"Not synced"} followers · {postCount} posts</span></span></button>)}{!creatorActivity.length&&<p className="text-sm text-muted-foreground">No creators loaded.</p>}</div>
         </section>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-popover p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-black tracking-widest text-pink-400">🎬 TRENDING CLIPS</p>
-              <h2 className="text-xl font-extrabold">Highlights from the network</h2>
-            </div>
-            <button onClick={() => onOpen("channel:clips")} className="text-sm font-bold text-primary">Browse clips →</button>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {clips.slice(0, 4).map((post) => (
-              <div key={post.id} className="aspect-video overflow-hidden rounded-xl bg-accent">
-                {post.image ? <img src={post.image} alt="Creator clip" className="h-full w-full object-cover" /> : post.video ? <video src={post.video} className="h-full w-full object-cover" /> : null}
-              </div>
-            ))}
-            {!clips.length && <div className="col-span-2 rounded-xl bg-background p-5 text-sm text-muted-foreground">Clips posted by creators will appear here.</div>}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-border bg-popover p-5">
-          <p className="text-xs font-black tracking-widest text-emerald-400">🤝 CREATOR NETWORK</p>
-          <h2 className="mt-1 text-xl font-extrabold">Built for creators helping creators</h2>
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <Metric value={totalMembers.toLocaleString()} label="Creators connected" />
-            <Metric value={totalPosts.toLocaleString()} label="Posts today" />
-            <Metric value="8,420" label="Collaborations this month" />
-            <Metric value="24/7" label="Global activity" />
-          </div>
-          <button onClick={() => onOpen("events")} className="mt-5 rounded-xl border border-primary/50 px-4 py-2 text-sm font-bold text-primary hover:bg-primary hover:text-primary-foreground">Explore creator events</button>
-        </section>
+        <section className="rounded-2xl border border-border bg-popover p-4"><div className="flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-pink-400">🎬 CLIPS</p><h2 className="text-xl font-extrabold">Real Twitch and member clips</h2></div><button onClick={()=>onOpen("channel:clips")} className="text-sm font-bold text-primary">Browse clips →</button></div><div className="mt-3 grid grid-cols-2 gap-2">{clips.map((post)=><div key={post.id} className="aspect-video overflow-hidden rounded-xl bg-accent">{post.image?<img src={post.image} alt="Creator clip" className="h-full w-full object-cover"/>:post.video?<video src={post.video} className="h-full w-full object-cover"/>:<div className="grid h-full place-items-center text-xs text-muted-foreground">Clip link</div>}</div>)}{!clips.length&&<div className="col-span-2 rounded-xl bg-background p-5 text-sm text-muted-foreground">No real clips have been posted yet.</div>}</div></section>
+        <section className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-emerald-400">NETWORK DATA</p><h2 className="mt-1 text-xl font-extrabold">Connected community totals</h2><div className="mt-5 grid grid-cols-2 gap-3"><Metric value={members.length.toLocaleString()} label="Creators"/><Metric value={partnerCount.toLocaleString()} label="Partners"/><Metric value={clips.length.toLocaleString()} label="Recent clips"/><Metric value={liveMembers.length.toLocaleString()} label="Live now"/></div></section>
       </div>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <TopCategoriesWidget members={members} posts={posts} />
-
-        <div className="rounded-2xl border border-border bg-popover p-5">
-          <p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p>
-          <h2 className="mt-1 text-xl font-extrabold">What’s happening in StreamCore</h2>
-          <div className="mt-4 space-y-2">
-            {["Creator Challenge — Spring 2024", "Partner program applications open", "Community update — new features"].map((item) => (
-              <button key={item} onClick={() => onOpen("announcements")} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold hover:bg-accent">
-                <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary">✦</span>
-                <span className="min-w-0 flex-1 truncate">
-                  {item}
-                  <small className="mt-1 block text-xs font-normal text-muted-foreground">StreamCore Staff · recently</small>
-                </span>
-                <span className="text-muted-foreground">→</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <TopCategoriesWidget members={members} posts={posts}/>
+        <div className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p><h2 className="mt-1 text-xl font-extrabold">Published by StreamCore</h2><div className="mt-4 space-y-2">{announcements.map((post)=><button key={post.id} onClick={()=>onOpen("announcements")} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold hover:bg-accent"><span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary">✦</span><span className="min-w-0 flex-1 truncate">{post.text.split("\n")[0]||"Announcement"}<small className="mt-1 block text-xs font-normal text-muted-foreground">{timeAgo(post.time)}</small></span><span>→</span></button>)}{!announcements.length&&<p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">No announcements have been published.</p>}</div></div>
       </section>
-
-      <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-extrabold">Join the world’s most active creator community</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Connect, collaborate, and grow together with millions of creators.</p>
-        </div>
-        <button onClick={() => onOpen("creators")} className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground sm:mt-0">Invite your friends</button>
-      </section>
-
-      <footer className="grid gap-6 border-t border-border pt-6 text-xs text-muted-foreground sm:grid-cols-4">
-        <div>
-          <p className="font-black tracking-widest text-foreground">◈ STREAMCORE</p>
-          <p className="mt-2">The world’s largest creator community. Connect, collaborate, and grow together.</p>
-        </div>
-        <div>
-          <p className="font-bold text-foreground">COMMUNITY</p>
-          <p className="mt-2">Guidelines</p>
-          <p>Rules</p>
-          <p>Support</p>
-        </div>
-        <div>
-          <p className="font-bold text-foreground">CREATOR</p>
-          <p className="mt-2">Apply for Partner</p>
-          <p>Creator resources</p>
-          <p>Brand assets</p>
-        </div>
-        <div>
-          <p className="font-bold text-foreground">LEGAL</p>
-          <p className="mt-2">Terms of Service</p>
-          <p>Privacy Policy</p>
-          <p>Community Rules</p>
-        </div>
-      </footer>
     </div>
   );
 }
@@ -1984,18 +1502,6 @@ function LiveStreamEmbed({ member }: { member: Member }) {
   );
 }
 
-const COMMENT_TEMPLATES = [
-  "Huge milestone! Congrats! 🔥",
-  "This is massive for the network! 🚀",
-  "Big W! Keep crushing it 👑",
-  "Proud to be a part of this community ❤️",
-  "Let's gooo! Top tier content 🎮",
-  "Incredible growth, love to see this! ✨",
-  "Can't wait for the next event! 🏆",
-  "Always inspiring the community! 🤝",
-  "Super excited about this announcement ⚡",
-  "Amazing work everyone! 🙌",
-];
 
 function TrendingCommunityView({
   posts,
@@ -2017,7 +1523,7 @@ function TrendingCommunityView({
   allMemberList: Member[];
   onPick: (member: Member) => void;
   isAdmin: boolean;
-  currentUserId?: string;
+  currentUserId?: string | undefined;
   onCreate: (post: Pick<PostInput, "text" | "image" | "time">) => Promise<void>;
   onUpdate: (id: string, patch: Partial<Post>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -2032,10 +1538,8 @@ function TrendingCommunityView({
   const [publishedAt, setPublishedAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
-  const [autoEngagePost, setAutoEngagePost] = useState<Post | null>(null);
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-  const [pendingTimers, setPendingTimers] = useState<Record<string, { seconds: number; memberIds: string[] }>>({});
 
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -2068,83 +1572,6 @@ function TrendingCommunityView({
     });
   };
 
-  // Countdown timer for scheduled auto-engagement
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPendingTimers((prev) => {
-        const next: Record<string, { seconds: number; memberIds: string[] }> = {};
-        for (const [postId, timer] of Object.entries(prev)) {
-          if (timer.seconds > 1) {
-            next[postId] = { ...timer, seconds: timer.seconds - 1 };
-          } else {
-            // Timer expired: execute auto-engagement
-            const targetPost = posts.find((p) => p.id === postId);
-            if (targetPost) {
-              void executeAutoEngagement(targetPost, timer.memberIds, true, true, true);
-            }
-          }
-        }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [posts]);
-
-  const executeAutoEngagement = async (
-    targetPost: Post,
-    selectedMemberIds: string[],
-    includeLikes: boolean,
-    includeShares: boolean,
-    includeComments: boolean
-  ) => {
-    const existingLikes = new Set(targetPost.likes ?? []);
-    if (includeLikes) {
-      selectedMemberIds.forEach((id) => existingLikes.add(id));
-    }
-
-    const currentShares = (targetPost.shares ?? 0) + (includeShares ? selectedMemberIds.length : 0);
-
-    let newComments = [...(targetPost.comments ?? [])];
-    if (includeComments) {
-      const selectedMembers = selectedMemberIds
-        .map((id) => members.get(id) || allMemberList.find((m) => m.id === id))
-        .filter(Boolean) as Member[];
-
-      const apiKey = getGeminiApiKey();
-      let aiComments: { authorId: string; text: string }[] = [];
-
-      if (apiKey && selectedMembers.length > 0) {
-        try {
-          aiComments = await generateAiCommentsForPost({
-            postText: targetPost.text,
-            members: selectedMembers,
-            apiKey,
-          });
-        } catch (e) {
-          console.warn("Gemini AI comments generation fallback:", e);
-        }
-      }
-
-      const aiCommentMap = new Map(aiComments.map((c) => [c.authorId, c.text]));
-
-      selectedMemberIds.forEach((id, idx) => {
-        const text = aiCommentMap.get(id) || COMMENT_TEMPLATES[idx % COMMENT_TEMPLATES.length];
-        newComments.push({
-          id: Math.random().toString(36).slice(2, 9),
-          authorId: id,
-          text,
-          time: Date.now() + idx * 1000,
-        });
-      });
-    }
-
-    await onUpdate(targetPost.id, {
-      likes: Array.from(existingLikes),
-      shares: currentShares,
-      comments: newComments,
-    });
-    setToast(`Auto-engagement applied: ${selectedMemberIds.length} members engaged with AI comments & boosts!`);
-  };
 
   const toggleLike = async (post: Post) => {
     const userKey = currentUserId || "guest-user";
@@ -2347,7 +1774,6 @@ function TrendingCommunityView({
           const totalShares = post.shares ?? 0;
           const totalComments = post.comments?.length ?? 0;
           const isCommentsOpen = !!expandedComments[post.id];
-          const activeTimer = pendingTimers[post.id];
 
           return (
             <article
@@ -2388,13 +1814,6 @@ function TrendingCommunityView({
                 {isAdmin && (
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => setAutoEngagePost(post)}
-                      className="flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-bold text-primary hover:bg-primary/20"
-                      title="Auto-Engage & Boost Community Likes/Shares/Comments"
-                    >
-                      <span>⚡</span> Auto-Engage
-                    </button>
-                    <button
                       onClick={() => setEditingPost(post)}
                       className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-semibold hover:bg-accent"
                     >
@@ -2414,16 +1833,6 @@ function TrendingCommunityView({
                   </div>
                 )}
               </div>
-
-              {activeTimer && (
-                <div className="mt-3 flex items-center gap-2 rounded-xl bg-primary/10 px-3 py-2 text-xs font-bold text-primary animate-pulse">
-                  <span>⏱</span>
-                  <span>
-                    Auto-engaging with {activeTimer.memberIds.length} community members in{" "}
-                    {activeTimer.seconds}s...
-                  </span>
-                </div>
-              )}
 
               <div className="mt-4">
                 <RichPostContent text={post.text} />
@@ -2599,26 +2008,6 @@ function TrendingCommunityView({
         />
       )}
 
-      {/* Auto-Engage Boost Modal */}
-      {autoEngagePost && (
-        <AutoEngageModal
-          post={autoEngagePost}
-          allMembers={allMemberList}
-          onClose={() => setAutoEngagePost(null)}
-          onInstantBoost={async (selectedIds, likes, shares, comments) => {
-            await executeAutoEngagement(autoEngagePost, selectedIds, likes, shares, comments);
-            setAutoEngagePost(null);
-          }}
-          onSchedule1Min={(selectedIds) => {
-            setPendingTimers((prev) => ({
-              ...prev,
-              [autoEngagePost.id]: { seconds: 60, memberIds: selectedIds },
-            }));
-            setAutoEngagePost(null);
-            setToast("Auto-engagement scheduled! Will trigger in 1 minute.");
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -2777,266 +2166,9 @@ function EditTrendingPostModal({
   );
 }
 
-function AutoEngageModal({
-  post,
-  allMembers,
-  onClose,
-  onInstantBoost,
-  onSchedule1Min,
-}: {
-  post: Post;
-  allMembers: Member[];
-  onClose: () => void;
-  onInstantBoost: (
-    selectedIds: string[],
-    likes: boolean,
-    shares: boolean,
-    comments: boolean
-  ) => Promise<void>;
-  onSchedule1Min: (selectedIds: string[]) => void;
-}) {
-  const [selected, setSelected] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    allMembers.forEach((m) => {
-      initial[m.id] = true;
-    });
-    return initial;
-  });
-
-  const [doLike, setDoLike] = useState(true);
-  const [doShare, setDoShare] = useState(true);
-  const [doComment, setDoComment] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [apiKey, setApiKey] = useState(() => getGeminiApiKey());
-  const [modalApiKey, setModalApiKey] = useState(() => getGeminiApiKey());
-  const [keySaved, setKeySaved] = useState(false);
-
-  const selectedList = allMembers.filter((m) => selected[m.id]);
-  const isAllSelected = selectedList.length === allMembers.length;
-
-  const toggleSelectAll = () => {
-    const nextState = !isAllSelected;
-    const next: Record<string, boolean> = {};
-    allMembers.forEach((m) => {
-      next[m.id] = nextState;
-    });
-    setSelected(next);
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-popover p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <div>
-            <h2 className="text-lg font-black text-foreground">
-              ⚡ Community Auto-Engagement System
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Automatically trigger likes, shares, and authentic comments from community members.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-full bg-accent text-sm font-bold"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="mt-4 space-y-4">
-          {/* Gemini AI Post Intelligence Status & Config */}
-          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3.5 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">🤖</span>
-                <div>
-                  <p className="text-xs font-bold text-foreground">
-                    Google Gemini AI Post Intelligence
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {apiKey
-                      ? "Gemini analyzes this post in real time to generate unique, intelligent creator comments."
-                      : "Enter your Gemini API key to enable contextual AI creator comments."}
-                  </p>
-                </div>
-              </div>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-[9px] font-black tracking-wide ${
-                  apiKey ? "bg-primary/20 text-primary border border-primary/40" : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {apiKey ? "🟢 AI ACTIVE" : "⚪ NO KEY"}
-              </span>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <input
-                type="password"
-                value={modalApiKey}
-                onChange={(e) => setModalApiKey(e.target.value)}
-                placeholder="Enter Gemini API key (AIzaSy...)"
-                className="w-full rounded-lg bg-input px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setGeminiApiKey(modalApiKey);
-                  setApiKey(modalApiKey);
-                  setKeySaved(true);
-                  setTimeout(() => setKeySaved(false), 2000);
-                }}
-                className="shrink-0 rounded-lg bg-primary/20 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/30"
-              >
-                {keySaved ? "Saved ✓" : "Save Key"}
-              </button>
-            </div>
-          </div>
-
-          {/* Action Options */}
-          <div className="rounded-xl bg-background p-3.5">
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Engagement Actions
-            </p>
-            <div className="mt-2.5 flex flex-wrap gap-4 text-xs font-semibold">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={doLike}
-                  onChange={(e) => setDoLike(e.target.checked)}
-                  className="rounded text-primary"
-                />
-                ❤️ Auto-Like ({selectedList.length} likes)
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={doShare}
-                  onChange={(e) => setDoShare(e.target.checked)}
-                  className="rounded text-primary"
-                />
-                ↗ Auto-Share (+{selectedList.length} shares)
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={doComment}
-                  onChange={(e) => setDoComment(e.target.checked)}
-                  className="rounded text-primary"
-                />
-                💬 Auto-Comment ({selectedList.length} creator comments)
-              </label>
-            </div>
-          </div>
-
-          {/* Member Selection */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Select Participating Members ({selectedList.length}/{allMembers.length})
-              </label>
-              <button
-                type="button"
-                onClick={toggleSelectAll}
-                className="text-xs font-bold text-primary hover:underline"
-              >
-                {isAllSelected ? "Deselect All" : "Select All"}
-              </button>
-            </div>
-
-            <div className="mt-2 max-h-56 overflow-y-auto space-y-1.5 rounded-xl border border-border bg-background p-2">
-              {allMembers.map((member) => {
-                const isChecked = !!selected[member.id];
-                return (
-                  <label
-                    key={member.id}
-                    className={`flex items-center justify-between rounded-lg p-2 transition-colors cursor-pointer ${
-                      isChecked ? "bg-primary/10" : "hover:bg-accent"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) =>
-                          setSelected((prev) => ({ ...prev, [member.id]: e.target.checked }))
-                        }
-                        className="rounded text-primary"
-                      />
-                      <Avatar member={member} size={28} showStatus={false} />
-                      <div>
-                        <p className="text-xs font-bold text-foreground">{member.name}</p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {member.handle} · {member.platform}
-                        </p>
-                      </div>
-                    </div>
-                    {member.status === "live" && (
-                      <span className="rounded bg-destructive px-1.5 py-0.5 text-[9px] font-black text-white">
-                        LIVE
-                      </span>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-accent"
-          >
-            Cancel
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={selectedList.length === 0}
-              onClick={() => onSchedule1Min(selectedList.map((m) => m.id))}
-              className="rounded-xl border border-primary bg-background px-4 py-2 text-xs font-bold text-primary hover:bg-primary/10 disabled:opacity-50"
-            >
-              ⏱ Auto-Engage in 1 Min
-            </button>
-            <button
-              type="button"
-              disabled={busy || selectedList.length === 0}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await onInstantBoost(
-                    selectedList.map((m) => m.id),
-                    doLike,
-                    doShare,
-                    doComment
-                  );
-                } finally {
-                  setBusy(false);
-                }
-              }}
-              className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
-            >
-              {busy ? "Applying..." : "⚡ Boost Now"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 type CommunityEvent = {
-  isEvent: boolean;
+  isEvent: true;
   title: string;
   category: string;
   eventDate: number;
@@ -3091,7 +2223,7 @@ function EventsCommunityView({
   allMemberList: Member[];
   onPick: (member: Member) => void;
   isAdmin: boolean;
-  currentUserId?: string;
+  currentUserId?: string | undefined;
   onCreate: (post: Pick<PostInput, "text" | "image" | "time">) => Promise<void>;
   onUpdate: (id: string, patch: Partial<Post>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -3465,7 +2597,7 @@ function StickerDisplay({
   onToast,
 }: {
   sticker: string;
-  onToast?: (msg: string) => void;
+  onToast?: ((msg: string) => void) | undefined;
 }) {
   const isImage = sticker.startsWith("http") || sticker.startsWith("data:image");
   const [saved, setSaved] = useState(() => isStickerSaved(sticker));
@@ -3633,7 +2765,7 @@ function CustomChannel({
   currentUserId?: string | undefined;
   onDelete: (id: string) => Promise<void>;
   onUpdate?: (id: string, patch: Partial<Post>) => Promise<void>;
-  onToast?: (msg: string) => void;
+  onToast?: ((msg: string) => void) | undefined;
 }) {
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};

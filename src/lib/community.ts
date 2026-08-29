@@ -83,8 +83,7 @@ export type State = {
   channels: CommunityChannel[];
 };
 
-const KEY = "streamcore-demo-v1";
-const POSTS_PAGE_SIZE = 120;
+const POSTS_PAGE_SIZE = 40;
 
 export const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -100,80 +99,22 @@ export const defaultCommunity: Community = {
 };
 
 export function defaultState(): State {
-  const m1 = uid();
-  const m2 = uid();
-  const m3 = uid();
   return {
-    stats: { members: "21", online: "18", rank: "#1" },
+    stats: { members: "0", online: "0", rank: "—" },
     community: { ...defaultCommunity },
     channels: [
-      { id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "announcement", allowChat: false, createdAt: Date.now() },
-      { id: "clips", name: "clips", topic: "Share your best clips and moments.", type: "media", allowChat: true, createdAt: Date.now() },
+      { id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "announcement", allowChat: false, createdAt: 0 },
+      { id: "clips", name: "clips", topic: "Share your best clips and moments.", type: "media", allowChat: true, createdAt: 0 },
     ],
-    members: [
-      {
-        id: m1,
-        name: "NovaRush",
-        handle: "@novarush",
-        platform: "Twitch",
-        status: "live",
-        link: "https://www.twitch.tv/",
-        bio: "Competitive streamer, late-night energy, and community-first vibes.",
-        avatar: "",
-        banner: "",
-        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
-      },
-      {
-        id: m2,
-        name: "PixelMaya",
-        handle: "@pixelmaya",
-        platform: "YouTube",
-        status: "online",
-        link: "https://www.youtube.com/",
-        bio: "Variety creator sharing challenges, reactions, and creator tips.",
-        avatar: "",
-        banner: "",
-        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
-      },
-      {
-        id: m3,
-        name: "KaiVertex",
-        handle: "@kaivertex",
-        platform: "Kick",
-        status: "offline",
-        link: "https://kick.com/",
-        bio: "FPS, ranked grinds, clips, and creator collaborations.",
-        avatar: "",
-        banner: "",
-        joined: Date.now() - 1000 * 60 * 60 * 24 * 400,
-      },
-    ],
+    members: [],
     posts: [],
   };
 }
 
 export function useCommunity() {
-  const [state, setState] = useState<State>(() => {
-    if (typeof window === "undefined") return defaultState();
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<State>;
-        return {
-          ...defaultState(),
-          ...parsed,
-          community: { ...defaultCommunity, ...(parsed.community ?? {}) },
-          channels: defaultState().channels.map((dc) => {
-            const found = parsed.channels?.find((c: CommunityChannel) => c.id === dc.id);
-            return found ? { ...dc, ...found } : dc;
-          }),
-        };
-      }
-    } catch {
-      /* ignore */
-    }
-    return defaultState();
-  });
+  // The first render must be identical on the server and in the browser.
+  // Members and posts are loaded from Supabase after hydration; no demo/local data is used.
+  const [state, setState] = useState<State>(defaultState);
 
   const [hydrated, setHydrated] = useState(false);
   const [hasOlderPosts, setHasOlderPosts] = useState(true);
@@ -184,15 +125,6 @@ export function useCommunity() {
   useEffect(() => {
     setHydrated(true);
   }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch {
-      /* ignore */
-    }
-  }, [state, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -209,11 +141,9 @@ export function useCommunity() {
       const [
         { data: memberRows, error: memberError },
         { data: postRows, error: postError },
-        { data: clipRows },
       ] = await Promise.all([
         db.from("community_listed_members").select("id, data").limit(100),
         db.from("community_posts").select("id, data, created_at").order("created_at", { ascending: false }).limit(POSTS_PAGE_SIZE),
-        db.from("community_posts").select("id, data, created_at").contains("data", { channel: "clips" }).limit(50),
       ]);
       if (!active || versionAtStart !== mutationVersion.current) return;
       if (!memberError && memberRows && memberRows.length > 0) {
@@ -222,10 +152,8 @@ export function useCommunity() {
       }
       if (!postError) {
         const rows = postRows ?? [];
-        const extraClips = clipRows ?? [];
-        const combinedRows = [...rows, ...extraClips];
         const postMap = new Map<string, Post>();
-        for (const r of combinedRows) {
+        for (const r of rows) {
           if (r?.id && r?.data) {
             postMap.set(r.id, { ...r.data, id: r.id });
           }
@@ -461,11 +389,6 @@ export function useCommunity() {
     }
     setState((s) => {
       const nextPosts = s.posts.filter((post) => post.id !== id);
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ ...s, posts: nextPosts }));
-      } catch {
-        // ignore
-      }
       return { ...s, posts: nextPosts };
     });
   }, []);
@@ -488,15 +411,14 @@ export function useCommunity() {
   }, []);
 
   const toggleReaction = useCallback((id: string, emoji: string) => {
-    setState((s) => ({
-      ...s,
-      posts: s.posts.map((post) =>
-        post.id === id
-          ? { ...post, reactions: { ...(post.reactions ?? {}), [emoji]: ((post.reactions ?? {})[emoji] ?? 0) + 1 } }
-          : post
-      ),
-    }));
-  }, []);
+    const post = state.posts.find((item) => item.id === id);
+    if (!post) return;
+    const reactions = {
+      ...(post.reactions ?? {}),
+      [emoji]: ((post.reactions ?? {})[emoji] ?? 0) + 1,
+    };
+    void updatePost(id, { reactions });
+  }, [state.posts, updatePost]);
 
   return {
     state,

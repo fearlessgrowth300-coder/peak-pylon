@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { ChevronUp } from "lucide-react";
 import { aggregateTopCategories, type CategoryTab } from "@/lib/categories";
 import type { Member, Post } from "@/lib/community";
 
@@ -39,14 +38,6 @@ export function TopCategoriesWidget({
             🔥 Top
           </button>
           <button
-            onClick={() => setTab("rising")}
-            className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
-              tab === "rising" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            🚀 Rising
-          </button>
-          <button
             onClick={() => setTab("creators")}
             className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
               tab === "creators" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
@@ -67,11 +58,11 @@ export function TopCategoriesWidget({
 
       {topCategory && (
         <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 flex items-start gap-3">
-          <span className="text-xl shrink-0">🤖</span>
+          <span className="text-xl shrink-0">📡</span>
           <div className="min-w-0 flex-1 text-xs">
             <p className="font-extrabold text-foreground flex items-center gap-2">
               <span>{topCategory.aiTrend.badge}</span>
-              <span className="text-muted-foreground font-normal">· AI Trend Pulse</span>
+              <span className="text-muted-foreground font-normal">· Current connected data</span>
             </p>
             <p className="text-muted-foreground mt-0.5 leading-relaxed">
               {topCategory.aiTrend.summary}
@@ -122,18 +113,13 @@ export function TopCategoriesWidget({
               </div>
             </div>
 
-            <div className="text-right shrink-0">
-              <span className="flex items-center justify-end text-xs font-black text-emerald-400">
-                <ChevronUp className="h-3 w-3" />
-                {cat.growthRate}%
-              </span>
-              <span className="text-[10px] font-bold text-muted-foreground">
-                {cat.score} score
-              </span>
+            <div className="text-right shrink-0 text-[10px] font-bold text-muted-foreground">
+              {cat.discussionCount} discussions
             </div>
           </div>
         ))}
       </div>
+      {!categories.length && <p className="rounded-xl border border-dashed border-border p-5 text-center text-xs text-muted-foreground">No synced Twitch categories are available yet.</p>}
     </div>
   );
 }

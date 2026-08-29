@@ -1,52 +1,41 @@
 import type { Member, Post } from "./community";
 
-export type RankingCategory =
-  | "overall"
-  | "growing"
-  | "watched"
-  | "engaged"
-  | "rising"
-  | "content"
-  | "active";
+export type RankingCategory = "overall" | "growing" | "watched" | "engaged" | "rising" | "content" | "active";
 
 export type CreatorScoreBreakdown = {
-  audienceGrowth: number;       // 25% weight
-  viewerPerformance: number;    // 20% weight
-  engagement: number;           // 20% weight
-  consistency: number;          // 15% weight
-  communityActivity: number;    // 10% weight
-  contentPerformance: number;   // 10% weight
-  totalScore: number;           // 0-100 scale (1 decimal)
+  audienceGrowth: number;
+  viewerPerformance: number;
+  engagement: number;
+  consistency: number;
+  communityActivity: number;
+  contentPerformance: number;
+  totalScore: number;
 };
 
 export type CreatorRawMetrics = {
   followers: number;
-  followerGrowthRate: number;    // percentage, e.g. +184.2%
+  followerGrowthRate: number;
   currentViewers: number;
   avgViewers: number;
   peakViewers: number;
   hoursStreamed: number;
-  streamFrequencyDays: number;   // days/week
+  streamFrequencyDays: number;
   clipsCount: number;
   clipViews: number;
   communityPosts: number;
   communityComments: number;
   communityReactions: number;
-  engagementRate: number;        // percentage
+  engagementRate: number;
 };
 
 export type CreatorRankedItem = {
   member: Member;
   rank: number;
   previousRank: number;
-  rankDelta: number;             // >0 is up (e.g. +4), <0 is down, 0 is equal
+  rankDelta: number;
   scores: CreatorScoreBreakdown;
   metrics: CreatorRawMetrics;
-  badge: {
-    text: string;
-    color: string;
-    icon: string;
-  };
+  badge: { text: string; color: string; icon: string };
   aiAnalysis: {
     headline: string;
     summary: string;
@@ -55,381 +44,109 @@ export type CreatorRankedItem = {
   };
 };
 
-/**
- * Deterministic pseudo-random number based on a string seed
- */
-function seededRandom(seed: string, offset = 0): number {
-  let hash = 0;
-  const str = `${seed}-${offset}`;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  const x = Math.sin(hash++) * 10000;
-  return x - Math.floor(x);
+function extractClipViews(text: string) {
+  const match = text.match(/(?:👁\s*)?([\d,.]+)\s+views/i);
+  return match ? Number(match[1]?.replaceAll(",", "") || 0) : 0;
 }
 
-const VERIFIED_CREATOR_BENCHMARKS: Record<string, { followers: number; avgViewers: number; peakViewers: number; growthRate: number }> = {
-  kaicenat: { followers: 21740000, avgViewers: 88500, peakViewers: 345000, growthRate: 84.5 },
-  jynxzi: { followers: 7250000, avgViewers: 62000, peakViewers: 210000, growthRate: 112.4 },
-  tarik: { followers: 3420000, avgViewers: 28500, peakViewers: 145000, growthRate: 42.8 },
-  pokimane: { followers: 9450000, avgViewers: 14200, peakViewers: 68000, growthRate: 18.2 },
-  shroud: { followers: 11200000, avgViewers: 18500, peakViewers: 82000, growthRate: 14.5 },
-  ninja: { followers: 19300000, avgViewers: 12000, peakViewers: 95000, growthRate: 11.2 },
-  xqc: { followers: 12500000, avgViewers: 45000, peakViewers: 185000, growthRate: 35.6 },
-  cinna: { followers: 485000, avgViewers: 4200, peakViewers: 19500, growthRate: 145.2 },
-  kyedae: { followers: 2950000, avgViewers: 11500, peakViewers: 48000, growthRate: 68.4 },
-  valkyrae: { followers: 4100000, avgViewers: 22000, peakViewers: 95000, growthRate: 38.0 },
-  agent00: { followers: 2300000, avgViewers: 18000, peakViewers: 72000, growthRate: 92.5 },
-  fanum: { followers: 2800000, avgViewers: 24500, peakViewers: 98000, growthRate: 104.2 },
-  dukedennis: { followers: 3100000, avgViewers: 21000, peakViewers: 85000, growthRate: 88.0 },
-  ibai: { followers: 17200000, avgViewers: 92000, peakViewers: 3400000, growthRate: 64.0 },
-  auronplay: { followers: 16500000, avgViewers: 68000, peakViewers: 280000, growthRate: 22.5 },
-  rubius: { followers: 15100000, avgViewers: 34000, peakViewers: 160000, growthRate: 19.8 },
-  hasanabi: { followers: 2750000, avgViewers: 26000, peakViewers: 120000, growthRate: 46.2 },
-  asmongold: { followers: 3600000, avgViewers: 42000, peakViewers: 175000, growthRate: 58.4 },
-};
-
-export function calculateCreatorMetrics(
-  member: Member,
-  posts: Post[]
-): CreatorRawMetrics {
-  const seed = member.id || member.handle || member.name;
-  const handleKey = (member.handle || member.name || "").toLowerCase().replace(/[@\s_-]/g, "");
-  const benchmark = VERIFIED_CREATOR_BENCHMARKS[handleKey];
-
-  // Real community signals
-  const memberPosts = posts.filter((p) => p.authorId?.toLowerCase() === member.id?.toLowerCase());
-  const communityPostsCount = memberPosts.length;
-  
-  let communityReactions = 0;
-  let clipViews = 0;
-  let clipsCount = 0;
-
-  for (const post of memberPosts) {
-    if (post.reactions) {
-      communityReactions += Object.values(post.reactions).reduce((a, b) => a + b, 0);
-    }
-    if (post.likes) {
-      communityReactions += post.likes.length;
-    }
-    if (post.image || post.video) {
-      clipsCount++;
-      clipViews += (post.shares || 0) * 35 + (post.likes?.length || 0) * 12 + Math.floor(seededRandom(post.id || seed, 1) * 850) + 120;
-    }
-  }
-
-  let communityComments = 0;
-  for (const post of posts) {
-    if (post.comments) {
-      communityComments += post.comments.filter((c) => c.authorId?.toLowerCase() === member.id?.toLowerCase()).length;
-    }
-  }
-
-  let followers = 0;
-  let followerGrowthRate = 0;
-  let avgViewers = 0;
-  let peakViewers = 0;
-
-  if (member.followers && member.followers > 0) {
-    // REAL LIVE TWITCH DATA DIRECTLY FROM TWITCH API
-    followers = member.followers;
-    const isLive = member.status === "live";
-    const isPartner = member.role === "partner" || member.role === "admin";
-    const isRising = member.role === "rising";
-
-    if (isLive && member.viewerCount && member.viewerCount > 500) {
-      followerGrowthRate = benchmark?.growthRate ?? +(45 + seededRandom(seed, 3) * 55).toFixed(1);
-      avgViewers = member.viewerCount;
-      peakViewers = Math.floor(member.viewerCount * 1.8);
-    } else if (isLive) {
-      followerGrowthRate = benchmark?.growthRate ?? +(25 + seededRandom(seed, 3) * 35).toFixed(1);
-      avgViewers = member.viewerCount && member.viewerCount > 0 ? member.viewerCount : Math.max(15, Math.floor(followers * 0.008));
-      peakViewers = Math.floor(avgViewers * 2.0);
-    } else if (followers >= 1000000) {
-      // Streamer Titan / High Follower
-      followerGrowthRate = benchmark?.growthRate ?? +(12 + seededRandom(seed, 3) * 18).toFixed(1);
-      avgViewers = benchmark?.avgViewers ?? Math.max(2500, Math.floor(followers * 0.003));
-      peakViewers = benchmark?.peakViewers ?? Math.floor(avgViewers * 2.5);
-    } else if (followers >= 50000) {
-      followerGrowthRate = benchmark?.growthRate ?? +(8 + seededRandom(seed, 3) * 15).toFixed(1);
-      avgViewers = benchmark?.avgViewers ?? Math.max(80, Math.floor(followers * 0.004));
-      peakViewers = benchmark?.peakViewers ?? Math.floor(avgViewers * 2.2);
-    } else {
-      // Emerging / smaller offline creator (e.g. 2000 followers)
-      followerGrowthRate = +(3.5 + seededRandom(seed, 3) * 8.5).toFixed(1);
-      avgViewers = Math.max(5, Math.floor(followers * 0.005));
-      peakViewers = Math.floor(avgViewers * 2.0);
-    }
-  } else if (benchmark) {
-    followers = Math.floor(benchmark.followers * (0.98 + seededRandom(seed, 2) * 0.04));
-    followerGrowthRate = benchmark.growthRate;
-    avgViewers = benchmark.avgViewers;
-    peakViewers = benchmark.peakViewers;
-  } else {
-    // Base platform metrics scaled by creator tier/role
-    const isPartner = member.role === "partner";
-    const isRising = member.role === "rising";
-    const isAffiliate = member.role === "affiliate";
-
-    const baseFollowerScale = isPartner ? 250000 : isRising ? 8500 : isAffiliate ? 24000 : 15000;
-    followers = Math.floor(baseFollowerScale * (0.4 + seededRandom(seed, 2) * 1.8) + (member.real ? 1200 : 0));
-    followerGrowthRate = +(5.0 + seededRandom(seed, 3) * 12).toFixed(1);
-
-    const baseViewers = isPartner ? 1800 : isRising ? 85 : 320;
-    avgViewers = Math.max(12, Math.floor(baseViewers * (0.5 + seededRandom(seed, 4) * 1.2)));
-    peakViewers = Math.floor(avgViewers * (1.6 + seededRandom(seed, 6) * 1.2));
-  }
-
-  const isLive = member.status === "live";
-  const currentViewers = isLive ? (member.viewerCount && member.viewerCount > 0 ? member.viewerCount : Math.floor(avgViewers * (0.8 + seededRandom(seed, 5) * 1.5))) : 0;
-
-  const hoursStreamed = Math.floor(40 + seededRandom(seed, 7) * 95 + (isLive ? 12 : 0));
-  const streamFrequencyDays = Math.min(7, Math.max(2, Math.floor(3 + seededRandom(seed, 8) * 4.5)));
-
-  const totalInteractions = communityReactions + communityComments * 2 + communityPostsCount * 5;
-  const engagementRate = +Math.min(18.5, Math.max(3.2, 4.5 + (totalInteractions / (followers || 1)) * 1000 + seededRandom(seed, 9) * 4.2)).toFixed(1);
+export function calculateCreatorMetrics(member: Member, posts: Post[]): CreatorRawMetrics {
+  const memberPosts = posts.filter((post) => post.authorId?.toLowerCase() === member.id?.toLowerCase());
+  const clipPosts = memberPosts.filter((post) => post.channel === "clips");
+  const communityReactions = memberPosts.reduce((sum, post) => (
+    sum +
+    Object.values(post.reactions ?? {}).reduce((total, count) => total + count, 0) +
+    (post.likes?.length ?? 0)
+  ), 0);
+  const communityComments = memberPosts.reduce((sum, post) => sum + (post.comments?.length ?? 0), 0);
+  const interactions = communityReactions + communityComments + memberPosts.reduce((sum, post) => sum + (post.shares ?? 0), 0);
 
   return {
-    followers,
-    followerGrowthRate,
-    currentViewers,
-    avgViewers,
-    peakViewers,
-    hoursStreamed,
-    streamFrequencyDays,
-    clipsCount,
-    clipViews,
-    communityPosts: communityPostsCount,
+    followers: member.followers ?? 0,
+    followerGrowthRate: 0,
+    currentViewers: member.status === "live" ? member.viewerCount ?? 0 : 0,
+    avgViewers: member.status === "live" ? member.viewerCount ?? 0 : 0,
+    peakViewers: member.status === "live" ? member.viewerCount ?? 0 : 0,
+    hoursStreamed: 0,
+    streamFrequencyDays: 0,
+    clipsCount: clipPosts.length,
+    clipViews: clipPosts.reduce((sum, post) => sum + extractClipViews(post.text), 0),
+    communityPosts: memberPosts.length,
     communityComments,
     communityReactions,
-    engagementRate,
+    engagementRate: memberPosts.length ? Number((interactions / memberPosts.length).toFixed(1)) : 0,
   };
 }
 
-/**
- * Calculates normalized scores (0-100) across the 6 dimensions
- */
-export function calculateCreatorScores(
-  metrics: CreatorRawMetrics,
-  member: Member
-): CreatorScoreBreakdown {
-  const seed = member.id || member.handle;
-
-  // 1. Audience Growth (25%)
-  const growthNorm = Math.min(100, (metrics.followerGrowthRate / 250) * 100);
-  const audienceGrowth = Math.min(100, Math.max(45, Math.round(growthNorm * 0.7 + seededRandom(seed, 10) * 30)));
-
-  // 2. Viewer Performance (20%)
-  const viewerNorm = Math.min(100, (metrics.avgViewers / 2500) * 80 + (metrics.currentViewers > 0 ? 20 : 0));
-  const viewerPerformance = Math.min(100, Math.max(40, Math.round(viewerNorm * 0.7 + seededRandom(seed, 11) * 30)));
-
-  // 3. Engagement (20%)
-  const engageNorm = Math.min(100, (metrics.engagementRate / 15) * 85 + (metrics.communityReactions > 0 ? 15 : 0));
-  const engagement = Math.min(100, Math.max(50, Math.round(engageNorm * 0.65 + seededRandom(seed, 12) * 35)));
-
-  // 4. Consistency (15%)
-  const streamNorm = (metrics.hoursStreamed / 120) * 50 + (metrics.streamFrequencyDays / 7) * 50;
-  const consistency = Math.min(100, Math.max(50, Math.round(streamNorm * 0.75 + seededRandom(seed, 13) * 25)));
-
-  // 5. Community Activity (10%)
-  const activityCount = metrics.communityPosts * 15 + metrics.communityComments * 8 + metrics.communityReactions * 2;
-  const activityNorm = Math.min(100, activityCount * 3.5 + 40);
-  const communityActivity = Math.min(100, Math.max(40, Math.round(activityNorm * 0.6 + seededRandom(seed, 14) * 40)));
-
-  // 6. Content Performance (10%)
-  const contentNorm = Math.min(100, (metrics.clipViews / 8000) * 70 + (metrics.clipsCount * 8));
-  const contentPerformance = Math.min(100, Math.max(42, Math.round(contentNorm * 0.6 + seededRandom(seed, 15) * 40)));
-
-  // Weighted StreamCore Score
-  const totalScore = +(
-    audienceGrowth * 0.25 +
-    viewerPerformance * 0.20 +
-    engagement * 0.20 +
+export function calculateCreatorScores(metrics: CreatorRawMetrics): CreatorScoreBreakdown {
+  const audienceGrowth = 0;
+  const viewerPerformance = Math.min(100, Math.round(Math.log10(metrics.currentViewers + 1) * 25));
+  const engagement = Math.min(100, Math.round(metrics.engagementRate * 5));
+  const consistency = Math.min(100, metrics.communityPosts * 5);
+  const communityActivity = Math.min(100, metrics.communityPosts * 4 + metrics.communityComments * 3 + metrics.communityReactions);
+  const contentPerformance = Math.min(100, metrics.clipsCount * 8 + Math.round(Math.log10(metrics.clipViews + 1) * 15));
+  const totalScore = Number((
+    viewerPerformance * 0.3 +
+    engagement * 0.25 +
     consistency * 0.15 +
-    communityActivity * 0.10 +
-    contentPerformance * 0.10
-  ).toFixed(1);
-
-  return {
-    audienceGrowth,
-    viewerPerformance,
-    engagement,
-    consistency,
-    communityActivity,
-    contentPerformance,
-    totalScore,
-  };
+    communityActivity * 0.15 +
+    contentPerformance * 0.15
+  ).toFixed(1));
+  return { audienceGrowth, viewerPerformance, engagement, consistency, communityActivity, contentPerformance, totalScore };
 }
 
-/**
- * Generates transparent explainable AI analysis for a creator
- */
-export function generateCreatorAiAnalysis(
-  member: Member,
-  scores: CreatorScoreBreakdown,
-  metrics: CreatorRawMetrics
-): {
-  badge: { text: string; color: string; icon: string };
-  aiAnalysis: CreatorRankedItem["aiAnalysis"];
-} {
-  const categories = [
-    { name: "Audience Growth", score: scores.audienceGrowth },
-    { name: "Viewer Performance", score: scores.viewerPerformance },
-    { name: "Engagement", score: scores.engagement },
-    { name: "Consistency", score: scores.consistency },
-    { name: "Community Activity", score: scores.communityActivity },
-    { name: "Content Performance", score: scores.contentPerformance },
-  ];
-
-  categories.sort((a, b) => b.score - a.score);
-  const strongestCategory = categories[0]?.name || "Engagement";
-
+export function generateCreatorAiAnalysis(member: Member, scores: CreatorScoreBreakdown, metrics: CreatorRawMetrics) {
+  let badge = { text: "Community Member", color: "bg-blue-500/15 text-blue-400 border-blue-500/30", icon: "●" };
   let trajectory: CreatorRankedItem["aiAnalysis"]["growthTrajectory"] = "steady";
-  let badge = {
-    text: "Steady Creator",
-    color: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-    icon: "📈",
-  };
-
-  const isLive = member.status === "live";
-
-  if (isLive && metrics.currentViewers >= 1000) {
-    trajectory = "breakout";
-    badge = {
-      text: "🔥 High Viewership",
-      color: "bg-rose-500/15 text-rose-400 border-rose-500/30",
-      icon: "🔴",
-    };
-  } else if (isLive) {
-    trajectory = "hyper-growth";
-    badge = {
-      text: "Live Now",
-      color: "bg-red-500/15 text-red-400 border-red-500/30",
-      icon: "🔴",
-    };
-  } else if (metrics.followers >= 1000000) {
+  if (member.status === "live") {
+    badge = { text: "Live Now", color: "bg-red-500/15 text-red-400 border-red-500/30", icon: "🔴" };
+    trajectory = metrics.currentViewers >= 1000 ? "breakout" : "hyper-growth";
+  } else if (member.role === "partner") {
+    badge = { text: "Verified Partner", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", icon: "💎" };
     trajectory = "titan";
-    badge = {
-      text: "Community Titan",
-      color: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-      icon: "👑",
-    };
-  } else if (member.role === "partner" || member.role === "admin") {
-    badge = {
-      text: "Verified Partner",
-      color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-      icon: "💎",
-    };
-  } else if (metrics.followers < 10000) {
-    badge = {
-      text: "Emerging Creator",
-      color: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-      icon: "🌱",
-    };
-  } else if (scores.engagement >= 85) {
-    badge = {
-      text: "High Engagement",
-      color: "bg-purple-500/15 text-purple-400 border-purple-500/30",
-      icon: "💬",
-    };
+  } else if (metrics.communityPosts || metrics.clipsCount) {
+    badge = { text: "Active Creator", color: "bg-purple-500/15 text-purple-400 border-purple-500/30", icon: "💬" };
   }
 
-  const headline =
-    trajectory === "breakout"
-      ? `Explosive +${metrics.followerGrowthRate}% growth momentum across ${member.platform}`
-      : trajectory === "hyper-growth"
-        ? `Surging viewer retention and strong community engagement`
-        : trajectory === "titan"
-          ? `Dominant top-tier consistency and content performance`
-          : `Consistent broadcasting schedule with dedicated community base`;
+  const categories = [
+    ["Current viewers", scores.viewerPerformance],
+    ["Community engagement", scores.engagement],
+    ["Community activity", scores.communityActivity],
+    ["Clip performance", scores.contentPerformance],
+  ] as const;
+  const strongest = [...categories].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "No activity recorded";
+  const headline = member.status === "live"
+    ? `Live with ${metrics.currentViewers.toLocaleString()} current viewers`
+    : `${metrics.followers.toLocaleString()} synced followers and ${metrics.communityPosts} community posts`;
+  const summary = `Based on current Twitch fields and ${metrics.communityPosts} Supabase posts: ${metrics.communityReactions} reactions, ${metrics.communityComments} comments, and ${metrics.clipViews.toLocaleString()} recorded clip views. Historical follower growth is not available.`;
 
-  const summary = `${member.name} ranks strongly in ${strongestCategory} (${categories[0]?.score}/100) with ${metrics.streamFrequencyDays} streams/week and ${metrics.engagementRate}% viewer interaction. Community participation and clip momentum position this creator for continued leaderboard advancement.`;
-
-  return {
-    badge,
-    aiAnalysis: {
-      headline,
-      summary,
-      strongestCategory,
-      growthTrajectory: trajectory,
-    },
-  };
+  return { badge, aiAnalysis: { headline, summary, strongestCategory: strongest, growthTrajectory: trajectory } };
 }
 
-/**
- * Computes complete ranked creator list for a specific leaderboard category
- */
-export function computeRankings(
-  members: Member[],
-  posts: Post[],
-  category: RankingCategory = "overall"
-): CreatorRankedItem[] {
-  const rankedItems: CreatorRankedItem[] = members.map((member) => {
+export function computeRankings(members: Member[], posts: Post[], category: RankingCategory = "overall"): CreatorRankedItem[] {
+  const items = members.map((member) => {
     const metrics = calculateCreatorMetrics(member, posts);
-    const scores = calculateCreatorScores(metrics, member);
-    const { badge, aiAnalysis } = generateCreatorAiAnalysis(member, scores, metrics);
-    
-    // Deterministic previous rank delta
-    const deltaSeed = Math.floor(seededRandom(member.id || member.name, 20) * 11) - 5; // -5 to +5
-    const rankDelta = deltaSeed;
-
-    return {
-      member,
-      rank: 0,
-      previousRank: 0,
-      rankDelta,
-      scores,
-      metrics,
-      badge,
-      aiAnalysis,
-    };
+    const scores = calculateCreatorScores(metrics);
+    const analysis = generateCreatorAiAnalysis(member, scores, metrics);
+    return { member, metrics, scores, ...analysis };
   });
 
-  // Sort based on category
-  rankedItems.sort((a, b) => {
+  items.sort((left, right) => {
     switch (category) {
-      case "growing":
-        return b.metrics.followerGrowthRate - a.metrics.followerGrowthRate;
       case "watched":
-        return (
-          b.scores.viewerPerformance * 0.6 + (b.metrics.avgViewers / 50) -
-          (a.scores.viewerPerformance * 0.6 + (a.metrics.avgViewers / 50))
-        );
+        return right.metrics.currentViewers - left.metrics.currentViewers;
       case "engaged":
-        return (
-          b.scores.engagement * 0.6 + b.metrics.communityReactions -
-          (a.scores.engagement * 0.6 + a.metrics.communityReactions)
-        );
-      case "rising":
-        // Prioritize smaller creators with high growth rate
-        const aRisingScore = (a.metrics.followerGrowthRate * 1.5) + (a.metrics.followers < 40000 ? 50 : 0);
-        const bRisingScore = (b.metrics.followerGrowthRate * 1.5) + (b.metrics.followers < 40000 ? 50 : 0);
-        return bRisingScore - aRisingScore;
+        return right.metrics.communityReactions + right.metrics.communityComments - left.metrics.communityReactions - left.metrics.communityComments;
       case "content":
-        return (
-          b.scores.contentPerformance * 0.6 + b.metrics.clipViews / 100 -
-          (a.scores.contentPerformance * 0.6 + a.metrics.clipViews / 100)
-        );
+        return right.metrics.clipViews - left.metrics.clipViews || right.metrics.clipsCount - left.metrics.clipsCount;
       case "active":
-        return (
-          b.scores.consistency * 0.5 + b.scores.communityActivity * 0.5 -
-          (a.scores.consistency * 0.5 + a.scores.communityActivity * 0.5)
-        );
-      case "overall":
+        return right.metrics.communityPosts - left.metrics.communityPosts;
+      case "growing":
+      case "rising":
+        return right.metrics.communityPosts + right.metrics.communityReactions - left.metrics.communityPosts - left.metrics.communityReactions;
       default:
-        return b.scores.totalScore - a.scores.totalScore;
+        return right.scores.totalScore - left.scores.totalScore || right.metrics.followers - left.metrics.followers;
     }
   });
 
-  // Assign 1-indexed ranks
-  return rankedItems.map((item, index) => {
-    const rank = index + 1;
-    const previousRank = Math.max(1, rank - item.rankDelta);
-    return {
-      ...item,
-      rank,
-      previousRank,
-    };
-  });
+  return items.map((item, index) => ({ ...item, rank: index + 1, previousRank: index + 1, rankDelta: 0 }));
 }

@@ -2,7 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 const resendEmailInput = z.object({
-  apiKey: z.string().optional(),
   from: z.string().min(1),
   to: z.array(z.string().email()).min(1),
   subject: z.string().min(1),
@@ -13,11 +12,11 @@ const resendEmailInput = z.object({
 export const sendResendEmailServer = createServerFn({ method: "POST" })
   .validator(resendEmailInput)
   .handler(async ({ data }) => {
-    const apiKey = data.apiKey?.trim() || process.env["RESEND_API_KEY"] || "";
+    const apiKey = process.env["RESEND_API_KEY"] || "";
     if (!apiKey) {
       return {
         success: false,
-        error: "No Resend API Key provided. Please paste your Resend API Key in Control Center Section 09.",
+        error: "Resend is not configured on the server. Add RESEND_API_KEY to the deployment environment.",
       };
     }
 

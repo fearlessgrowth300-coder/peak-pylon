@@ -14,17 +14,7 @@ import {
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { getTwitchChannel, testTwitchConnection } from "@/lib/twitch.functions";
-import {
-  getGeminiApiKeys,
-  setGeminiApiKeys,
-  getGeminiModel,
-  setGeminiModel,
-  testGeminiConnection,
-  AVAILABLE_MODELS,
-  getActiveChatConfig,
-  setActiveChatConfig,
-  type ActiveChatConfig,
-} from "@/lib/gemini";
+import { getChannelMetadata } from "@/lib/channel-metadata";
 import {
   getResendNotificationConfig,
   saveResendNotificationConfig,
@@ -45,7 +35,6 @@ export function AdminView({
   addChannel,
   removeChannel,
   generateClips,
-  triggerActiveChatMessage,
   allMembers,
 }: {
   state: State;
@@ -60,17 +49,7 @@ export function AdminView({
   crm?: ReactNode;
   addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
   removeChannel: (id: string) => void;
-  generateClips?: (
-    member: Member,
-    amount: number,
-    options?: {
-      commentsCount?: number;
-      likesCount?: number;
-      sharesCount?: number;
-      selectedMemberIds?: string[];
-    }
-  ) => Promise<void>;
-  triggerActiveChatMessage?: () => Promise<void>;
+  generateClips?: (member: Member, amount: number) => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -89,10 +68,6 @@ export function AdminView({
   const [clipAmounts, setClipAmounts] = useState<Record<string, number>>({});
   const [activeClipModalMember, setActiveClipModalMember] = useState<Member | null>(null);
   const [modalClipAmount, setModalClipAmount] = useState(5);
-  const [modalCommentsCount, setModalCommentsCount] = useState(8);
-  const [modalLikesCount, setModalLikesCount] = useState(12);
-  const [modalSharesCount, setModalSharesCount] = useState(5);
-  const [modalSelectedCommenters, setModalSelectedCommenters] = useState<string[]>([]);
   const [generatingClipsLoading, setGeneratingClipsLoading] = useState(false);
   const [connectionPlatform, setConnectionPlatform] = useState("Instagram");
   const [connectionLabel, setConnectionLabel] = useState("");
@@ -119,12 +94,6 @@ export function AdminView({
 
   const [stats, setLocalStats] = useState<Stats>(() => state?.stats ?? { members: "21", online: "18", rank: "#1" });
 
-  const [geminiKeysText, setLocalGeminiKeysText] = useState(() => getGeminiApiKeys().join("\n"));
-  const [geminiModel, setLocalGeminiModel] = useState(() => getGeminiModel());
-  const [testingGemini, setTestingGemini] = useState(false);
-  const [geminiStatus, setGeminiStatus] = useState<string | null>(null);
-  const [activeChatConfig, setLocalActiveChatConfig] = useState<ActiveChatConfig>(() => getActiveChatConfig());
-  const [generatingActiveChat, setGeneratingActiveChat] = useState(false);
   const [resendConfig, setLocalResendConfig] = useState<ResendNotificationConfig>(() => getResendNotificationConfig());
   const [testingResend, setTestingResend] = useState(false);
   const [testEmailTarget, setTestEmailTarget] = useState("");
@@ -580,10 +549,6 @@ export function AdminView({
                     onClick={() => {
                       setActiveClipModalMember(m);
                       setModalClipAmount(clipAmounts[m.id] ?? 4);
-                      setModalCommentsCount(8);
-                      setModalLikesCount(12);
-                      setModalSharesCount(6);
-                      setModalSelectedCommenters([]);
                     }}
                     className="flex shrink-0 items-center gap-1 rounded-md bg-primary/20 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground"
                     title="Generate clips with custom comments & likes"
@@ -667,6 +632,7 @@ export function AdminView({
 
               for (let i = 0; i < twitchMembers.length; i++) {
                 const member = twitchMembers[i];
+                if (!member) continue;
                 try {
                   const channelData = await getTwitchChannel({ data: { channelUrl: member.link } });
                   const patch: Partial<Member> = {
@@ -735,250 +701,13 @@ export function AdminView({
         )}
       </div>
 
-      {/* 07 · Gemini AI Multi-Key Pool & Model Engine */}
-      <div className="space-y-4 rounded-xl bg-popover p-4 border border-primary/20">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-bold text-foreground">07 · Gemini AI Multi-Key Pool & Model Engine</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Add multiple Gemini API keys so your community AI never runs out of quota. The engine automatically rotates keys.
-            </p>
-          </div>
-          <span className="rounded-full bg-primary/20 px-2.5 py-1 text-xs font-bold text-primary">
-            {getGeminiApiKeys().length} Key{getGeminiApiKeys().length === 1 ? "" : "s"} In Pool
-          </span>
-        </div>
-
-        <div className="space-y-3">
-          <Field label="Gemini API Keys (Paste one per line)">
-            <textarea
-              rows={3}
-              value={geminiKeysText}
-              onChange={(e) => setLocalGeminiKeysText(e.target.value)}
-              placeholder="AIzaSy...\nAIzaSy...\nAIzaSy..."
-              className={`${inputClass} font-mono text-xs`}
-            />
-            <p className="text-[11px] text-muted-foreground mt-1">
-              🔑 Need Gemini API keys? Generate free keys (starts with <strong className="text-primary">AIzaSy...</strong>) at{" "}
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary underline font-semibold"
-              >
-                aistudio.google.com/app/apikey ↗
-              </a>
-            </p>
-          </Field>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="AI Model Engine">
-              <select
-                value={geminiModel}
-                onChange={(e) => {
-                  setLocalGeminiModel(e.target.value);
-                  setGeminiModel(e.target.value);
-                }}
-                className={inputClass}
-              >
-                {AVAILABLE_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <div className="flex items-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const keys = geminiKeysText
-                    .split("\n")
-                    .map((k) => k.trim())
-                    .filter(Boolean);
-                  setGeminiApiKeys(keys);
-                  setGeminiModel(geminiModel);
-                  notify(`Saved ${keys.length} Gemini API key(s) to pool!`);
-                }}
-                className={`${buttonClass} flex-1`}
-              >
-                💾 Save Keys
-              </button>
-              <button
-                type="button"
-                disabled={testingGemini}
-                onClick={async () => {
-                  const keys = geminiKeysText
-                    .split("\n")
-                    .map((k) => k.trim())
-                    .filter(Boolean);
-                  setGeminiApiKeys(keys);
-                  setTestingGemini(true);
-                  setGeminiStatus(null);
-                  try {
-                    const result = await testGeminiConnection(keys[0], geminiModel);
-                    setGeminiStatus(result.message);
-                    if (result.workingModel) setLocalGeminiModel(result.workingModel);
-                    notify(result.message);
-                  } finally {
-                    setTestingGemini(false);
-                  }
-                }}
-                className={`${ghostButtonClass} flex-1`}
-              >
-                {testingGemini ? "Testing Pool…" : "⚡ Test Connection"}
-              </button>
-            </div>
-          </div>
-
-          {geminiStatus && (
-            <div className="rounded-lg bg-accent/60 p-2.5 text-xs font-semibold text-foreground">
-              {geminiStatus}
-            </div>
-          )}
-        </div>
+      {/* Credentials are server-managed. Artificial posting is intentionally disabled. */}
+      <div className="space-y-2 rounded-xl bg-popover p-4 border border-border">
+        <h2 className="font-bold text-foreground">07 · Secure server integrations</h2>
+        <p className="text-xs text-muted-foreground">
+          Gemini and Resend credentials are read only from protected deployment environment variables. No API key is stored in this browser, and automated member impersonation is disabled.
+        </p>
       </div>
-
-      {/* 08 · 24/7 AI Active Chat Simulation Autopilot */}
-      <div className="space-y-4 rounded-xl bg-popover p-5 border border-primary/30 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-foreground">08 · 24/7 AI Active Chat Autopilot</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Automatically keeps #general chat continuously alive 24/7 by having community creators converse, reply to each other, drop hype comments, and send animated stickers.
-            </p>
-          </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-black tracking-wide ${activeChatConfig.enabled ? "bg-online/20 text-online border border-online/40 animate-pulse" : "bg-muted text-muted-foreground"}`}>
-            {activeChatConfig.enabled ? "🟢 AUTOPILOT ACTIVE (24/7)" : "🔴 AUTOPILOT STOPPED"}
-          </span>
-        </div>
-
-        {/* Master Start / Stop Action Banner */}
-        <div className="flex flex-col sm:flex-row gap-3 pt-1">
-          {activeChatConfig.enabled ? (
-            <button
-              type="button"
-              onClick={() => {
-                const updated = { ...activeChatConfig, enabled: false };
-                setLocalActiveChatConfig(updated);
-                setActiveChatConfig(updated);
-                notify("⏹ 24/7 Active Chat Autopilot stopped.");
-              }}
-              className="flex-1 rounded-xl bg-destructive px-5 py-3 font-black text-destructive-foreground shadow-md hover:bg-destructive/90 flex items-center justify-center gap-2 transition-all cursor-pointer"
-            >
-              <span className="text-lg">⏹</span> Stop 24/7 AI Chat Autopilot
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                const updated = { ...activeChatConfig, enabled: true };
-                setLocalActiveChatConfig(updated);
-                setActiveChatConfig(updated);
-                notify("▶ 24/7 Active Chat Autopilot Started! Running in background.");
-                if (triggerActiveChatMessage) {
-                  void triggerActiveChatMessage();
-                }
-              }}
-              className="flex-1 rounded-xl bg-online px-5 py-3 font-black text-black shadow-md hover:bg-online/90 flex items-center justify-center gap-2 transition-all cursor-pointer"
-            >
-              <span className="text-lg">▶</span> Start 24/7 AI Chat Autopilot
-            </button>
-          )}
-
-          <button
-            type="button"
-            disabled={generatingActiveChat}
-            onClick={async () => {
-              if (triggerActiveChatMessage) {
-                setGeneratingActiveChat(true);
-                try {
-                  await triggerActiveChatMessage();
-                  notify("⚡ AI chat message generated in #general!");
-                } catch (err) {
-                  notify(err instanceof Error ? err.message : "Failed to generate AI message");
-                } finally {
-                  setGeneratingActiveChat(false);
-                }
-              }
-            }}
-            className={`${ghostButtonClass} px-5 py-3 text-xs font-bold shrink-0`}
-          >
-            {generatingActiveChat ? "Generating…" : "⚡ Send 1 Test Message"}
-          </button>
-        </div>
-
-        <div className="space-y-3 pt-2">
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={activeChatConfig.sendStickers}
-                onChange={(e) => {
-                  const updated = { ...activeChatConfig, sendStickers: e.target.checked };
-                  setLocalActiveChatConfig(updated);
-                  setActiveChatConfig(updated);
-                }}
-                className="rounded border-border text-primary"
-              />
-              <span>Send Animated Streamer Stickers in Chat</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={activeChatConfig.includeLiveContext}
-                onChange={(e) => {
-                  const updated = { ...activeChatConfig, includeLiveContext: e.target.checked };
-                  setLocalActiveChatConfig(updated);
-                  setActiveChatConfig(updated);
-                }}
-                className="rounded border-border text-primary"
-              />
-              <span>Include Live Streamer Events & Mentions</span>
-            </label>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Chat Frequency Interval">
-              <select
-                value={activeChatConfig.intervalSeconds}
-                onChange={(e) => {
-                  const updated = { ...activeChatConfig, intervalSeconds: Number(e.target.value) || 60 };
-                  setLocalActiveChatConfig(updated);
-                  setActiveChatConfig(updated);
-                }}
-                className={inputClass}
-              >
-                <option value={8}>Every 8-10 seconds (Hyper Active ⚡)</option>
-                <option value={15}>Every 15 seconds (High Activity)</option>
-                <option value={20}>Every 20 seconds</option>
-                <option value={30}>Every 30 seconds</option>
-                <option value={60}>Every 1 minute (Recommended)</option>
-                <option value={120}>Every 2 minutes</option>
-                <option value={300}>Every 5 minutes</option>
-              </select>
-            </Field>
-
-            <Field label="Target Chat Channel">
-              <select
-                value={activeChatConfig.channel || "general"}
-                onChange={(e) => {
-                  const updated = { ...activeChatConfig, channel: e.target.value };
-                  setLocalActiveChatConfig(updated);
-                  setActiveChatConfig(updated);
-                }}
-                className={inputClass}
-              >
-                <option value="general"># general</option>
-                <option value="clips"># clips</option>
-              </select>
-            </Field>
-          </div>
-        </div>
-      </div>
-
       {/* 09 · Resend Email Notifications for Real Streamers */}
       <div className="space-y-4 rounded-xl bg-popover p-5 border border-border shadow-sm">
         <div className="flex items-center justify-between">
@@ -988,27 +717,13 @@ export function AdminView({
               Automatically dispatches email notifications to verified real creators who signed up with their email (replies, announcements, new clips, live alerts).
             </p>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${resendConfig.apiKey ? "bg-online/20 text-online" : "bg-muted text-muted-foreground"}`}>
-            {resendConfig.apiKey ? "✉️ Resend Active" : "⚪ Key Not Configured"}
+          <span className="rounded-full bg-online/20 px-3 py-1 text-xs font-bold text-online">
+            🔒 Server-managed credentials
           </span>
         </div>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Resend API Key">
-              <input
-                type="password"
-                placeholder="re_xxxxxxxxxxxxxx"
-                value={resendConfig.apiKey}
-                onChange={(e) => {
-                  const updated = { ...resendConfig, apiKey: e.target.value };
-                  setLocalResendConfig(updated);
-                  saveResendNotificationConfig(updated);
-                }}
-                className={inputClass}
-              />
-            </Field>
-
+          <div className="grid grid-cols-1 gap-3">
             <Field label="Sender 'From' Address">
               <input
                 type="text"
@@ -1128,126 +843,28 @@ export function AdminView({
 
       {activeClipModalMember && generateClips && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-popover p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-popover p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="text-lg font-black text-foreground">
-                  🎬 Clip Generator & Community Engagement
-                </h3>
+                <h3 className="text-lg font-black text-foreground">🎬 Import real Twitch clips</h3>
                 <p className="text-xs text-muted-foreground">
-                  Generate clips from <strong className="text-primary">{activeClipModalMember.name}</strong> with live chat comments & likes.
+                  Select how many public clips to import for <strong className="text-primary">{activeClipModalMember.name}</strong>. Likes, comments, and shares start at zero and come only from real members.
                 </p>
               </div>
-              <button
-                onClick={() => setActiveClipModalMember(null)}
-                className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                ✕
-              </button>
+              <button onClick={() => setActiveClipModalMember(null)} className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground">✕</button>
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Clips to import">
-                <input
-                  type="number"
-                  min={1}
-                  max={12}
-                  value={modalClipAmount}
-                  onChange={(e) => setModalClipAmount(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Comments per clip">
-                <input
-                  type="number"
-                  min={1}
-                  max={25}
-                  value={modalCommentsCount}
-                  onChange={(e) => setModalCommentsCount(Math.max(1, Math.min(25, Number(e.target.value) || 1)))}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Likes per clip">
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={modalLikesCount}
-                  onChange={(e) => setModalLikesCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Shares per clip">
-                <input
-                  type="number"
-                  min={0}
-                  max={30}
-                  value={modalSharesCount}
-                  onChange={(e) => setModalSharesCount(Math.max(0, Math.min(30, Number(e.target.value) || 0)))}
-                  className={inputClass}
-                />
-              </Field>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-bold text-foreground">
-                  Community Members to Comment & Like ({modalSelectedCommenters.length || "All"} selected)
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (modalSelectedCommenters.length === state.members.length) {
-                      setModalSelectedCommenters([]);
-                    } else {
-                      setModalSelectedCommenters(state.members.map((m) => m.id));
-                    }
-                  }}
-                  className="text-xs font-bold text-primary hover:underline"
-                >
-                  {modalSelectedCommenters.length === state.members.length ? "Reset to Auto" : "Select All Members"}
-                </button>
-              </div>
-
-              <div className="max-h-40 overflow-y-auto rounded-xl border border-border/80 bg-background/60 p-2 space-y-1.5">
-                {state.members.map((m) => {
-                  const isChecked = modalSelectedCommenters.includes(m.id);
-                  return (
-                    <label
-                      key={m.id}
-                      className="flex items-center justify-between rounded-lg p-1.5 text-xs hover:bg-accent cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Avatar member={m} size={24} showStatus={false} />
-                        <span className="font-semibold text-foreground">{m.name}</span>
-                        <span className="text-muted-foreground">{m.handle}</span>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setModalSelectedCommenters((prev) => [...prev, m.id]);
-                          } else {
-                            setModalSelectedCommenters((prev) => prev.filter((id) => id !== m.id));
-                          }
-                        }}
-                        className="rounded border-border"
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
+            <Field label="Clips to import">
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={modalClipAmount}
+                onChange={(event) => setModalClipAmount(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
+                className={inputClass}
+              />
+            </Field>
             <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setActiveClipModalMember(null)}
-                className={`${ghostButtonClass} flex-1`}
-              >
-                Cancel
-              </button>
+              <button type="button" onClick={() => setActiveClipModalMember(null)} className={ghostButtonClass + " flex-1"}>Cancel</button>
               <button
                 type="button"
                 disabled={generatingClipsLoading}
@@ -1255,21 +872,15 @@ export function AdminView({
                   if (!activeClipModalMember) return;
                   try {
                     setGeneratingClipsLoading(true);
-                    await generateClips(activeClipModalMember, modalClipAmount, {
-                      commentsCount: modalCommentsCount,
-                      likesCount: modalLikesCount,
-                      sharesCount: modalSharesCount,
-                      selectedMemberIds: modalSelectedCommenters.length > 0 ? modalSelectedCommenters : undefined,
-                    });
-                    notify(`Clips generated for ${activeClipModalMember.name}!`);
+                    await generateClips(activeClipModalMember, modalClipAmount);
                     setActiveClipModalMember(null);
                   } finally {
                     setGeneratingClipsLoading(false);
                   }
                 }}
-                className={`${buttonClass} flex-1`}
+                className={buttonClass + " flex-1"}
               >
-                {generatingClipsLoading ? "Generating Clips & Chat…" : "Generate Clips Now"}
+                {generatingClipsLoading ? "Importing…" : "Post real clips"}
               </button>
             </div>
           </div>
