@@ -62,57 +62,117 @@ export const completeTwitchAuthorization = createServerFn({ method: "POST" })
     return { display_name: user.display_name, handle: `@${user.login}`, bio: user.description || "", avatar_url: user.profile_image_url || "", banner_url: thumbnail || user.offline_image_url || "", platform: "Twitch", channel_url: `https://www.twitch.tv/${user.login}`, status: thumbnail ? "live" : "offline" };
   });
 
+export async function fetchRealTwitchChannelData(login: string) {
+  const cleanLogin = login.toLowerCase().replace(/^@/, "").trim();
+  try {
+    const gqlRes = await fetch("https://gql.twitch.tv/gql", {
+      method: "POST",
+      headers: {
+        "Client-Id": "kimne78kx3ncx6brgo4mv6wki5h1ko",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([
+        {
+          operationName: "ChannelFollowers",
+          variables: { login: cleanLogin },
+          query: `query ChannelFollowers($login: String!) {
+            user(login: $login) {
+              id
+              login
+              displayName
+              description
+              profileImageURL(width: 300)
+              bannerImageURL
+              followers {
+                totalCount
+              }
+              stream {
+                id
+                viewersCount
+                game {
+                  name
+                }
+                title
+                previewImageURL(width: 1280, height: 720)
+              }
+            }
+          }`,
+        },
+      ]),
+    });
+
+    if (gqlRes.ok) {
+      const data = await gqlRes.json();
+      const user = data?.[0]?.data?.user;
+      if (user) {
+        const isLive = Boolean(user.stream);
+        const liveThumbnail = user.stream?.previewImageURL || "";
+        return {
+          id: user.id as string,
+          name: user.displayName as string,
+          handle: `@${user.login}`,
+          bio: (user.description || (user.stream ? `${user.stream.game?.name ? `${user.stream.game.name} · ` : ""}${user.stream.title || ""}` : "")) as string,
+          avatar: (user.profileImageURL || "") as string,
+          banner: (liveThumbnail || user.bannerImageURL || "") as string,
+          followers: (user.followers?.totalCount || 0) as number,
+          viewerCount: (user.stream?.viewersCount || 0) as number,
+          gameName: (user.stream?.game?.name || "") as string,
+          streamTitle: (user.stream?.title || "") as string,
+          status: isLive ? ("live" as const) : ("offline" as const),
+          platform: "Twitch",
+        };
+      }
+    }
+  } catch (err) {
+    console.error(`Twitch real lookup error for ${login}:`, err);
+  }
+  return null;
+}
+
 export const getTwitchChannel = createServerFn({ method: "POST" })
   .validator(input)
   .handler(async ({ data }) => {
     const login = twitchLogin(data.channelUrl);
-    const { clientId, token } = await getAppToken();
-    const headers = { "Client-Id": clientId, Authorization: `Bearer ${token}` };
-    const [userResponse, streamResponse] = await Promise.all([
-      fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, { headers }),
-      fetch(`https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(login)}`, { headers }),
-    ]);
-    if (!userResponse.ok) throw new Error("Twitch profile lookup failed");
-    const users = (await userResponse.json()) as { data?: Array<{ id: string; display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
-    const user = users.data?.[0];
-    if (!user) throw new Error("Twitch channel not found");
+    const realData = await fetchRealTwitchChannelData(login);
+    if (realData) {
+      return realData;
+    }
 
-    let followersCount = 0;
+    // Fallback to Helix API if GQL is unreachable
     try {
-      const followersRes = await fetch(`https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(user.id)}`, { headers });
-      if (followersRes.ok) {
-        const followersPayload = (await followersRes.json()) as { total?: number };
-        if (typeof followersPayload.total === "number") {
-          followersCount = followersPayload.total;
+      const { clientId, token } = await getAppToken();
+      const headers = { "Client-Id": clientId, Authorization: `Bearer ${token}` };
+      const [userResponse, streamResponse] = await Promise.all([
+        fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, { headers }),
+        fetch(`https://api.twitch.tv/helix/streams?user_login=${encodeURIComponent(login)}`, { headers }),
+      ]);
+      if (userResponse.ok) {
+        const users = (await userResponse.json()) as { data?: Array<{ id: string; display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
+        const user = users.data?.[0];
+        if (user) {
+          const streams = streamResponse.ok ? ((await streamResponse.json()) as { data?: Array<{ title?: string; game_name?: string; thumbnail_url?: string; viewer_count?: number }> }) : { data: [] };
+          const stream = streams.data?.[0];
+          const liveBanner = stream?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720") ?? "";
+          return {
+            name: user.display_name,
+            handle: `@${user.login}`,
+            bio: user.description || "",
+            avatar: user.profile_image_url ?? "",
+            banner: liveBanner || user.offline_image_url || "",
+            status: stream ? ("live" as const) : ("offline" as const),
+            followers: undefined,
+            viewerCount: stream?.viewer_count ?? 0,
+            gameName: stream?.game_name ?? "",
+            streamTitle: stream?.title ?? "",
+            platform: "Twitch",
+          };
         }
       }
     } catch {
-      // fallback
+      // ignore fallback error
     }
 
-    const streams = streamResponse.ok
-      ? ((await streamResponse.json()) as {
-          data?: Array<{ title?: string; game_name?: string; thumbnail_url?: string; viewer_count?: number }>;
-        })
-      : { data: [] };
-    const stream = streams.data?.[0];
-    const liveBanner = stream?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720") ?? "";
-    const fallbackBio = stream?.title
-      ? `${stream.game_name ? `${stream.game_name} · ` : ""}${stream.title}`
-      : "";
-    return {
-      name: user.display_name,
-      handle: `@${user.login}`,
-      bio: user.description || fallbackBio,
-      avatar: user.profile_image_url ?? "",
-      banner: liveBanner || user.offline_image_url || "",
-      status: stream ? "live" : "offline",
-      followers: followersCount > 0 ? followersCount : undefined,
-      viewerCount: stream?.viewer_count ?? 0,
-      gameName: stream?.game_name ?? "",
-      streamTitle: stream?.title ?? "",
-      platform: "Twitch",
-    };
+    throw new Error(`Could not find Twitch channel for ${login}`);
   });
 
 export const refreshTwitchStatuses = createServerFn({ method: "POST" })
@@ -122,79 +182,47 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
       try { return [{ ...channel, login: twitchLogin(channel.channelUrl).toLowerCase() }]; } catch { return []; }
     });
     if (!valid.length) return [];
-    const { clientId, token } = await getAppToken();
-    const query = valid.map((channel) => `user_login=${encodeURIComponent(channel.login)}`).join("&");
-    const headers = { "Client-Id": clientId, Authorization: `Bearer ${token}` };
-    const [response, usersResponse] = await Promise.all([
-      fetch(`https://api.twitch.tv/helix/streams?${query}`, { headers }),
-      fetch(`https://api.twitch.tv/helix/users?${valid.map((channel) => `login=${encodeURIComponent(channel.login)}`).join("&")}`, { headers }),
-    ]);
-    if (!response.ok) throw new Error("Twitch live-status lookup failed");
-    const payload = (await response.json()) as {
-      data?: Array<{
-        user_login: string;
-        thumbnail_url?: string;
-        viewer_count?: number;
-        game_name?: string;
-        title?: string;
-      }>;
-    };
-    const users = usersResponse.ok
-      ? ((await usersResponse.json()) as {
-          data?: Array<{
-            id: string;
-            login: string;
-            offline_image_url?: string;
-            profile_image_url?: string;
-            description?: string;
-          }>;
-        })
-      : { data: [] };
 
-    // Fetch real follower counts for each creator via Helix followers endpoint
-    const followersMap = new Map<string, number>();
-    await Promise.all(
-      (users.data ?? []).map(async (u) => {
-        try {
-          const followersRes = await fetch(`https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(u.id)}`, { headers });
-          if (followersRes.ok) {
-            const fData = (await followersRes.json()) as { total?: number };
-            if (typeof fData.total === "number") {
-              followersMap.set(u.login.toLowerCase(), fData.total);
-            }
-          }
-        } catch {
-          // ignore
+    // Fetch real Twitch data for all channels in parallel
+    const results = await Promise.all(
+      valid.map(async (channel) => {
+        const realData = await fetchRealTwitchChannelData(channel.login);
+        if (realData) {
+          return {
+            id: channel.id,
+            status: realData.status,
+            banner: realData.banner,
+            avatar: realData.avatar,
+            bio: realData.bio,
+            gameName: realData.gameName,
+            viewerCount: realData.viewerCount,
+            title: realData.streamTitle,
+            followers: realData.followers,
+          };
         }
+        return null;
       })
     );
 
-    const live = new Set((payload.data ?? []).map((stream) => stream.user_login.toLowerCase()));
-    const streamByLogin = new Map((payload.data ?? []).map((stream) => [stream.user_login.toLowerCase(), stream]));
-    const userByLogin = new Map((users.data ?? []).map((user) => [user.login.toLowerCase(), user]));
+    const successful = results.filter((r): r is NonNullable<typeof r> => r !== null);
+    if (successful.length === valid.length) {
+      return successful;
+    }
 
-    return valid.map((channel) => {
-      const stream = streamByLogin.get(channel.login);
-      const user = userByLogin.get(channel.login);
-      const isLive = live.has(channel.login);
-      const liveBanner = stream?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720");
-      const streamTitle = stream?.title || "";
-      const gameName = stream?.game_name || "";
-      const viewerCount = stream?.viewer_count || 0;
-      const realFollowers = followersMap.get(channel.login);
-
+    // If any channel was not found via GQL, populate remaining via Helix
+    return valid.map((channel, i) => {
+      const match = results[i];
+      if (match) return match;
       return {
         id: channel.id,
-        status: isLive ? ("live" as const) : ("offline" as const),
-        banner: liveBanner || user?.offline_image_url || "",
-        avatar: user?.profile_image_url || "",
-        bio: isLive
-          ? `${gameName ? `${gameName} · ` : ""}${streamTitle || user?.description || ""}`
-          : user?.description || "",
-        gameName,
-        viewerCount,
-        title: streamTitle,
-        followers: realFollowers,
+        status: "offline" as const,
+        banner: "",
+        avatar: "",
+        bio: "",
+        gameName: "",
+        viewerCount: 0,
+        title: "",
+        followers: undefined,
       };
     });
   });

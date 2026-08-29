@@ -101,6 +101,10 @@ export function AdminView({
   const [autoFilling, setAutoFilling] = useState(false);
   const [autoAvatar, setAutoAvatar] = useState("");
   const [autoBanner, setAutoBanner] = useState("");
+  const [autoFollowers, setAutoFollowers] = useState<number | undefined>(undefined);
+  const [autoViewerCount, setAutoViewerCount] = useState<number | undefined>(undefined);
+  const [autoGameName, setAutoGameName] = useState<string | undefined>(undefined);
+  const [autoStreamTitle, setAutoStreamTitle] = useState<string | undefined>(undefined);
   const [channelName, setChannelName] = useState("");
   const [channelTopic, setChannelTopic] = useState("");
   const [channelType, setChannelType] = useState<CommunityChannel["type"]>("text");
@@ -168,6 +172,10 @@ export function AdminView({
       role: (form.role || "affiliate") as Member["role"],
       avatar: avatar || autoAvatar || editingMember?.avatar || "",
       banner: banner || autoBanner || editingMember?.banner || "",
+      followers: autoFollowers ?? editingMember?.followers,
+      viewerCount: autoViewerCount ?? editingMember?.viewerCount,
+      gameName: autoGameName ?? editingMember?.gameName,
+      streamTitle: autoStreamTitle ?? editingMember?.streamTitle,
       connections: [...(primary ? [primary] : []), ...connections],
       joined: new Date(`${form.joined}T12:00:00`).getTime() || Date.now(),
       manualStatus: (form.status === "offline" ? "offline" : "online") as "online" | "offline",
@@ -263,6 +271,10 @@ export function AdminView({
       }));
       if (metadata.avatar && !avatarFile) setAutoAvatar(metadata.avatar);
       if (metadata.banner && !bannerFile) setAutoBanner(metadata.banner);
+      if ("followers" in metadata && metadata.followers) setAutoFollowers(metadata.followers as number);
+      if ("viewerCount" in metadata && metadata.viewerCount) setAutoViewerCount(metadata.viewerCount as number);
+      if ("gameName" in metadata && metadata.gameName) setAutoGameName(metadata.gameName as string);
+      if ("streamTitle" in metadata && metadata.streamTitle) setAutoStreamTitle(metadata.streamTitle as string);
     } catch {
       notify("Could not read that channel. Fill in the details manually.");
     } finally {
