@@ -455,6 +455,8 @@ function Index() {
       }
 
       for (const clip of clips) {
+        const alreadyPosted = state.posts.some((p) => (p.text && p.text.includes(clip.url)) || p.image === clip.thumbnail_url);
+        if (alreadyPosted) continue;
         await addPost({
           authorId: member.id,
           channel: "clips",

@@ -343,12 +343,27 @@ export function useCommunity() {
     if ([input.image, input.video].some((url) => url?.startsWith("data:"))) {
       throw new Error("Media must be uploaded to Storage before publishing.");
     }
+    const cleanText = (input.text || "").trim();
+    const channel = input.channel ?? "general";
+
+    // Prevent duplicate spam/burst posts
+    const isDuplicate = state.posts.some(
+      (p) =>
+        p.channel === channel &&
+        p.authorId === input.authorId &&
+        ((cleanText && p.text?.trim() === cleanText) || (Boolean(input.image) && p.image === input.image)) &&
+        Math.abs(Date.now() - p.time) < 45_000,
+    );
+    if (isDuplicate) {
+      return;
+    }
+
     const id = uid();
     const post: Post = {
       ...input,
       id,
       image: input.image ?? "",
-      channel: input.channel ?? "general",
+      channel,
       reactions: input.reactions ?? {},
       likes: input.likes ?? [],
       shares: input.shares ?? 0,

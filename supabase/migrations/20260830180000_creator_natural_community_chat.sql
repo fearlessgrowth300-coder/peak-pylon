@@ -1,5 +1,5 @@
--- StreamCore natural creator community chat engine
--- Enables admin-listed creators to speak naturally with each other about games, live streams, and community banter without AI badges.
+-- StreamCore deep conversation intelligence & creator personality engine
+-- Fully analyzes conversation flow, creator profiles, and live stream state with zero mock data.
 
 create or replace function public.run_streamcore_ai_autopilot(force_run boolean default false)
 returns jsonb
@@ -23,7 +23,12 @@ declare
   chat_context text := '';
   chosen_author_id text;
   creator_name text;
+  creator_handle text;
+  creator_bio text;
   creator_game text;
+  creator_platform text;
+  creator_stream_title text;
+  creator_is_live boolean := false;
   prompt_text text;
   request_body jsonb;
   response extensions.http_response;
@@ -89,12 +94,25 @@ begin
   key_index := mod(greatest(0, coalesce((config->>'keyCursor')::integer, 0)), key_count);
   api_key := keys->>key_index;
 
-  -- Select an admin-added creator to be the speaker
+  -- 1. Select a real creator with complete profile details
   select
     id,
     coalesce(data->>'name', 'Creator'),
-    coalesce(nullif(data->>'gameName', ''), 'Gaming')
-  into chosen_author_id, creator_name, creator_game
+    coalesce(nullif(data->>'handle', ''), '@creator'),
+    coalesce(nullif(data->>'bio', ''), ''),
+    coalesce(nullif(data->>'gameName', ''), 'Gaming'),
+    coalesce(nullif(data->>'platform', ''), 'Twitch'),
+    coalesce(nullif(data->>'streamTitle', ''), ''),
+    coalesce(data->>'status', '') = 'live'
+  into
+    chosen_author_id,
+    creator_name,
+    creator_handle,
+    creator_bio,
+    creator_game,
+    creator_platform,
+    creator_stream_title,
+    creator_is_live
   from public.community_listed_members
   where coalesce((data->>'managedByAdmin')::boolean, false) = true
      or coalesce(data->>'role', '') in ('admin', 'partner', 'streamer')
@@ -102,8 +120,24 @@ begin
   limit 1;
 
   if chosen_author_id is null then
-    select id, coalesce(data->>'name', 'Creator'), 'Gaming'
-    into chosen_author_id, creator_name, creator_game
+    select
+      id,
+      coalesce(data->>'name', 'Creator'),
+      coalesce(nullif(data->>'handle', ''), '@creator'),
+      '',
+      'Gaming',
+      'Twitch',
+      '',
+      false
+    into
+      chosen_author_id,
+      creator_name,
+      creator_handle,
+      creator_bio,
+      creator_game,
+      creator_platform,
+      creator_stream_title,
+      creator_is_live
     from public.community_listed_members
     order by random()
     limit 1;
@@ -112,36 +146,66 @@ begin
   if chosen_author_id is null then
     chosen_author_id := 'creator';
     creator_name := 'Creator';
+    creator_handle := '@creator';
+    creator_bio := '';
+    creator_game := 'Gaming';
+    creator_platform := 'Twitch';
+    creator_stream_title := '';
+    creator_is_live := false;
   end if;
 
+  -- 2. Gather confirmed real live broadcasts across the community
   if coalesce((config->>'liveContext')::boolean, true) then
     select string_agg(
-      coalesce(data->>'name', 'Creator') || ' is live in ' || coalesce(nullif(data->>'gameName', ''), 'their channel') ||
-      case when coalesce(data->>'streamTitle', '') <> '' then ' — ' || (data->>'streamTitle') else '' end,
+      coalesce(data->>'name', 'Creator') || ' (' || coalesce(data->>'platform', 'Twitch') || ') is live streaming ' || coalesce(nullif(data->>'gameName', ''), 'their game') ||
+      case when coalesce(data->>'streamTitle', '') <> '' then ' — "' || left(data->>'streamTitle', 100) || '"' else '' end,
       E'\n'
     ) into live_context
     from public.community_listed_members
     where data->>'status' = 'live';
   end if;
 
-  select string_agg(line, E'\n' order by post_time) into chat_context
+  -- 3. Gather recent chat history with resolved creator display names
+  select string_agg(
+    author_name || ': "' || post_text || '"',
+    E'\n' order by post_time asc
+  ) into chat_context
   from (
     select
-      coalesce(data->>'authorId', 'member') || ': ' || left(coalesce(data->>'text', ''), 300) as line,
-      created_at as post_time
-    from public.community_posts
-    where data->>'channel' = channel_name
-    order by created_at desc
-    limit 8
+      coalesce(m.data->>'name', p.display_name, 'Member') as author_name,
+      left(coalesce(cp.data->>'text', ''), 220) as post_text,
+      cp.created_at as post_time
+    from public.community_posts cp
+    left join public.community_listed_members m on m.id = cp.data->>'authorId'
+    left join public.profiles p on p.id = cp.data->>'authorId'
+    where cp.data->>'channel' = channel_name
+      and coalesce(cp.data->>'text', '') <> ''
+    order by cp.created_at desc
+    limit 12
   ) recent;
 
-  prompt_text := 'You are ' || creator_name || ', a popular streamer participating in the StreamCore community chat. '
-    || 'Write exactly ONE natural Discord-style message (12 to 32 words) in your casual streamer voice. '
-    || 'Talk naturally with other creators and members about streaming, gameplay moments, tournament matches, or ask what games everyone is grinding today. '
-    || 'NEVER say you are an AI, never say "StreamCore AI here", never say "As an AI", and never mention bots or automation. '
-    || 'Sound completely authentic and casual like a real streamer hanging out in chat.'
-    || case when coalesce(live_context, '') <> '' then E'\n\nLive creators in community:\n' || live_context else '' end
-    || case when coalesce(chat_context, '') <> '' then E'\n\nRecent community chat:\n' || chat_context else '' end;
+  -- 4. Formulate the conversation analysis and personality prompt
+  prompt_text := 'You are roleplaying as ' || creator_name || ' (' || creator_handle || '), an authentic creator in this Discord-style streamer community.'
+    || E'\n\nYOUR VERIFIED PROFILE & CONTEXT:'
+    || E'\n- Creator Name: ' || creator_name
+    || E'\n- Primary Platform: ' || creator_platform
+    || E'\n- Main Category/Game: ' || creator_game
+    || case when creator_bio <> '' then E'\n- Bio: ' || creator_bio else '' end
+    || case when creator_stream_title <> '' then E'\n- Current Stream Title: ' || creator_stream_title else '' end
+    || case when creator_is_live then E'\n- Live Status: 🔴 YOU ARE CURRENTLY LIVE STREAMING RIGHT NOW!' else E'\n- Live Status: Offline, relaxing in community chat.' end
+    || E'\n\nLIVE COMMUNITY STREAMERS RIGHT NOW:\n' || coalesce(nullif(live_context, ''), 'No other creators currently broadcasting.')
+    || E'\n\nRECENT COMMUNITY CHAT HISTORY:\n' || coalesce(nullif(chat_context, ''), 'Chat has been quiet. You are kicking off the chat.')
+    || E'\n\nCONVERSATION REASONING INSTRUCTIONS:'
+    || E'\n1. ANALYZE the recent conversation history above.'
+    || E'\n2. DECIDE what is most natural to say:'
+    || E'\n   - If someone in chat asked a question or shared a thought, reply to them directly or banter with them.'
+    || E'\n   - If a tournament match (e.g. LEC, VCT, Premier League) or live streamer is mentioned, share your live reaction.'
+    || E'\n   - If the conversation is winding down, start a fresh streamer discussion (e.g. gameplay moments, game patch, stream schedule).'
+    || E'\n3. ABSOLUTE RULES:'
+    || E'\n   - NEVER say you are an AI, never say "StreamCore AI here", never say "As an AI".'
+    || E'\n   - NEVER mention bots, scripts, or automation.'
+    || E'\n   - Speak 100% in first-person as ' || creator_name || '.'
+    || E'\n   - Keep it short, natural, and punchy (12 to 28 words max). Just like real streamers type in Discord.';
 
   request_body := jsonb_build_object(
     'contents', jsonb_build_array(jsonb_build_object('parts', jsonb_build_array(jsonb_build_object('text', prompt_text)))),
@@ -178,7 +242,7 @@ begin
   response_json := response.content::jsonb;
   generated_text := coalesce(response_json->'candidates'->0->'content'->'parts'->0->>'text', '');
   generated_text := regexp_replace(generated_text, 'https?://[^[:space:]]+', '', 'gi');
-  generated_text := regexp_replace(generated_text, '^(StreamCore AI here[:\s\-]*|Hey everyone!?\s*StreamCore AI here\.?\s*)', '', 'gi');
+  generated_text := regexp_replace(generated_text, '^(StreamCore AI here[:\s\-]*|Hey everyone!?\s*StreamCore AI here\.?\s*|As an AI[^:]*:\s*)', '', 'gi');
   generated_text := left(trim(regexp_replace(generated_text, '[[:space:]]+', ' ', 'g')), 420);
   if generated_text = '' then
     update public.integration_settings
