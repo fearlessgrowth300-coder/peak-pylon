@@ -5,9 +5,10 @@ import { Avatar } from "./Bits";
 import { BrandIcon, VerifiedCheck } from "./BrandIcon";
 
 function memberConnections(member: Member): Connection[] {
-  if (member.connections?.length) return member.connections;
-  if (member.link)
-    return [
+  const source = member.connections?.length
+    ? member.connections
+    : member.link
+      ? [
       {
         id: "primary",
         platform: member.platform,
@@ -15,8 +16,37 @@ function memberConnections(member: Member): Connection[] {
         url: member.link,
         verified: true,
       },
-    ];
-  return [];
+    ]
+      : [];
+
+  const primaryUrl = normalizeConnectionUrl(member.link);
+  const unique = new Map<string, Connection>();
+  for (const connection of source) {
+    const normalizedUrl = normalizeConnectionUrl(connection.url);
+    const key = normalizedUrl || `${connection.platform}:${connection.label}`.toLowerCase();
+    const verified = connection.verified || (
+      member.platform.toLowerCase() === "twitch" &&
+      connection.platform.toLowerCase() === "twitch" &&
+      Boolean(primaryUrl) &&
+      normalizedUrl === primaryUrl
+    );
+    const existing = unique.get(key);
+    unique.set(key, existing
+      ? { ...existing, verified: existing.verified || verified }
+      : { ...connection, verified });
+  }
+  return [...unique.values()];
+}
+
+function normalizeConnectionUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const url = new URL(trimmed);
+    return `${url.hostname.toLowerCase()}${url.pathname.replace(/\/+$/, "").toLowerCase()}`;
+  } catch {
+    return trimmed.toLowerCase().replace(/\/+$/, "");
+  }
 }
 
 function channelName(member: Member) {
@@ -83,7 +113,7 @@ export function ProfileModal({
           </div>
 
           <div className="mt-3">
-            <h2 className="flex items-center gap-1 truncate text-2xl font-extrabold">{member.name} {(member.connections?.some((connection) => connection.verified) || member.platform === "Twitch") && <VerifiedCheck />}</h2>
+            <h2 className="flex items-center gap-1 truncate text-2xl font-extrabold">{member.name} {(connections.some((connection) => connection.verified) || member.platform === "Twitch") && <VerifiedCheck />}</h2>
             <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               {member.handle}
               <span

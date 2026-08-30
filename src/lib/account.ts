@@ -164,8 +164,44 @@ export function topRole(roles: Role[]): Role {
   return "member";
 }
 
+function normalizeConnectionUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const url = new URL(trimmed);
+    const path = url.pathname.replace(/\/+$/, "");
+    return `${url.hostname.toLowerCase()}${path.toLowerCase()}`;
+  } catch {
+    return trimmed.toLowerCase().replace(/\/+$/, "");
+  }
+}
+
+function uniqueConnections(connections: NonNullable<Member["connections"]>) {
+  const unique = new Map<string, NonNullable<Member["connections"]>[number]>();
+  for (const connection of connections) {
+    const key = normalizeConnectionUrl(connection.url) || `${connection.platform}:${connection.label}`.toLowerCase();
+    const existing = unique.get(key);
+    if (existing) {
+      unique.set(key, { ...existing, verified: existing.verified || connection.verified });
+    } else {
+      unique.set(key, connection);
+    }
+  }
+  return [...unique.values()];
+}
+
 export function accountToMember(a: Account): Member & { real: true; role: Role } {
   const isRecentlyActive = new Date(a.last_active_at).getTime() > Date.now() - 6 * 60 * 1000;
+  const connections = uniqueConnections([
+    ...(a.channel_url ? [{ id: "primary", platform: a.platform, label: a.handle?.replace(/^@/, "") || a.display_name, url: a.channel_url, verified: a.platform === "Twitch" ? a.twitch_verified : true }] : []),
+    ...(a.social_links ?? []).map((link, index) => ({
+      id: `social-${index}`,
+      platform: link.platform,
+      label: link.label || link.platform,
+      url: link.url,
+      verified: Boolean((link as SocialLink & { verified?: boolean }).verified),
+    })),
+  ]);
   return {
     id: a.id,
     name: a.display_name,
@@ -179,10 +215,7 @@ export function accountToMember(a: Account): Member & { real: true; role: Role }
     joined: new Date(a.created_at).getTime(),
     real: true,
     role: topRole(a.roles),
-    connections: [
-      ...(a.channel_url ? [{ id: "primary", platform: a.platform, label: a.handle?.replace(/^@/, "") || a.display_name, url: a.channel_url, verified: a.platform === "Twitch" ? a.twitch_verified : true }] : []),
-      ...(a.social_links ?? []).map((link, index) => ({ id: `social-${index}`, platform: link.platform, label: link.label || link.platform, url: link.url, verified: false })),
-    ],
+    connections,
   };
 }
 

@@ -29,6 +29,7 @@ export type Member = {
   streamTitle?: string | undefined;
   joined?: number | undefined;
   real?: boolean | undefined;
+  managedByAdmin?: boolean | undefined;
   role?: string | undefined;
   connections?: Connection[] | undefined;
 };
@@ -226,7 +227,9 @@ export function useCommunity() {
   const addMember = useCallback(async (member: Omit<Member, "id">) => {
     const id = uid();
     mutationVersion.current += 1;
-    const record = { joined: Date.now(), ...member };
+    // This table is exclusively managed through the admin creator form. Keep
+    // the provenance explicit so server automations never select self-signups.
+    const record = { joined: Date.now(), ...member, managedByAdmin: true };
     const { error } = await (supabase as any).from("community_listed_members").upsert({ id, data: record });
     if (error) {
       mutationVersion.current += 1;

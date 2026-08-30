@@ -45,19 +45,6 @@ export const Route = createFileRoute("/")({
 
 type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "moderation" | "integrations" | "me" | `channel:${string}`;
 
-const AI_COMMUNITY_HOST: Member = {
-  id: "streamcore-ai",
-  name: "StreamCore AI",
-  handle: "@streamcore_ai",
-  platform: "AI community host",
-  status: "online",
-  link: "",
-  bio: "Clearly labelled AI host for the StreamCore community.",
-  avatar: "",
-  banner: "",
-  role: "ai",
-};
-
 function Index() {
   const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
   const navigate = useNavigate();
@@ -277,7 +264,6 @@ function Index() {
 
   const memberById = useMemo(() => {
     const map = new Map<string, Member>();
-    map.set(AI_COMMUNITY_HOST.id, AI_COMMUNITY_HOST);
     for (const m of allMembers) {
       if (m.id) {
         map.set(m.id, m);
@@ -776,7 +762,7 @@ function Index() {
                                   {m?.name ?? "Community"}
                                 </button>
                                 {m?.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
-                                {(m?.role === "ai" || p.aiGenerated) && <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300">🤖 AI HOST</span>}
+                                {p.aiGenerated && <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300">AUTOMATED</span>}
                                 <span className="text-xs text-muted-foreground">
                                   {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>
