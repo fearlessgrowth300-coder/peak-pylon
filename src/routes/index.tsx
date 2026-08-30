@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { timeAgo, uploadCommunityMedia, useCommunity, type Member, type Post, type PostInput } from "@/lib/community";
+import { timeAgo, uploadCommunityMedia, useCommunity, uid, type Member, type Post, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor, ErrorBoundary } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
@@ -325,45 +325,98 @@ function Index() {
   const [pinnedStreamerIds, setPinnedStreamerIds] = useState<string[]>([]);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("streamcore:pinned-streamers");
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
-          setPinnedStreamerIds(parsed);
+    let active = true;
+    const fetchPinned = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("integration_settings")
+          .select("setting_value")
+          .eq("setting_name", "community_pinned_streamers")
+          .maybeSingle();
+        if (!error && data?.setting_value && Array.isArray(data.setting_value) && data.setting_value.length > 0) {
+          if (active) setPinnedStreamerIds(data.setting_value as string[]);
+        } else {
+          const saved = localStorage.getItem("streamcore:pinned-streamers");
+          if (saved) {
+            const parsed: unknown = JSON.parse(saved);
+            if (Array.isArray(parsed) && active && parsed.length > 0) {
+              setPinnedStreamerIds(parsed as string[]);
+            }
+          }
         }
+      } catch {
+        // fallback
       }
-    } catch {}
+    };
+    void fetchPinned();
+
+    const channel = supabase
+      .channel("streamcore-pinned-streamers")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "integration_settings", filter: "setting_name=eq.community_pinned_streamers" },
+        (payload: any) => {
+          if (payload.new?.setting_value && Array.isArray(payload.new.setting_value)) {
+            setPinnedStreamerIds(payload.new.setting_value);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
   }, []);
+
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinSearch, setPinSearch] = useState("");
 
   const effectivePinnedIds = useMemo(() => {
-    // 1. Check for streamers marked as pinned in Supabase
+    // 1. Direct synced pinned IDs from Supabase integration_settings
+    if (pinnedStreamerIds.length > 0) return pinnedStreamerIds;
+
+    // 2. Members with isPinned flag
     const dbPinned = allMembers.filter((m) => m.isPinned).map((m) => m.id);
     if (dbPinned.length > 0) return dbPinned;
 
-    // 2. Check for locally active pinned selection
-    if (pinnedStreamerIds.length > 0) return pinnedStreamerIds;
-
-    // 3. Fallback to prominent admin-managed streamers
+    // 3. Fallback to prominent admin-managed creators
     const adminManaged = allMembers.filter((m) => m.managedByAdmin || m.role === "admin" || m.role === "partner").map((m) => m.id);
-    if (adminManaged.length > 0) return adminManaged.slice(0, 5);
+    if (adminManaged.length > 0) return adminManaged.slice(0, 7);
 
-    return allMembers.slice(0, 4).map((m) => m.id);
+    return allMembers.slice(0, 6).map((m) => m.id);
   }, [pinnedStreamerIds, allMembers]);
 
   const togglePinStreamer = async (id: string) => {
     if (!isAdmin) return;
-    const target = allMembers.find((m) => m.id === id);
-    if (!target) return;
-    const nextPinned = !target.isPinned;
+    const current = effectivePinnedIds.includes(id)
+      ? effectivePinnedIds.filter((x) => x !== id)
+      : [...effectivePinnedIds, id];
+
+    setPinnedStreamerIds(current);
     try {
-      await updateMember(id, { isPinned: nextPinned });
-      setPinnedStreamerIds((prev) => (nextPinned ? [...prev, id] : prev.filter((x) => x !== id)));
-      setToast(nextPinned ? `📌 ${target.name} pinned to left rail for all community visitors!` : `${target.name} unpinned from left rail`);
-    } catch {
-      setToast("Could not update pinned streamer");
+      localStorage.setItem("streamcore:pinned-streamers", JSON.stringify(current));
+    } catch {}
+
+    const target = allMembers.find((m) => m.id === id);
+    const isNowPinned = current.includes(id);
+
+    try {
+      await Promise.all([
+        updateMember(id, { isPinned: isNowPinned }),
+        supabase.from("integration_settings").upsert(
+          {
+            setting_name: "community_pinned_streamers",
+            setting_value: current,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "setting_name" }
+        ),
+      ]);
+      setToast(isNowPinned ? `📌 ${target?.name ?? "Streamer"} pinned to left rail for all visitors!` : `${target?.name ?? "Streamer"} unpinned from left rail`);
+    } catch (err) {
+      console.error("Save pin error", err);
+      setToast("Pinned locally");
     }
   };
 
