@@ -322,6 +322,19 @@ function Index() {
 
   const allMembersRef = useRef(allMembers);
   allMembersRef.current = allMembers;
+  const twitchChannelKey = useMemo(
+    () =>
+      allMembers
+        .filter(
+          (member) =>
+            (member.platform?.toLowerCase() === "twitch" || member.link?.includes("twitch.tv")) &&
+            Boolean(member.link?.trim()),
+        )
+        .map((member) => `${member.id}:${member.link.trim().toLowerCase()}`)
+        .sort()
+        .join("|"),
+    [allMembers],
+  );
 
   const postingAuthors = useMemo(() => {
     if (!myAccount) return [];
@@ -439,7 +452,7 @@ function Index() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [applyMemberSnapshots]);
+  }, [applyMemberSnapshots, twitchChannelKey]);
 
   async function signOut() {
     await supabase.auth.signOut();
