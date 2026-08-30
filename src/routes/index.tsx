@@ -376,6 +376,7 @@ function Index() {
                   channels: batch.map((member) => ({
                     id: member.id,
                     channelUrl: member.link,
+                    followers: member.followers,
                   })),
                 },
               }),
@@ -910,6 +911,8 @@ function Index() {
                 posts={state.posts}
                 onPick={setProfile}
                 initialCategory="overall"
+                isAdmin={isAdmin}
+                accessToken={session?.access_token}
               />
             )}
 
@@ -919,6 +922,8 @@ function Index() {
                 posts={state.posts}
                 onPick={setProfile}
                 initialCategory="rising"
+                isAdmin={isAdmin}
+                accessToken={session?.access_token}
               />
             )}
 

@@ -627,7 +627,7 @@ export function AdminView({
                 const snapshots = await refreshTwitchStatuses({
                   data: {
                     force: true,
-                    channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link })),
+                    channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link, followers: member.followers })),
                   },
                 });
                 const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));

@@ -88,7 +88,7 @@ async function loadAutopilotConfig(db: any): Promise<AiAutopilotConfig> {
   };
 }
 
-async function callGemini(apiKeys: string[], model: GeminiModel, prompt: string, startIndex = 0) {
+async function callGemini(apiKeys: string[], model: GeminiModel, prompt: string, startIndex = 0, maxOutputTokens = 12) {
   if (!apiKeys.length) throw new Error("Add at least one Gemini API key first.");
   const errors: string[] = [];
   for (let offset = 0; offset < apiKeys.length; offset += 1) {
@@ -101,14 +101,25 @@ async function callGemini(apiKeys: string[], model: GeminiModel, prompt: string,
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 12 },
+          generationConfig: { temperature: 0, maxOutputTokens },
         }),
       },
     );
-    if (response.ok) return { index };
+    if (response.ok) {
+      const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
+      return { index, text };
+    }
     errors.push(`key ${index + 1}: HTTP ${response.status}`);
   }
   throw new Error(`Gemini rejected every saved key (${errors.join(", ")}).`);
+}
+
+/** Server-only helper for other protected features. Keys never leave the server. */
+export async function generateGeminiServerText(db: any, prompt: string, maxOutputTokens = 600) {
+  const [keys, config] = await Promise.all([loadGeminiPool(db), loadAutopilotConfig(db)]);
+  const result = await callGemini(keys, config.model, prompt, config.keyCursor ?? 0, maxOutputTokens);
+  return { text: result.text, model: config.model, keyIndex: result.index };
 }
 
 export const getGeminiIntegrationStatus = createServerFn({ method: "POST" })

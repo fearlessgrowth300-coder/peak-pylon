@@ -69,6 +69,7 @@ export function CommunityAnalyticsView({
   const realTotalPosts = posts.length;
   const realAutomatedPosts = posts.filter((p) => p.aiGenerated).length;
   const realClips = posts.filter((p) => Boolean(p.video || p.channel === "clips")).length;
+  const realDiscussions = posts.reduce((sum, post) => sum + (post.comments?.length ?? 0), 0);
 
   const realTotalReactions = useMemo(() => {
     return posts.reduce((sum, p) => {
@@ -98,31 +99,25 @@ export function CommunityAnalyticsView({
         color: colors[idx % colors.length],
       }));
 
-    if (list.length === 0) {
-      return [
-        { name: "Gaming / FPS", count: 12, value: 45, color: "#8b5cf6" },
-        { name: "Just Chatting", count: 8, value: 30, color: "#06b6d4" },
-        { name: "Esports & Matches", count: 4, value: 15, color: "#ec4899" },
-        { name: "Music & IRL", count: 3, value: 10, color: "#10b981" },
-      ];
-    }
     return list;
   }, [members]);
 
   const networkChartData = useMemo(() => {
-    const basePosts = Math.max(realTotalPosts, 14);
-    const baseUsers = Math.max(realOnlineMembers, 8);
-
-    return [
-      { day: "Mon", activeUsers: baseUsers * 8, streams: Math.max(1, realLiveStreams), posts: basePosts * 6 },
-      { day: "Tue", activeUsers: baseUsers * 10, streams: Math.max(2, realLiveStreams + 1), posts: basePosts * 8 },
-      { day: "Wed", activeUsers: baseUsers * 12, streams: Math.max(2, realLiveStreams + 2), posts: basePosts * 11 },
-      { day: "Thu", activeUsers: baseUsers * 11, streams: Math.max(3, realLiveStreams + 1), posts: basePosts * 10 },
-      { day: "Fri", activeUsers: baseUsers * 15, streams: Math.max(4, realLiveStreams + 3), posts: basePosts * 14 },
-      { day: "Sat", activeUsers: baseUsers * 18, streams: Math.max(5, realLiveStreams + 4), posts: basePosts * 18 },
-      { day: "Sun", activeUsers: baseUsers * 16, streams: Math.max(4, realLiveStreams + 2), posts: basePosts * 16 },
-    ];
-  }, [realTotalPosts, realOnlineMembers, realLiveStreams]);
+    const days = { "7D": 7, "30D": 30, "90D": 90, "1Y": 365 }[timeRange];
+    const bucketDays = Math.max(1, Math.ceil(days / 14));
+    const bucketMs = bucketDays * 86_400_000;
+    const rangeStart = Date.now() - days * 86_400_000;
+    const buckets = new Map<number, { day: string; posts: number; authors: Set<string> }>();
+    for (const post of posts) {
+      if (post.time < rangeStart) continue;
+      const bucket = Math.floor((post.time - rangeStart) / bucketMs);
+      const current = buckets.get(bucket) ?? { day: new Date(rangeStart + bucket * bucketMs).toLocaleDateString(undefined, { month: "short", day: "numeric" }), posts: 0, authors: new Set<string>() };
+      current.posts += 1;
+      current.authors.add(post.authorId);
+      buckets.set(bucket, current);
+    }
+    return [...buckets.entries()].sort(([left], [right]) => left - right).map(([, bucket]) => ({ day: bucket.day, posts: bucket.posts, activeUsers: bucket.authors.size }));
+  }, [posts, timeRange]);
 
   const sortedCreators = useMemo(() => {
     return [...members].sort((a, b) => {
@@ -238,7 +233,7 @@ export function CommunityAnalyticsView({
               <span className="text-[11px] font-bold uppercase">Community Discussions</span>
               <MessageSquare className="h-4 w-4 text-cyan-400" />
             </div>
-            <p className="text-2xl font-black text-cyan-300">{(realTotalPosts + 24).toLocaleString()}</p>
+            <p className="text-2xl font-black text-cyan-300">{realDiscussions.toLocaleString()}</p>
             <p className="text-[11px] font-semibold text-cyan-400">
               Active Creator Threads
             </p>
@@ -290,13 +285,15 @@ export function CommunityAnalyticsView({
                     Network Engagement Activity
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Active users, broadcast concurrency, and message throughput.
+                    Unique posting creators from real Supabase post timestamps. No projected values.
                   </p>
                 </div>
                 <span className="text-xs font-bold text-muted-foreground">{timeRange}</span>
               </div>
 
               <div className="h-64 w-full pt-2">
+                {!networkChartData.length && <div className="grid h-full place-items-center text-xs text-muted-foreground">No stored posts exist in this date range.</div>}
+                {networkChartData.length > 0 &&
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={networkChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
@@ -320,6 +317,7 @@ export function CommunityAnalyticsView({
                     <Area type="monotone" dataKey="activeUsers" stroke="#06b6d4" strokeWidth={3} fill="url(#userGrad)" />
                   </AreaChart>
                 </ResponsiveContainer>
+                }
               </div>
             </div>
 
@@ -334,6 +332,8 @@ export function CommunityAnalyticsView({
               </div>
 
               <div className="h-44 w-full">
+                {!categoryStats.length && <div className="grid h-full place-items-center text-xs text-muted-foreground">No Twitch categories are currently synced.</div>}
+                {categoryStats.length > 0 &&
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -360,6 +360,7 @@ export function CommunityAnalyticsView({
                     />
                   </PieChart>
                 </ResponsiveContainer>
+                }
               </div>
 
               <div className="space-y-1.5 pt-2 border-t border-border text-xs">
@@ -449,37 +450,8 @@ export function CommunityAnalyticsView({
             Regional Creator & Audience Distribution
           </h3>
 
-          <div className="divide-y divide-border text-xs">
-            <div className="py-3 flex items-center justify-between">
-              <div>
-                <p className="font-bold text-foreground text-sm">North America (US / CA)</p>
-                <p className="text-muted-foreground">Global Twitch & YouTube crossover</p>
-              </div>
-              <div className="text-right">
-                <p className="font-black text-cyan-300 text-sm">42%</p>
-                <p className="text-emerald-400 font-bold">+14% growth</p>
-              </div>
-            </div>
-            <div className="py-3 flex items-center justify-between">
-              <div>
-                <p className="font-bold text-foreground text-sm">Europe (UK / ES / IT / DE)</p>
-                <p className="text-muted-foreground">LEC, variety, and creator tournaments</p>
-              </div>
-              <div className="text-right">
-                <p className="font-black text-cyan-300 text-sm">34%</p>
-                <p className="text-emerald-400 font-bold">+18% growth</p>
-              </div>
-            </div>
-            <div className="py-3 flex items-center justify-between">
-              <div>
-                <p className="font-bold text-foreground text-sm">Africa & Emerging Regions</p>
-                <p className="text-muted-foreground">Fastest growing creator cluster</p>
-              </div>
-              <div className="text-right">
-                <p className="font-black text-cyan-300 text-sm">24%</p>
-                <p className="text-emerald-400 font-bold">+34% growth</p>
-              </div>
-            </div>
+          <div className="rounded-xl border border-dashed border-border bg-background p-6 text-sm text-muted-foreground">
+            No geographic percentage is shown because Twitch Helix does not provide viewer-location analytics for these connected public channels. Connect an authorized first-party analytics source before this screen displays regional data.
           </div>
         </div>
       )}
@@ -521,8 +493,8 @@ export function CommunityAnalyticsView({
               <p className="text-[10px] uppercase text-muted-foreground font-bold">Monitored Messages</p>
             </div>
             <div className="rounded-xl border border-border bg-accent/30 p-3">
-              <p className="text-lg font-black text-emerald-400">100%</p>
-              <p className="text-[10px] uppercase text-muted-foreground font-bold">Shield Health</p>
+              <p className="text-lg font-black text-muted-foreground">Not measured</p>
+              <p className="text-[10px] uppercase text-muted-foreground font-bold">Moderation effectiveness</p>
             </div>
           </div>
         </div>

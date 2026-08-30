@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const input = z.object({ channelUrl: z.string().url() });
 const refreshInput = z.object({
-  channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url() })).max(100),
+  channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url(), followers: z.number().int().nonnegative().optional() })).max(100),
   force: z.boolean().optional(),
 });
 const clipsInput = z.object({ channelUrl: z.string().url(), first: z.number().int().min(1).max(20).optional() });
@@ -337,7 +337,7 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
         viewerCount: stream?.viewer_count ?? 0,
         title: stream?.title ?? "",
         streamId: stream?.id,
-        followers: undefined,
+        followers: typeof channel.followers === "number" ? channel.followers : undefined,
       };
     });
 
@@ -369,15 +369,33 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     memoryStatusCache = { signature, snapshots, expiresAt: Date.now() + 90_000 };
     try {
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      await (supabaseAdmin as any).from("integration_settings").upsert(
-        {
-          setting_name: "twitch_status_snapshot",
-          setting_value: { signature, snapshots, refreshedAt: new Date().toISOString() },
-          updated_by: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "setting_name" },
-      );
+      const db = supabaseAdmin as any;
+      const now = new Date();
+      const observedBucket = new Date(Math.floor(now.getTime() / (30 * 60_000)) * 30 * 60_000).toISOString();
+      await Promise.all([
+        db.from("integration_settings").upsert(
+          {
+            setting_name: "twitch_status_snapshot",
+            setting_value: { signature, snapshots, refreshedAt: now.toISOString() },
+            updated_by: null,
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "setting_name" },
+        ),
+        db.from("creator_twitch_observations").upsert(
+          snapshots.map((snapshot) => ({
+            creator_id: snapshot.id,
+            observed_bucket: observedBucket,
+            observed_at: now.toISOString(),
+            is_live: snapshot.status === "live",
+            viewer_count: snapshot.viewerCount,
+            followers: snapshot.followers ?? null,
+            game_name: snapshot.gameName,
+            stream_id: snapshot.streamId ?? null,
+          })),
+          { onConflict: "creator_id,observed_bucket" },
+        ),
+      ]);
     } catch {
       // The live result is still valid even if the shared cache write fails.
     }
