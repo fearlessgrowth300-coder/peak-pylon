@@ -356,23 +356,6 @@ function Index() {
         for (const update of updates) {
           const member = twitchMembers.find((item) => item.id === update.id);
           if (!member) continue;
-          const wasLive = member.status === "live";
-          const isNowLive = update.status === "live";
-
-          // Auto-broadcast when a creator goes live!
-          if (!wasLive && isNowLive) {
-            const streamTitle = update.title || update.bio || "Live streaming right now!";
-            const gameTag = update.gameName ? `[${update.gameName}] ` : "";
-            void addPost({
-              authorId: member.id,
-              channel: "general",
-              text: `🔴 I'm LIVE now on Twitch streaming ${gameTag}${streamTitle}! Come hang out and join the stream: ${member.link}`,
-              image: update.banner || "",
-              reactions: {},
-            });
-            setToast(`🔴 ${member.name} just went LIVE on Twitch!`);
-          }
-
           const patch: Partial<Member> = {
             status: update.status as any,
             ...(update.banner ? { banner: update.banner } : {}),
@@ -383,6 +366,11 @@ function Index() {
             ...(update.gameName ? { gameName: update.gameName } : {}),
             ...(update.title ? { streamTitle: update.title } : {}),
           };
+
+          const hasChanges = Object.entries(patch).some(
+            ([key, value]) => member[key as keyof Member] !== value,
+          );
+          if (!hasChanges) continue;
 
           const realAccount = accounts.find((account) => account.id === member.id);
           if (realAccount) {
@@ -406,12 +394,12 @@ function Index() {
     };
 
     void refreshTwitch();
-    const timer = window.setInterval(() => void refreshTwitch(), 45_000);
+    const timer = window.setInterval(() => void refreshTwitch(), 5 * 60_000);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [accounts, refresh, updateMember, addPost]);
+  }, [accounts, refresh, updateMember]);
 
   async function signOut() {
     await supabase.auth.signOut();
