@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode, type FormEvent } from "react";
+import { useState, type ReactNode, type FormEvent } from "react";
 import {
   readFileAsDataUrl,
   uploadCommunityMedia,
@@ -13,15 +13,9 @@ import {
   uid,
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
-import { getTwitchChannel, testTwitchConnection } from "@/lib/twitch.functions";
-import { getGeminiIntegrationStatus, saveGeminiIntegration } from "@/lib/gemini.functions";
+import { getTwitchChannel, refreshTwitchStatuses, testTwitchConnection } from "@/lib/twitch.functions";
 import { getChannelMetadata } from "@/lib/channel-metadata";
-import {
-  getResendNotificationConfig,
-  saveResendNotificationConfig,
-  sendResendEmail,
-  type ResendNotificationConfig,
-} from "@/lib/notifications";
+import { IntegrationControlCenter } from "./IntegrationControlCenter";
 
 export function AdminView({
   state,
@@ -97,53 +91,10 @@ export function AdminView({
 
   const [stats, setLocalStats] = useState<Stats>(() => state?.stats ?? { members: "21", online: "18", rank: "#1" });
 
-  const [resendConfig, setLocalResendConfig] = useState<ResendNotificationConfig>(() => getResendNotificationConfig());
-  const [testingResend, setTestingResend] = useState(false);
-  const [testEmailTarget, setTestEmailTarget] = useState("");
   const [testingTwitch, setTestingTwitch] = useState(false);
   const [twitchStatus, setTwitchStatus] = useState<string | null>(null);
   const [syncingAllTwitch, setSyncingAllTwitch] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; logs: string[] } | null>(null);
-  const [geminiApiKey, setGeminiApiKey] = useState("");
-  const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
-  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-lite");
-  const [savingGemini, setSavingGemini] = useState(false);
-  const [geminiMessage, setGeminiMessage] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    setGeminiMessage("");
-    void getGeminiIntegrationStatus({ data: { accessToken } })
-      .then((result) => {
-        if (cancelled) return;
-        setGeminiConfigured(result.configured);
-        setGeminiModel(result.model);
-      })
-      .catch((error) => {
-        if (!cancelled) setGeminiMessage(error instanceof Error ? error.message : "Could not read Gemini status.");
-      });
-    return () => { cancelled = true; };
-  }, [accessToken]);
-
-  async function saveGeminiKey(e: FormEvent) {
-    e.preventDefault();
-    if (!geminiApiKey.trim()) return;
-    setSavingGemini(true);
-    setGeminiMessage("Testing this key with Gemini…");
-    try {
-      const result = await saveGeminiIntegration({ data: { accessToken, apiKey: geminiApiKey } });
-      setGeminiConfigured(result.configured);
-      setGeminiModel(result.model);
-      setGeminiApiKey("");
-      setGeminiMessage("Connected. The key is stored on the server and is not visible to members.");
-      notify("Gemini API connected securely");
-    } catch (error) {
-      setGeminiMessage(error instanceof Error ? error.message : "Gemini could not be connected.");
-    } finally {
-      setSavingGemini(false);
-    }
-  }
-
   async function submitMember(e: FormEvent) {
     e.preventDefault();
     const [avatar, banner] = await Promise.all([
@@ -570,7 +521,7 @@ export function AdminView({
       </form>
 
       <div className="space-y-3 rounded-xl bg-popover p-4">
-        <h2 className="font-bold">06 · Manage members</h2>
+        <h2 className="font-bold">05B · Manage members</h2>
         <div className="space-y-2">
           {state.members.map((m) => (
             <div
@@ -625,7 +576,7 @@ export function AdminView({
               <span className="text-[#9146FF]">🎮</span> 06 · Twitch API Real-Time Connection & Helix Sync
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Syncs real follower counts, live broadcaster statuses, viewer counts, official avatars, and stream titles directly from Twitch Helix.
+              Syncs live status, viewer count, category artwork, official avatar, and stream title directly from Twitch Helix.
             </p>
           </div>
           <span className="rounded-full bg-[#9146FF]/20 px-2.5 py-1 text-xs font-bold text-[#9146FF]">
@@ -672,37 +623,46 @@ export function AdminView({
               const logs: string[] = [];
               setSyncProgress({ current: 0, total: twitchMembers.length, logs: [] });
 
-              for (let i = 0; i < twitchMembers.length; i++) {
-                const member = twitchMembers[i];
-                if (!member) continue;
-                try {
-                  const channelData = await getTwitchChannel({ data: { channelUrl: member.link } });
-                  const patch: Partial<Member> = {
-                    name: channelData.name || member.name,
-                    handle: channelData.handle || member.handle,
-                    bio: channelData.bio || member.bio,
-                    avatar: channelData.avatar || member.avatar,
-                    banner: channelData.banner || member.banner,
-                    status: channelData.status as any,
-                    followers: channelData.followers,
-                    viewerCount: channelData.viewerCount,
-                    gameName: channelData.gameName,
-                    streamTitle: channelData.streamTitle,
-                  };
-                  await updateMember(member.id, patch);
-                  const followerText = channelData.followers ? `${channelData.followers.toLocaleString()} followers` : "followers updated";
-                  const statusText = channelData.status === "live" ? `🔴 LIVE (${channelData.viewerCount?.toLocaleString()} viewers)` : "Offline";
-                  const log = `[${i + 1}/${twitchMembers.length}] ✅ ${member.name} (${member.handle}): ${followerText} | ${statusText}`;
-                  logs.push(log);
-                  setSyncProgress({ current: i + 1, total: twitchMembers.length, logs: [...logs] });
-                } catch (err: any) {
-                  const log = `[${i + 1}/${twitchMembers.length}] ⚠️ ${member.name}: ${err.message || "Failed to fetch"}`;
-                  logs.push(log);
+              try {
+                const snapshots = await refreshTwitchStatuses({
+                  data: {
+                    force: true,
+                    channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link })),
+                  },
+                });
+                const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+                for (let i = 0; i < twitchMembers.length; i++) {
+                  const member = twitchMembers[i];
+                  if (!member) continue;
+                  const channelData = snapshotById.get(member.id);
+                  if (!channelData) {
+                    logs.push(`[${i + 1}/${twitchMembers.length}] ⚠️ ${member.name}: Twitch channel was not found`);
+                  } else {
+                    await updateMember(member.id, {
+                      name: channelData.name || member.name,
+                      handle: channelData.handle || member.handle,
+                      bio: channelData.bio || member.bio,
+                      avatar: channelData.avatar || member.avatar,
+                      banner: channelData.banner,
+                      status: channelData.status,
+                      viewerCount: channelData.viewerCount,
+                      gameName: channelData.gameName,
+                      gameImage: channelData.gameImage,
+                      streamTitle: channelData.title,
+                    });
+                    const statusText = channelData.status === "live"
+                      ? `🔴 LIVE (${channelData.viewerCount.toLocaleString()} viewers · ${channelData.gameName || "No category"})`
+                      : "Offline";
+                    logs.push(`[${i + 1}/${twitchMembers.length}] ✅ ${channelData.name}: ${statusText}`);
+                  }
                   setSyncProgress({ current: i + 1, total: twitchMembers.length, logs: [...logs] });
                 }
+              } catch (err: any) {
+                logs.push(`⚠️ ${err.message || "Twitch sync failed"}`);
+                setSyncProgress({ current: twitchMembers.length, total: twitchMembers.length, logs: [...logs] });
               }
               setSyncingAllTwitch(false);
-              notify(`🎉 Finished syncing all ${twitchMembers.length} creators from Twitch!`);
+              notify(`Finished refreshing ${twitchMembers.length} creators from Twitch Helix.`);
             }}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-emerald-500 transition-colors cursor-pointer flex items-center gap-2"
           >
@@ -743,180 +703,7 @@ export function AdminView({
         )}
       </div>
 
-      <div className="space-y-4 rounded-xl bg-popover p-5 border border-border shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-bold text-foreground">07 · Secure server integrations</h2>
-            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
-              Add Gemini here as the admin. The key is tested and stored by the server; it is never saved in localStorage or returned to the browser.
-            </p>
-          </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${geminiConfigured ? "bg-online/20 text-online" : "bg-accent text-muted-foreground"}`}>
-            {geminiConfigured === null ? "Checking…" : geminiConfigured ? "● Gemini connected" : "Gemini not connected"}
-          </span>
-        </div>
-
-        <form onSubmit={saveGeminiKey} className="space-y-3">
-          <Field label="Gemini API key · Admin only">
-            <input
-              type="password"
-              autoComplete="new-password"
-              placeholder={geminiConfigured ? "Enter a new key only to replace the current one" : "Paste your Gemini API key"}
-              value={geminiApiKey}
-              onChange={(e) => setGeminiApiKey(e.target.value)}
-              className={inputClass}
-              aria-label="Gemini API key"
-            />
-          </Field>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={savingGemini || geminiApiKey.trim().length < 20}
-              className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              {savingGemini ? "Testing & saving…" : geminiConfigured ? "Test & replace key" : "Test & save key"}
-            </button>
-            <span className="text-xs text-muted-foreground">Model: {geminiModel}</span>
-          </div>
-          {geminiMessage && (
-            <p className={`text-xs font-semibold ${geminiConfigured && geminiMessage.startsWith("Connected") ? "text-online" : "text-muted-foreground"}`}>
-              {geminiMessage}
-            </p>
-          )}
-        </form>
-      </div>
-      {/* 09 · Resend Email Notifications for Real Streamers */}
-      <div className="space-y-4 rounded-xl bg-popover p-5 border border-border shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-foreground">09 · Resend Email Notifications for Real Streamers</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Automatically dispatches email notifications to verified real creators who signed up with their email (replies, announcements, new clips, live alerts).
-            </p>
-          </div>
-          <span className="rounded-full bg-online/20 px-3 py-1 text-xs font-bold text-online">
-            🔒 Server-managed credentials
-          </span>
-        </div>
-
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 gap-3">
-            <Field label="Sender 'From' Address">
-              <input
-                type="text"
-                placeholder="StreamCore Alerts <onboarding@resend.dev>"
-                value={resendConfig.fromEmail}
-                onChange={(e) => {
-                  const updated = { ...resendConfig, fromEmail: e.target.value };
-                  setLocalResendConfig(updated);
-                  saveResendNotificationConfig(updated);
-                }}
-                className={inputClass}
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 pt-1">
-            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={resendConfig.notifyRepliesAndMentions}
-                onChange={(e) => {
-                  const updated = { ...resendConfig, notifyRepliesAndMentions: e.target.checked };
-                  setLocalResendConfig(updated);
-                  saveResendNotificationConfig(updated);
-                }}
-                className="rounded border-border text-primary"
-              />
-              <span>✉️ Send email on replies & mentions to real members</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={resendConfig.notifyNewAnnouncement}
-                onChange={(e) => {
-                  const updated = { ...resendConfig, notifyNewAnnouncement: e.target.checked };
-                  setLocalResendConfig(updated);
-                  saveResendNotificationConfig(updated);
-                }}
-                className="rounded border-border text-primary"
-              />
-              <span>📢 Send email on new official announcements</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={resendConfig.notifyStreamerLive}
-                onChange={(e) => {
-                  const updated = { ...resendConfig, notifyStreamerLive: e.target.checked };
-                  setLocalResendConfig(updated);
-                  saveResendNotificationConfig(updated);
-                }}
-                className="rounded border-border text-primary"
-              />
-              <span>🔴 Send email when community members go live</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
-              <input
-                type="checkbox"
-                checked={resendConfig.notifyNewClips}
-                onChange={(e) => {
-                  const updated = { ...resendConfig, notifyNewClips: e.target.checked };
-                  setLocalResendConfig(updated);
-                  saveResendNotificationConfig(updated);
-                }}
-                className="rounded border-border text-primary"
-              />
-              <span>🎬 Send email when top streamer clips are posted</span>
-            </label>
-          </div>
-
-          {/* Test Email Dispatcher */}
-          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border/40">
-            <input
-              type="email"
-              placeholder="Enter test email address (e.g. your_email@domain.com)"
-              value={testEmailTarget}
-              onChange={(e) => setTestEmailTarget(e.target.value)}
-              className={`${inputClass} flex-1`}
-            />
-            <button
-              type="button"
-              disabled={testingResend || !testEmailTarget}
-              onClick={async () => {
-                setTestingResend(true);
-                try {
-                  const res = await sendResendEmail({
-                    to: testEmailTarget,
-                    subject: "⚡ Test Email from StreamCore Creator Community",
-                    html: `
-                      <div style="font-family: sans-serif; background: #0d0e12; color: #fff; padding: 24px; border-radius: 12px;">
-                        <h2 style="color: #8b5cf6;">StreamCore Resend Notification Test</h2>
-                        <p style="color: #ccc;">Your Resend email configuration is working perfectly! Streamer notifications are active.</p>
-                      </div>
-                    `,
-                  });
-                  if (res.success) {
-                    notify("✓ Test email sent successfully via Resend!");
-                  } else {
-                    notify(`Resend Error: ${res.error}`);
-                  }
-                } catch (err) {
-                  notify(err instanceof Error ? err.message : "Failed to send test email");
-                } finally {
-                  setTestingResend(false);
-                }
-              }}
-              className={`${buttonClass} shrink-0 text-xs`}
-            >
-              {testingResend ? "Sending Test…" : "✉️ Send Test Email"}
-            </button>
-          </div>
-        </div>
-      </div>
+      <IntegrationControlCenter accessToken={accessToken} channels={state.channels} notify={notify} />
 
       {activeClipModalMember && generateClips && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">

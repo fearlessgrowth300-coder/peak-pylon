@@ -18,12 +18,8 @@ import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget"
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
-import { generateCommunityAiMessage } from "@/lib/gemini.functions";
 import { saveCustomSticker, isStickerSaved } from "@/lib/stickers";
-import {
-  notifyRealMembersOfAnnouncement,
-  notifyRealMembersOfStreamerLive,
-} from "@/lib/notifications";
+import { dispatchResendNotification } from "@/lib/resend.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -300,26 +296,6 @@ function Index() {
     return map;
   }, [allMembers]);
 
-  useEffect(() => {
-    if (!isAdmin || !session?.access_token) return;
-    let active = true;
-    const runAiHost = async () => {
-      try {
-        await generateCommunityAiMessage({ data: { accessToken: session.access_token } });
-      } catch {
-        // Keep real chat usable if the AI provider is temporarily unavailable.
-      }
-    };
-    void runAiHost();
-    const timer = window.setInterval(() => {
-      if (active) void runAiHost();
-    }, 10 * 60_000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [isAdmin, session?.access_token]);
-
   const allMembersRef = useRef(allMembers);
   allMembersRef.current = allMembers;
   const twitchChannelKey = useMemo(
@@ -447,7 +423,9 @@ function Index() {
     };
 
     void refreshTwitch();
-    const timer = window.setInterval(() => void refreshTwitch(), 60_000);
+    // Shared server caching means every visitor sees the same real Helix
+    // snapshot without each browser creating a separate high-frequency poll.
+    const timer = window.setInterval(() => void refreshTwitch(), 5 * 60_000);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -483,13 +461,23 @@ function Index() {
           comments: [],
         });
       }
+      if (session?.access_token) {
+        await dispatchResendNotification({
+          data: {
+            accessToken: session.access_token,
+            kind: "clip",
+            dedupeKey: `clips:${member.id}:${clips.map((clip) => clip.id).join("-")}`,
+            subject: `🎬 ${clips.length} new ${member.name} clip${clips.length === 1 ? "" : "s"} on StreamCore`,
+            text: `${clips.length} real Twitch clip${clips.length === 1 ? " was" : "s were"} added for ${member.name}.`,
+            html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#8b5cf6">New Twitch clips from ${member.name.replace(/[<>&\"']/g, "")}</h2><p>${clips.length} real clip${clips.length === 1 ? " was" : "s were"} added to #clips.</p><a href="https://peak-pylon.vercel.app" style="color:#a78bfa">Open StreamCore →</a></div>`,
+          },
+        });
+      }
       setToast(`Posted ${clips.length} real Twitch clip${clips.length === 1 ? "" : "s"} to #clips.`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Could not fetch Twitch clips");
     }
   }
-
-  // Artificial 24/7 posting was removed. Community messages now come only from real users.
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background text-foreground">
@@ -838,7 +826,19 @@ function Index() {
                 currentUserId={myAccount?.id}
                 onCreate={async (post) => {
                   const authorId = myAccount?.id ?? adminMembers[0]?.id;
-                  if (authorId) await addPost({ ...post, authorId, channel: "trending" });
+                  if (authorId) {
+                    await addPost({ ...post, authorId, channel: "trending" });
+                    if (session?.access_token) {
+                      await dispatchResendNotification({ data: {
+                        accessToken: session.access_token,
+                        kind: "announcement",
+                        dedupeKey: `trending:${authorId}:${post.time ?? Date.now()}`,
+                        subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore update"}`,
+                        text: post.text.slice(0, 4000),
+                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore update</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app" style="color:#fbbf24">Read on StreamCore →</a></div>`,
+                      } });
+                    }
+                  }
                 }}
                 onUpdate={updatePost}
                 onDelete={removePost}
@@ -861,7 +861,19 @@ function Index() {
                 currentUserId={myAccount?.id}
                 onCreate={async (post) => {
                   const authorId = myAccount?.id ?? adminMembers[0]?.id;
-                  if (authorId) await addPost({ ...post, authorId, channel: "announcements" });
+                  if (authorId) {
+                    await addPost({ ...post, authorId, channel: "announcements" });
+                    if (session?.access_token) {
+                      await dispatchResendNotification({ data: {
+                        accessToken: session.access_token,
+                        kind: "announcement",
+                        dedupeKey: `announcement:${authorId}:${post.time ?? Date.now()}`,
+                        subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore announcement"}`,
+                        text: post.text.slice(0, 4000),
+                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore announcement</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app" style="color:#fbbf24">Read on StreamCore →</a></div>`,
+                      } });
+                    }
+                  }
                 }}
                 onUpdate={updatePost}
                 onDelete={removePost}

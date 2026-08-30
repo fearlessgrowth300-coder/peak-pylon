@@ -2,7 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 const input = z.object({ channelUrl: z.string().url() });
-const refreshInput = z.object({ channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url() })).max(100) });
+const refreshInput = z.object({
+  channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url() })).max(100),
+  force: z.boolean().optional(),
+});
 const clipsInput = z.object({ channelUrl: z.string().url(), first: z.number().int().min(1).max(20).optional() });
 const codeInput = z.object({ code: z.string().min(1) });
 
@@ -19,6 +22,24 @@ function twitchLogin(channelUrl: string) {
 }
 
 let cachedAppToken: { clientId: string; token: string; expiresAt: number } | null = null;
+
+type TwitchStatusSnapshot = {
+  id: string;
+  name: string;
+  handle: string;
+  status: "live" | "offline";
+  banner: string;
+  avatar: string;
+  bio: string;
+  gameName: string;
+  gameImage: string;
+  viewerCount: number;
+  title: string;
+  streamId?: string;
+  followers?: number;
+};
+
+let memoryStatusCache: { signature: string; snapshots: TwitchStatusSnapshot[]; expiresAt: number } | null = null;
 
 async function getAppToken() {
   const clientId = process.env["TWITCH_CLIENT_ID"];
@@ -193,6 +214,41 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     });
     if (!valid.length) return [];
 
+    const signature = valid
+      .map((channel) => `${channel.id}:${channel.login}`)
+      .sort()
+      .join("|");
+    if (!data.force && memoryStatusCache?.signature === signature && memoryStatusCache.expiresAt > Date.now()) {
+      return memoryStatusCache.snapshots;
+    }
+
+    let persistedCache: { signature?: string; snapshots?: TwitchStatusSnapshot[]; refreshedAt?: string } | null = null;
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: row } = await (supabaseAdmin as any)
+        .from("integration_settings")
+        .select("setting_value")
+        .eq("setting_name", "twitch_status_snapshot")
+        .maybeSingle();
+      persistedCache = row?.setting_value ?? null;
+      const refreshedAt = persistedCache?.refreshedAt ? Date.parse(persistedCache.refreshedAt) : 0;
+      if (
+        !data.force &&
+        persistedCache?.signature === signature &&
+        Array.isArray(persistedCache.snapshots) &&
+        refreshedAt > Date.now() - 90_000
+      ) {
+        memoryStatusCache = {
+          signature,
+          snapshots: persistedCache.snapshots,
+          expiresAt: Date.now() + 90_000,
+        };
+        return persistedCache.snapshots;
+      }
+    } catch {
+      // A process-local cache still protects Helix if the shared cache is unavailable.
+    }
+
     // Use the official Helix API as the single source of truth. One batched
     // users request and one batched streams request are enough for the whole
     // community, so offline transitions are both accurate and inexpensive.
@@ -201,7 +257,14 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     const usersUrl = new URL("https://api.twitch.tv/helix/users");
     for (const channel of valid) usersUrl.searchParams.append("login", channel.login);
     const usersResponse = await fetch(usersUrl, { headers });
-    if (!usersResponse.ok) throw new Error(`Twitch users lookup failed (${usersResponse.status})`);
+    if (!usersResponse.ok) {
+      if (
+        persistedCache?.signature === signature &&
+        Array.isArray(persistedCache.snapshots) &&
+        Date.parse(persistedCache.refreshedAt ?? "") > Date.now() - 10 * 60_000
+      ) return persistedCache.snapshots;
+      throw new Error(`Twitch users lookup failed (${usersResponse.status})`);
+    }
     const usersPayload = (await usersResponse.json()) as {
       data?: Array<{
         id: string;
@@ -219,11 +282,17 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     for (const user of users) streamsUrl.searchParams.append("user_id", user.id);
     const streamsResponse = users.length ? await fetch(streamsUrl, { headers }) : null;
     if (streamsResponse && !streamsResponse.ok) {
+      if (
+        persistedCache?.signature === signature &&
+        Array.isArray(persistedCache.snapshots) &&
+        Date.parse(persistedCache.refreshedAt ?? "") > Date.now() - 10 * 60_000
+      ) return persistedCache.snapshots;
       throw new Error(`Twitch streams lookup failed (${streamsResponse.status})`);
     }
     const streamsPayload = streamsResponse
       ? ((await streamsResponse.json()) as {
           data?: Array<{
+            id: string;
             user_id: string;
             game_id: string;
             game_name: string;
@@ -250,11 +319,13 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
       ]),
     );
 
-    return valid.map((channel) => {
+    const snapshots: TwitchStatusSnapshot[] = valid.map((channel) => {
       const user = userByLogin.get(channel.login);
       const stream = user ? streamByUserId.get(user.id) : undefined;
       return {
         id: channel.id,
+        name: user?.display_name ?? channel.login,
+        handle: user?.login ? `@${user.login}` : `@${channel.login}`,
         status: stream ? ("live" as const) : ("offline" as const),
         banner: stream
           ? stream.thumbnail_url.replace("{width}", "1280").replace("{height}", "720")
@@ -265,9 +336,52 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
         gameImage: stream ? (gameImageById.get(stream.game_id) ?? "") : "",
         viewerCount: stream?.viewer_count ?? 0,
         title: stream?.title ?? "",
+        streamId: stream?.id,
         followers: undefined,
       };
     });
+
+    const previousSnapshots = Array.isArray(persistedCache?.snapshots) ? persistedCache.snapshots : [];
+    if (previousSnapshots.length) {
+      const previousById = new Map(previousSnapshots.map((snapshot) => [snapshot.id, snapshot]));
+      const channelById = new Map(valid.map((channel) => [channel.id, channel]));
+      for (const snapshot of snapshots) {
+        if (snapshot.status !== "live" || previousById.get(snapshot.id)?.status === "live") continue;
+        const channel = channelById.get(snapshot.id);
+        if (!channel) continue;
+        try {
+          const { dispatchConfiguredResendEvent } = await import("@/lib/resend.server");
+          const safeName = snapshot.name.replace(/[<>&\"']/g, "");
+          const safeGame = snapshot.gameName.replace(/[<>&\"']/g, "");
+          await dispatchConfiguredResendEvent({
+            kind: "live",
+            dedupeKey: `live:${snapshot.id}:${snapshot.streamId || Date.now()}`,
+            subject: `🔴 ${snapshot.name} is live${snapshot.gameName ? ` playing ${snapshot.gameName}` : ""}`,
+            text: `${snapshot.name} is now live on Twitch${snapshot.gameName ? ` in ${snapshot.gameName}` : ""}.`,
+            html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#ef4444">${safeName} is live now</h2><p>${safeGame ? `Category: ${safeGame}` : "Open the live stream on Twitch."}</p><a href="https://www.twitch.tv/${encodeURIComponent(channel.login)}" style="color:#a78bfa">Watch on Twitch →</a></div>`,
+          });
+        } catch (error) {
+          console.error("Resend live alert failed", error);
+        }
+      }
+    }
+
+    memoryStatusCache = { signature, snapshots, expiresAt: Date.now() + 90_000 };
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      await (supabaseAdmin as any).from("integration_settings").upsert(
+        {
+          setting_name: "twitch_status_snapshot",
+          setting_value: { signature, snapshots, refreshedAt: new Date().toISOString() },
+          updated_by: null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "setting_name" },
+      );
+    } catch {
+      // The live result is still valid even if the shared cache write fails.
+    }
+    return snapshots;
   });
 
 /** Tests Twitch App Credentials by obtaining an app access token and fetching a sample profile. */
