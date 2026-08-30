@@ -63,7 +63,11 @@ export function CommunityAnalyticsView({
 
   // Real data calculations derived directly from live database state
   const realTotalMembers = members.length;
-  const realOnlineMembers = members.filter((m) => m.status === "online" || m.status === "live").length;
+  const recentlyActiveIds = new Set([
+    ...members.filter((member) => member.status === "live").map((member) => member.id),
+    ...posts.filter((post) => post.time >= Date.now() - 15 * 60_000).map((post) => post.authorId),
+  ]);
+  const realOnlineMembers = recentlyActiveIds.size;
   const realLiveStreams = members.filter((m) => m.status === "live").length;
   const realPartners = members.filter((m) => m.role === "partner" || m.role === "admin").length;
   const realTotalPosts = posts.length;
@@ -81,13 +85,13 @@ export function CommunityAnalyticsView({
   // Dynamic category extraction from live creators
   const categoryStats = useMemo(() => {
     const counts: Record<string, number> = {};
-    members.forEach((m) => {
-      const cat = m.gameName || (m.role === "partner" ? "Partner Lounge" : "General Gaming");
-      counts[cat] = (counts[cat] || 0) + 1;
+    members.filter((member) => member.status === "live" && Boolean(member.gameName?.trim())).forEach((member) => {
+      const category = member.gameName!.trim();
+      counts[category] = (counts[category] || 0) + 1;
     });
 
     const colors = ["#8b5cf6", "#06b6d4", "#ec4899", "#10b981", "#f59e0b", "#3b82f6"];
-    const total = Math.max(1, members.length);
+    const total = Math.max(1, Object.values(counts).reduce((sum, count) => sum + count, 0));
 
     const list = Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
@@ -194,12 +198,12 @@ export function CommunityAnalyticsView({
           {/* Online Members */}
           <div className="rounded-2xl border border-border bg-card p-5 shadow-sm space-y-1">
             <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-[11px] font-bold uppercase">Online Now</span>
+              <span className="text-[11px] font-bold uppercase">Active Signals</span>
               <span className="h-2.5 w-2.5 rounded-full bg-online animate-ping" />
             </div>
             <p className="text-2xl font-black text-online">{realOnlineMembers.toLocaleString()}</p>
             <p className="text-[11px] font-semibold text-muted-foreground">
-              Active in community
+              Live or posted in the last 15 minutes
             </p>
           </div>
 
@@ -218,24 +222,24 @@ export function CommunityAnalyticsView({
           {/* Real Community Posts */}
           <div className="rounded-2xl border border-border bg-card p-5 shadow-sm space-y-1">
             <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-[11px] font-bold uppercase">Total Posts</span>
+              <span className="text-[11px] font-bold uppercase">Loaded Feed Posts</span>
               <MessageSquare className="h-4 w-4 text-pink-400" />
             </div>
             <p className="text-2xl font-black text-foreground">{realTotalPosts.toLocaleString()}</p>
             <p className="text-[11px] font-semibold text-pink-400 flex items-center gap-1">
-              <Flame className="h-3 w-3" /> {realTotalReactions} Reactions & likes
+              <Flame className="h-3 w-3" /> {realTotalReactions} loaded reactions & likes
             </p>
           </div>
 
           {/* Community Discussions */}
           <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-5 shadow-sm space-y-1">
             <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-[11px] font-bold uppercase">Community Discussions</span>
+              <span className="text-[11px] font-bold uppercase">Loaded Replies</span>
               <MessageSquare className="h-4 w-4 text-cyan-400" />
             </div>
             <p className="text-2xl font-black text-cyan-300">{realDiscussions.toLocaleString()}</p>
             <p className="text-[11px] font-semibold text-cyan-400">
-              Active Creator Threads
+              From the currently loaded Supabase feed
             </p>
           </div>
         </div>
