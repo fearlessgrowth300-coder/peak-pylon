@@ -869,7 +869,14 @@ function Index() {
                                 </button>
                               </div>
                               {p.text && (() => {
-                                const displayText = p.text.replace(/https?:\/\/[^\s]+(?:\.gif|\.png|\.webp|\.svg|giphy\.com|twemoji)[^\s]*/gi, "").trim();
+                                const displayText = p.text
+                                  .replace(/\[?StreamCore AI here\]?[:\s\-]*/gi, "")
+                                  .replace(/\[?StreamCore AI\]?[:\s\-]*/gi, "")
+                                  .replace(/^Hey everyone!?\s*\[?StreamCore AI here\]?[:\s\-]*/gi, "")
+                                  .replace(/^Hey everyone!?\s*/gi, "")
+                                  .replace(/As an AI[^:.]*[:.]\s*/gi, "")
+                                  .replace(/https?:\/\/[^\s]+(?:\.gif|\.png|\.webp|\.svg|giphy\.com|twemoji)[^\s]*/gi, "")
+                                  .trim();
                                 return displayText ? (
                                   <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">
                                     {displayText}
@@ -2840,9 +2847,9 @@ function MessageActions({
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-      {/* Existing Reactions */}
+      {/* Existing Reactions (excluding ❤️ which is handled by the dedicated Like counter) */}
       {Object.entries(post.reactions ?? {})
-        .filter(([, count]) => count > 0)
+        .filter(([emoji, count]) => count > 0 && emoji !== "❤️" && emoji !== "💖")
         .map(([emoji, count]) => (
           <button
             key={emoji}
