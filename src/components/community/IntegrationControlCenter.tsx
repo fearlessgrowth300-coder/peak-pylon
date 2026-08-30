@@ -122,11 +122,12 @@ export function IntegrationControlCenter({
   async function saveAutopilot(active: boolean, next = autopilot) {
     setAutopilotBusy(true);
     try {
+      const safeIntervalMinutes = Math.max(5, Math.min(60, Math.round(Number(next.intervalMinutes) || 10)));
       const result = await setAiAutopilotConfig({
         data: {
           accessToken,
           active,
-          intervalMinutes: next.intervalMinutes,
+          intervalMinutes: safeIntervalMinutes,
           channel: next.channel,
           stickers: next.stickers,
           liveContext: next.liveContext,
@@ -254,10 +255,7 @@ export function IntegrationControlCenter({
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Chat frequency interval">
             <select value={autopilot.intervalMinutes} onChange={(event) => setAutopilot((current) => ({ ...current, intervalMinutes: Number(event.target.value) }))} className={inputClass}>
-              <option value={0.5}>Every 30 seconds (ultra live)</option>
-              <option value={1}>Every 1 minute (high activity)</option>
-              <option value={2}>Every 2 minutes</option>
-              <option value={5}>Every 5 minutes</option>
+              <option value={5}>Every 5 minutes (highest activity)</option>
               <option value={10}>Every 10 minutes (recommended)</option>
               <option value={15}>Every 15 minutes</option>
               <option value={30}>Every 30 minutes</option>

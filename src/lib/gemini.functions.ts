@@ -38,7 +38,10 @@ const saveGeminiPoolInput = adminTokenInput.extend({
 });
 const autopilotInput = adminTokenInput.extend({
   active: z.boolean(),
-  intervalMinutes: z.number().int().min(5).max(60),
+  // Normalize stale browser values from the former sub-five-minute choices.
+  // The database cron runs every five minutes, so accepting 0.5/1/2 without
+  // normalization would be both misleading and unnecessarily expensive.
+  intervalMinutes: z.number().finite().transform((value) => Math.max(5, Math.min(60, Math.round(value)))),
   channel: z.string().trim().min(1).max(80),
   stickers: z.boolean(),
   liveContext: z.boolean(),
