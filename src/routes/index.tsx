@@ -339,20 +339,32 @@ function Index() {
   const [pinSearch, setPinSearch] = useState("");
 
   const effectivePinnedIds = useMemo(() => {
+    // 1. Check for streamers marked as pinned in Supabase
+    const dbPinned = allMembers.filter((m) => m.isPinned).map((m) => m.id);
+    if (dbPinned.length > 0) return dbPinned;
+
+    // 2. Check for locally active pinned selection
     if (pinnedStreamerIds.length > 0) return pinnedStreamerIds;
+
+    // 3. Fallback to prominent admin-managed streamers
+    const adminManaged = allMembers.filter((m) => m.managedByAdmin || m.role === "admin" || m.role === "partner").map((m) => m.id);
+    if (adminManaged.length > 0) return adminManaged.slice(0, 5);
+
     return allMembers.slice(0, 4).map((m) => m.id);
   }, [pinnedStreamerIds, allMembers]);
 
-  const togglePinStreamer = (id: string) => {
-    setPinnedStreamerIds((prev) => {
-      const current = prev.length > 0 ? prev : allMembers.slice(0, 4).map((m) => m.id);
-      const updated = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-      try {
-        localStorage.setItem("streamcore:pinned-streamers", JSON.stringify(updated));
-      } catch {}
-      setToast(updated.includes(id) ? "📌 Streamer pinned to left rail!" : "Streamer unpinned from rail");
-      return updated;
-    });
+  const togglePinStreamer = async (id: string) => {
+    if (!isAdmin) return;
+    const target = allMembers.find((m) => m.id === id);
+    if (!target) return;
+    const nextPinned = !target.isPinned;
+    try {
+      await updateMember(id, { isPinned: nextPinned });
+      setPinnedStreamerIds((prev) => (nextPinned ? [...prev, id] : prev.filter((x) => x !== id)));
+      setToast(nextPinned ? `📌 ${target.name} pinned to left rail for all community visitors!` : `${target.name} unpinned from left rail`);
+    } catch {
+      setToast("Could not update pinned streamer");
+    }
   };
 
   useEffect(() => {
@@ -578,14 +590,16 @@ function Index() {
             );
           })}
 
-          {/* Add / Manage Pinned Streamers button */}
-          <button
-            onClick={() => setPinModalOpen(true)}
-            className="grid h-12 w-12 place-items-center rounded-3xl bg-accent text-sm font-bold text-muted-foreground transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground hover:shadow-md"
-            title="Pin / Manage Streamers in Rail"
-          >
-            +
-          </button>
+          {/* Add / Manage Pinned Streamers button (Admin Only) */}
+          {isAdmin && (
+            <button
+              onClick={() => setPinModalOpen(true)}
+              className="grid h-12 w-12 place-items-center rounded-3xl bg-accent text-sm font-bold text-muted-foreground transition-all hover:rounded-2xl hover:bg-primary hover:text-primary-foreground hover:shadow-md"
+              title="Pin / Manage Streamers in Rail (Admin)"
+            >
+              +
+            </button>
+          )}
         </div>
       </nav>
 
@@ -1153,7 +1167,7 @@ function Index() {
         onClose={() => setProfile(null)}
         isAdmin={isAdmin}
         isPinned={profile ? effectivePinnedIds.includes(profile.id) : false}
-        onTogglePin={togglePinStreamer}
+        onTogglePin={isAdmin ? togglePinStreamer : undefined}
       />
       {pinModalOpen && (
         <div

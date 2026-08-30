@@ -30,6 +30,7 @@ export type Member = {
   joined?: number | undefined;
   real?: boolean | undefined;
   managedByAdmin?: boolean | undefined;
+  isPinned?: boolean | undefined;
   role?: string | undefined;
   connections?: Connection[] | undefined;
 };
