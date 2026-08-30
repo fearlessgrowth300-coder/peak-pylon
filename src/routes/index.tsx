@@ -301,11 +301,11 @@ function Index() {
   }, [allMembers]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || !session?.access_token) return;
     let active = true;
     const runAiHost = async () => {
       try {
-        await generateCommunityAiMessage();
+        await generateCommunityAiMessage({ data: { accessToken: session.access_token } });
       } catch {
         // Keep real chat usable if the AI provider is temporarily unavailable.
       }
@@ -318,7 +318,7 @@ function Index() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [isAdmin]);
+  }, [isAdmin, session?.access_token]);
 
   const allMembersRef = useRef(allMembers);
   allMembersRef.current = allMembers;
@@ -1013,6 +1013,7 @@ function Index() {
                 <AdminView
                   state={state}
                   allMembers={allMembers}
+                  accessToken={session.access_token}
                   addMember={addMember}
                   removeMember={removeMember}
                   addPost={addPost}

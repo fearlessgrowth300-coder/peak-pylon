@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type FormEvent } from "react";
+import { useEffect, useState, type ReactNode, type FormEvent } from "react";
 import {
   readFileAsDataUrl,
   uploadCommunityMedia,
@@ -14,6 +14,7 @@ import {
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { getTwitchChannel, testTwitchConnection } from "@/lib/twitch.functions";
+import { getGeminiIntegrationStatus, saveGeminiIntegration } from "@/lib/gemini.functions";
 import { getChannelMetadata } from "@/lib/channel-metadata";
 import {
   getResendNotificationConfig,
@@ -36,6 +37,7 @@ export function AdminView({
   removeChannel,
   generateClips,
   allMembers,
+  accessToken,
 }: {
   state: State;
   allMembers?: Member[];
@@ -50,6 +52,7 @@ export function AdminView({
   addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
   removeChannel: (id: string) => void;
   generateClips?: (member: Member, amount: number) => Promise<void>;
+  accessToken: string;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -101,6 +104,45 @@ export function AdminView({
   const [twitchStatus, setTwitchStatus] = useState<string | null>(null);
   const [syncingAllTwitch, setSyncingAllTwitch] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; logs: string[] } | null>(null);
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(null);
+  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-lite");
+  const [savingGemini, setSavingGemini] = useState(false);
+  const [geminiMessage, setGeminiMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setGeminiMessage("");
+    void getGeminiIntegrationStatus({ data: { accessToken } })
+      .then((result) => {
+        if (cancelled) return;
+        setGeminiConfigured(result.configured);
+        setGeminiModel(result.model);
+      })
+      .catch((error) => {
+        if (!cancelled) setGeminiMessage(error instanceof Error ? error.message : "Could not read Gemini status.");
+      });
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  async function saveGeminiKey(e: FormEvent) {
+    e.preventDefault();
+    if (!geminiApiKey.trim()) return;
+    setSavingGemini(true);
+    setGeminiMessage("Testing this key with Gemini…");
+    try {
+      const result = await saveGeminiIntegration({ data: { accessToken, apiKey: geminiApiKey } });
+      setGeminiConfigured(result.configured);
+      setGeminiModel(result.model);
+      setGeminiApiKey("");
+      setGeminiMessage("Connected. The key is stored on the server and is not visible to members.");
+      notify("Gemini API connected securely");
+    } catch (error) {
+      setGeminiMessage(error instanceof Error ? error.message : "Gemini could not be connected.");
+    } finally {
+      setSavingGemini(false);
+    }
+  }
 
   async function submitMember(e: FormEvent) {
     e.preventDefault();
@@ -701,12 +743,47 @@ export function AdminView({
         )}
       </div>
 
-      {/* Credentials are server-managed. Artificial posting is intentionally disabled. */}
-      <div className="space-y-2 rounded-xl bg-popover p-4 border border-border">
-        <h2 className="font-bold text-foreground">07 · Secure server integrations</h2>
-        <p className="text-xs text-muted-foreground">
-          Gemini and Resend credentials are read only from protected deployment environment variables. The restored StreamCore AI host is clearly labelled, rate-limited, and never impersonates a community creator.
-        </p>
+      <div className="space-y-4 rounded-xl bg-popover p-5 border border-border shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-foreground">07 · Secure server integrations</h2>
+            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+              Add Gemini here as the admin. The key is tested and stored by the server; it is never saved in localStorage or returned to the browser.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${geminiConfigured ? "bg-online/20 text-online" : "bg-accent text-muted-foreground"}`}>
+            {geminiConfigured === null ? "Checking…" : geminiConfigured ? "● Gemini connected" : "Gemini not connected"}
+          </span>
+        </div>
+
+        <form onSubmit={saveGeminiKey} className="space-y-3">
+          <Field label="Gemini API key · Admin only">
+            <input
+              type="password"
+              autoComplete="new-password"
+              placeholder={geminiConfigured ? "Enter a new key only to replace the current one" : "Paste your Gemini API key"}
+              value={geminiApiKey}
+              onChange={(e) => setGeminiApiKey(e.target.value)}
+              className={inputClass}
+              aria-label="Gemini API key"
+            />
+          </Field>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={savingGemini || geminiApiKey.trim().length < 20}
+              className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              {savingGemini ? "Testing & saving…" : geminiConfigured ? "Test & replace key" : "Test & save key"}
+            </button>
+            <span className="text-xs text-muted-foreground">Model: {geminiModel}</span>
+          </div>
+          {geminiMessage && (
+            <p className={`text-xs font-semibold ${geminiConfigured && geminiMessage.startsWith("Connected") ? "text-online" : "text-muted-foreground"}`}>
+              {geminiMessage}
+            </p>
+          )}
+        </form>
       </div>
       {/* 09 · Resend Email Notifications for Real Streamers */}
       <div className="space-y-4 rounded-xl bg-popover p-5 border border-border shadow-sm">

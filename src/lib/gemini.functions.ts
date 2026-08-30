@@ -1,7 +1,18 @@
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 
 const AI_AUTHOR_ID = "streamcore-ai";
 const AI_INTERVAL_MS = 10 * 60 * 1000;
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_SECRET_NAME = "gemini_api_key";
+
+const adminTokenInput = z.object({
+  accessToken: z.string().min(20),
+});
+
+const saveGeminiKeyInput = adminTokenInput.extend({
+  apiKey: z.string().trim().min(20).max(500),
+});
 
 type ListedMember = {
   id: string;
@@ -33,13 +44,88 @@ function cleanGeneratedText(value: string) {
     .slice(0, 420);
 }
 
-export const generateCommunityAiMessage = createServerFn({ method: "POST" }).handler(
-  async () => {
-    const apiKey = process.env["GEMINI_API_KEY"];
-    if (!apiKey) return { created: false, configured: false };
+async function requireAdmin(accessToken: string) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const db = supabaseAdmin as any;
+  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+  const user = authData.user;
+  if (authError || !user) throw new Error("Your admin session is no longer valid. Sign in again.");
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const db = supabaseAdmin as any;
+  const { data: adminRole, error: roleError } = await db
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id)
+    .eq("role", "admin")
+    .maybeSingle();
+  if (roleError || !adminRole) throw new Error("Only the community admin can manage API credentials.");
+  return { db, user };
+}
+
+async function readStoredGeminiKey(db: any) {
+  const { data } = await db
+    .from("integration_secrets")
+    .select("secret_value")
+    .eq("secret_name", GEMINI_SECRET_NAME)
+    .maybeSingle();
+  return typeof data?.secret_value === "string" ? data.secret_value.trim() : "";
+}
+
+async function testGeminiKey(apiKey: string) {
+  const model = process.env["GEMINI_MODEL"] || DEFAULT_GEMINI_MODEL;
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: "Reply with only the word OK." }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 8 },
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Gemini rejected this key (HTTP ${response.status}). Check the key and try again.`);
+  }
+  return model;
+}
+
+export const getGeminiIntegrationStatus = createServerFn({ method: "POST" })
+  .validator(adminTokenInput)
+  .handler(async ({ data }) => {
+    const { db } = await requireAdmin(data.accessToken);
+    const storedKey = await readStoredGeminiKey(db);
+    return {
+      configured: Boolean(storedKey || process.env["GEMINI_API_KEY"]),
+      model: process.env["GEMINI_MODEL"] || DEFAULT_GEMINI_MODEL,
+    };
+  });
+
+export const saveGeminiIntegration = createServerFn({ method: "POST" })
+  .validator(saveGeminiKeyInput)
+  .handler(async ({ data }) => {
+    const { db, user } = await requireAdmin(data.accessToken);
+    const apiKey = data.apiKey.trim();
+    const model = await testGeminiKey(apiKey);
+    const { error } = await db.from("integration_secrets").upsert(
+      {
+        secret_name: GEMINI_SECRET_NAME,
+        secret_value: apiKey,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "secret_name" },
+    );
+    if (error) throw new Error("The key was valid, but secure storage failed. Please try again.");
+    return { configured: true, model };
+  });
+
+export const generateCommunityAiMessage = createServerFn({ method: "POST" })
+  .validator(adminTokenInput)
+  .handler(async ({ data: inputData }) => {
+    const { db } = await requireAdmin(inputData.accessToken);
+    const storedKey = await readStoredGeminiKey(db);
+    const apiKey = storedKey || process.env["GEMINI_API_KEY"] || "";
+    if (!apiKey) return { created: false, configured: false };
     const [{ data: postRows }, { data: memberRows }] = await Promise.all([
       db
         .from("community_posts")
@@ -88,7 +174,7 @@ ${liveContext || "No connected creator is currently confirmed live."}
 Recent #general chat:
 ${chatHistory || "No recent messages."}`;
 
-    const model = process.env["GEMINI_MODEL"] || "gemini-2.5-flash-lite";
+    const model = process.env["GEMINI_MODEL"] || DEFAULT_GEMINI_MODEL;
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
@@ -129,5 +215,4 @@ ${chatHistory || "No recent messages."}`;
       .upsert({ id, data }, { onConflict: "id", ignoreDuplicates: true });
     if (error) throw error;
     return { created: true, configured: true };
-  },
-);
+  });
