@@ -8,6 +8,7 @@ type ResendEvent = {
   subject: string;
   html: string;
   text: string;
+  recipientUserIds?: string[];
 };
 
 const ENABLED_FIELD: Record<NotificationKind, string> = {
@@ -51,11 +52,14 @@ export async function dispatchConfiguredResendEvent(event: ResendEvent) {
     for (let page = 1; page <= 10; page += 1) {
       const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
       if (error) throw error;
+      const targetIds = event.recipientUserIds?.length ? new Set(event.recipientUserIds) : null;
       const emails = data.users
+        .filter((user) => !targetIds || targetIds.has(user.id))
         .filter((user) => Boolean(user.email && user.email_confirmed_at && !user.is_anonymous))
         .map((user) => user.email!)
         .filter((email) => !recipients.includes(email));
       recipients.push(...emails);
+      if (targetIds && recipients.length >= targetIds.size) break;
       if (data.users.length < 1000) break;
     }
     if (!recipients.length) {

@@ -45,6 +45,12 @@ const notificationInput = adminTokenInput.extend({
   html: z.string().min(1).max(40_000),
   text: z.string().min(1).max(10_000),
 });
+const replyNotificationInput = adminTokenInput.extend({
+  parentPostId: z.string().min(1).max(240),
+  replyAuthorId: z.string().min(1).max(240),
+  replyAuthorName: z.string().min(1).max(120),
+  replyText: z.string().min(1).max(4000),
+});
 
 async function loadResendKey(db: any) {
   const { readIntegrationSecret } = await import("@/lib/integrations.server");
@@ -137,4 +143,42 @@ export const dispatchResendNotification = createServerFn({ method: "POST" })
     await requireAdmin(data.accessToken);
     const { dispatchConfiguredResendEvent } = await import("@/lib/resend.server");
     return dispatchConfiguredResendEvent(data);
+  });
+
+export const dispatchReplyNotification = createServerFn({ method: "POST" })
+  .validator(replyNotificationInput)
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const db = supabaseAdmin as any;
+    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(data.accessToken);
+    if (authError || !authData.user) throw new Error("Sign in again before sending a reply notification.");
+    if (authData.user.id !== data.replyAuthorId) {
+      const { data: adminRole } = await db.from("user_roles").select("role").eq("user_id", authData.user.id).eq("role", "admin").maybeSingle();
+      if (!adminRole) throw new Error("You cannot send notifications as another member.");
+    }
+
+    const [{ data: parent }, { data: replyRows }] = await Promise.all([
+      db.from("community_posts").select("id, data").eq("id", data.parentPostId).maybeSingle(),
+      db.from("community_posts")
+        .select("id, data, created_at")
+        .eq("data->>replyToId", data.parentPostId)
+        .eq("data->>authorId", data.replyAuthorId)
+        .order("created_at", { ascending: false })
+        .limit(1),
+    ]);
+    const reply = replyRows?.[0];
+    const recipientUserId = parent?.data?.authorId as string | undefined;
+    if (!reply || !recipientUserId || recipientUserId === data.replyAuthorId) return { sent: 0, status: "not_applicable" };
+
+    const safeName = data.replyAuthorName.replace(/[<>&\"']/g, "");
+    const safeText = data.replyText.replace(/[<>&\"']/g, "");
+    const { dispatchConfiguredResendEvent } = await import("@/lib/resend.server");
+    return dispatchConfiguredResendEvent({
+      kind: "reply",
+      dedupeKey: `reply:${reply.id}`,
+      recipientUserIds: [recipientUserId],
+      subject: `💬 ${data.replyAuthorName} replied to you on StreamCore`,
+      text: `${data.replyAuthorName}: ${data.replyText}`,
+      html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#8b5cf6">New reply from ${safeName}</h2><p>${safeText}</p><a href="https://peak-pylon.vercel.app" style="color:#a78bfa">Open the conversation →</a></div>`,
+    });
   });

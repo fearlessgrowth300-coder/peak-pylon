@@ -19,7 +19,7 @@ import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_MET
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
 import { saveCustomSticker, isStickerSaved } from "@/lib/stickers";
-import { dispatchResendNotification } from "@/lib/resend.functions";
+import { dispatchReplyNotification, dispatchResendNotification } from "@/lib/resend.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -436,6 +436,23 @@ function Index() {
     await supabase.auth.signOut();
     setView("home");
     setToast("Signed out");
+  }
+
+  async function sendCommunityPost(post: PostInput) {
+    await addPost(post);
+    if (!post.replyToId || !session?.access_token) return;
+    const author = memberById.get(post.authorId);
+    try {
+      await dispatchReplyNotification({ data: {
+        accessToken: session.access_token,
+        parentPostId: post.replyToId,
+        replyAuthorId: post.authorId,
+        replyAuthorName: author?.name || "Community member",
+        replyText: post.text || "Shared an attachment",
+      } });
+    } catch (error) {
+      console.error("Reply email notification failed", error);
+    }
   }
 
   async function generateManagedMemberClips(
@@ -1068,12 +1085,12 @@ function Index() {
               replyTo={replyTo}
               clearReply={() => setReplyTo(null)}
               onSend={async (post: PostInput) => {
-                await addPost(post);
+                await sendCommunityPost(post);
               }}
               onTyping={broadcastTyping}
             />
           )}
-          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={async (post: PostInput) => { await addPost({ ...post, channel: channel.name }); }} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
+          {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={async (post: PostInput) => { await sendCommunityPost({ ...post, channel: channel.name }); }} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
           </div>
 
           {/* Member list */}
