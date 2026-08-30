@@ -254,7 +254,10 @@ export function IntegrationControlCenter({
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Chat frequency interval">
             <select value={autopilot.intervalMinutes} onChange={(event) => setAutopilot((current) => ({ ...current, intervalMinutes: Number(event.target.value) }))} className={inputClass}>
-              <option value={5}>Every 5 minutes (high activity)</option>
+              <option value={0.5}>Every 30 seconds (ultra live)</option>
+              <option value={1}>Every 1 minute (high activity)</option>
+              <option value={2}>Every 2 minutes</option>
+              <option value={5}>Every 5 minutes</option>
               <option value={10}>Every 10 minutes (recommended)</option>
               <option value={15}>Every 15 minutes</option>
               <option value={30}>Every 30 minutes</option>
