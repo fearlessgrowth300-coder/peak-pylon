@@ -25,6 +25,7 @@ export type Member = {
   followers?: number | undefined;
   viewerCount?: number | undefined;
   gameName?: string | undefined;
+  gameImage?: string | undefined;
   streamTitle?: string | undefined;
   joined?: number | undefined;
   real?: boolean | undefined;
@@ -49,6 +50,7 @@ export type Post = {
   replyToId?: string | undefined;
   channel?: string | undefined;
   reactions?: Record<string, number> | undefined;
+  aiGenerated?: boolean | undefined;
   likes?: string[] | undefined;
   shares?: number | undefined;
   comments?: PostComment[] | undefined;
@@ -68,6 +70,7 @@ export type PostInput = {
   shares?: number | undefined;
   comments?: PostComment[] | undefined;
   reactions?: Record<string, number> | undefined;
+  aiGenerated?: boolean | undefined;
 };
 
 export type Stats = { members: string; online: string; rank: string };
@@ -420,6 +423,23 @@ export function useCommunity() {
     void updatePost(id, { reactions });
   }, [state.posts, updatePost]);
 
+  // Twitch polling is transient, authoritative data. Apply it locally in one
+  // render without turning every viewer-count change into a Supabase write.
+  const applyMemberSnapshots = useCallback(
+    (snapshots: Array<{ id: string; patch: Partial<Member> }>) => {
+      if (!snapshots.length) return;
+      const patches = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot.patch]));
+      setState((current) => ({
+        ...current,
+        members: current.members.map((member) => {
+          const patch = patches.get(member.id);
+          return patch ? { ...member, ...patch } : member;
+        }),
+      }));
+    },
+    [],
+  );
+
   return {
     state,
     hydrated,
@@ -434,6 +454,7 @@ export function useCommunity() {
     addChannel,
     removeChannel,
     toggleReaction,
+    applyMemberSnapshots,
     loadOlderPosts,
     hasOlderPosts,
     loadingOlderPosts,

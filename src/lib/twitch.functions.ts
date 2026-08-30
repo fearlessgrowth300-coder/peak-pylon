@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 const input = z.object({ channelUrl: z.string().url() });
-const refreshInput = z.object({ channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url() })).max(50) });
+const refreshInput = z.object({ channels: z.array(z.object({ id: z.string(), channelUrl: z.string().url() })).max(100) });
 const clipsInput = z.object({ channelUrl: z.string().url(), first: z.number().int().min(1).max(20).optional() });
 const codeInput = z.object({ code: z.string().min(1) });
 
@@ -18,18 +18,28 @@ function twitchLogin(channelUrl: string) {
   return login;
 }
 
+let cachedAppToken: { clientId: string; token: string; expiresAt: number } | null = null;
+
 async function getAppToken() {
   const clientId = process.env["TWITCH_CLIENT_ID"];
   const clientSecret = process.env["TWITCH_CLIENT_SECRET"];
   if (!clientId || !clientSecret) throw new Error("Twitch credentials are not configured");
+  if (cachedAppToken?.clientId === clientId && cachedAppToken.expiresAt > Date.now() + 60_000) {
+    return { clientId, token: cachedAppToken.token };
+  }
   const response = await fetch("https://id.twitch.tv/oauth2/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: "client_credentials" }),
   });
   if (!response.ok) throw new Error("Twitch authorization failed");
-  const token = (await response.json()) as { access_token?: string };
+  const token = (await response.json()) as { access_token?: string; expires_in?: number };
   if (!token.access_token) throw new Error("Twitch did not return an access token");
+  cachedAppToken = {
+    clientId,
+    token: token.access_token,
+    expiresAt: Date.now() + Math.max(60, token.expires_in ?? 3600) * 1000,
+  };
   return { clientId, token: token.access_token };
 }
 
@@ -183,45 +193,78 @@ export const refreshTwitchStatuses = createServerFn({ method: "POST" })
     });
     if (!valid.length) return [];
 
-    // Fetch real Twitch data for all channels in parallel
-    const results = await Promise.all(
-      valid.map(async (channel) => {
-        const realData = await fetchRealTwitchChannelData(channel.login);
-        if (realData) {
-          return {
-            id: channel.id,
-            status: realData.status,
-            banner: realData.banner,
-            avatar: realData.avatar,
-            bio: realData.bio,
-            gameName: realData.gameName,
-            viewerCount: realData.viewerCount,
-            title: realData.streamTitle,
-            followers: realData.followers,
-          };
-        }
-        return null;
-      })
+    // Use the official Helix API as the single source of truth. One batched
+    // users request and one batched streams request are enough for the whole
+    // community, so offline transitions are both accurate and inexpensive.
+    const { clientId, token } = await getAppToken();
+    const headers = { "Client-Id": clientId, Authorization: `Bearer ${token}` };
+    const usersUrl = new URL("https://api.twitch.tv/helix/users");
+    for (const channel of valid) usersUrl.searchParams.append("login", channel.login);
+    const usersResponse = await fetch(usersUrl, { headers });
+    if (!usersResponse.ok) throw new Error(`Twitch users lookup failed (${usersResponse.status})`);
+    const usersPayload = (await usersResponse.json()) as {
+      data?: Array<{
+        id: string;
+        login: string;
+        display_name: string;
+        description: string;
+        profile_image_url: string;
+        offline_image_url: string;
+      }>;
+    };
+    const users = usersPayload.data ?? [];
+    const userByLogin = new Map(users.map((user) => [user.login.toLowerCase(), user]));
+
+    const streamsUrl = new URL("https://api.twitch.tv/helix/streams");
+    for (const user of users) streamsUrl.searchParams.append("user_id", user.id);
+    const streamsResponse = users.length ? await fetch(streamsUrl, { headers }) : null;
+    if (streamsResponse && !streamsResponse.ok) {
+      throw new Error(`Twitch streams lookup failed (${streamsResponse.status})`);
+    }
+    const streamsPayload = streamsResponse
+      ? ((await streamsResponse.json()) as {
+          data?: Array<{
+            user_id: string;
+            game_id: string;
+            game_name: string;
+            title: string;
+            viewer_count: number;
+            thumbnail_url: string;
+          }>;
+        })
+      : { data: [] };
+    const streams = streamsPayload.data ?? [];
+    const streamByUserId = new Map(streams.map((stream) => [stream.user_id, stream]));
+
+    const gameIds = Array.from(new Set(streams.map((stream) => stream.game_id).filter(Boolean)));
+    const gamesUrl = new URL("https://api.twitch.tv/helix/games");
+    for (const gameId of gameIds) gamesUrl.searchParams.append("id", gameId);
+    const gamesResponse = gameIds.length ? await fetch(gamesUrl, { headers }) : null;
+    const gamesPayload = gamesResponse?.ok
+      ? ((await gamesResponse.json()) as { data?: Array<{ id: string; box_art_url: string }> })
+      : { data: [] };
+    const gameImageById = new Map(
+      (gamesPayload.data ?? []).map((game) => [
+        game.id,
+        game.box_art_url.replace("{width}", "285").replace("{height}", "380"),
+      ]),
     );
 
-    const successful = results.filter((r): r is NonNullable<typeof r> => r !== null);
-    if (successful.length === valid.length) {
-      return successful;
-    }
-
-    // If any channel was not found via GQL, populate remaining via Helix
-    return valid.map((channel, i) => {
-      const match = results[i];
-      if (match) return match;
+    return valid.map((channel) => {
+      const user = userByLogin.get(channel.login);
+      const stream = user ? streamByUserId.get(user.id) : undefined;
       return {
         id: channel.id,
-        status: "offline" as const,
-        banner: "",
-        avatar: "",
-        bio: "",
-        gameName: "",
-        viewerCount: 0,
-        title: "",
+        status: stream ? ("live" as const) : ("offline" as const),
+        banner: stream
+          ? stream.thumbnail_url.replace("{width}", "1280").replace("{height}", "720")
+          : (user?.offline_image_url ?? ""),
+        avatar: user?.profile_image_url ?? "",
+        bio: user?.description ?? "",
+        gameName: stream?.game_name ?? "",
+        gameImage: stream ? (gameImageById.get(stream.game_id) ?? "") : "",
+        viewerCount: stream?.viewer_count ?? 0,
+        title: stream?.title ?? "",
         followers: undefined,
       };
     });

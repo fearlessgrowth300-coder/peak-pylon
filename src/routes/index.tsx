@@ -18,6 +18,7 @@ import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget"
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
+import { generateCommunityAiMessage } from "@/lib/gemini.functions";
 import { saveCustomSticker, isStickerSaved } from "@/lib/stickers";
 import {
   notifyRealMembersOfAnnouncement,
@@ -48,8 +49,21 @@ export const Route = createFileRoute("/")({
 
 type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "moderation" | "integrations" | "me" | `channel:${string}`;
 
+const AI_COMMUNITY_HOST: Member = {
+  id: "streamcore-ai",
+  name: "StreamCore AI",
+  handle: "@streamcore_ai",
+  platform: "AI community host",
+  status: "online",
+  link: "",
+  bio: "Clearly labelled AI host for the StreamCore community.",
+  avatar: "",
+  banner: "",
+  role: "ai",
+};
+
 function Index() {
-  const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
+  const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
   const { accounts, refresh } = useAccounts();
@@ -65,6 +79,7 @@ function Index() {
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
   const [chatAuthor, setChatAuthor] = useState("");
   const [typingName, setTypingName] = useState<string | null>(null);
+  const [twitchStatusReady, setTwitchStatusReady] = useState(false);
   const typingTimer = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -216,9 +231,14 @@ function Index() {
 
       const mergedMember: Member = {
         ...m,
+        status: matchingStateMember?.status ?? m.status,
+        avatar: matchingStateMember?.avatar || m.avatar,
+        banner: matchingStateMember?.banner || m.banner,
+        bio: matchingStateMember?.bio || m.bio,
         followers: matchingStateMember?.followers ?? m.followers,
         viewerCount: matchingStateMember?.viewerCount ?? m.viewerCount,
         gameName: matchingStateMember?.gameName ?? m.gameName,
+        gameImage: matchingStateMember?.gameImage ?? m.gameImage,
         streamTitle: matchingStateMember?.streamTitle ?? m.streamTitle,
       };
 
@@ -261,6 +281,7 @@ function Index() {
 
   const memberById = useMemo(() => {
     const map = new Map<string, Member>();
+    map.set(AI_COMMUNITY_HOST.id, AI_COMMUNITY_HOST);
     for (const m of allMembers) {
       if (m.id) {
         map.set(m.id, m);
@@ -278,6 +299,26 @@ function Index() {
     }
     return map;
   }, [allMembers]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let active = true;
+    const runAiHost = async () => {
+      try {
+        await generateCommunityAiMessage();
+      } catch {
+        // Keep real chat usable if the AI provider is temporarily unavailable.
+      }
+    };
+    void runAiHost();
+    const timer = window.setInterval(() => {
+      if (active) void runAiHost();
+    }, 10 * 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isAdmin]);
 
   const allMembersRef = useRef(allMembers);
   allMembersRef.current = allMembers;
@@ -301,7 +342,7 @@ function Index() {
   const filtered = allMembers.filter((m) =>
     `${m.name} ${m.handle} ${m.platform} ${m.bio}`.toLowerCase().includes(query.toLowerCase()),
   );
-  const liveMembers = allMembers.filter((m) => m.status === "live");
+  const liveMembers = twitchStatusReady ? allMembers.filter((m) => m.status === "live") : [];
   const adminMembers = allMembers.filter((m) => m.role === "admin");
   const online = allMembers.filter((m) => m.status !== "offline" && m.role !== "admin");
   const offline = allMembers.filter((m) => m.status === "offline" && m.role !== "admin");
@@ -348,58 +389,56 @@ function Index() {
       );
       if (!twitchMembers.length) return;
       try {
-        const updates = await refreshTwitchStatuses({
-          data: { channels: twitchMembers.map((member) => ({ id: member.id, channelUrl: member.link })) },
-        });
-        if (!active) return;
-        let realProfileChanged = false;
-        for (const update of updates) {
-          const member = twitchMembers.find((item) => item.id === update.id);
-          if (!member) continue;
-          const patch: Partial<Member> = {
-            status: update.status as any,
-            ...(update.banner ? { banner: update.banner } : {}),
-            ...(update.avatar ? { avatar: update.avatar } : {}),
-            ...(update.bio ? { bio: update.bio } : {}),
-            ...(typeof update.followers === "number" && update.followers > 0 ? { followers: update.followers } : {}),
-            ...(typeof update.viewerCount === "number" ? { viewerCount: update.viewerCount } : {}),
-            ...(update.gameName ? { gameName: update.gameName } : {}),
-            ...(update.title ? { streamTitle: update.title } : {}),
-          };
-
-          const hasChanges = Object.entries(patch).some(
-            ([key, value]) => member[key as keyof Member] !== value,
-          );
-          if (!hasChanges) continue;
-
-          const realAccount = accounts.find((account) => account.id === member.id);
-          if (realAccount) {
-            realProfileChanged = true;
-            void supabase
-              .from("profiles")
-              .update({
-                status: update.status,
-                ...(update.banner ? { banner_url: update.banner } : {}),
-                ...(update.avatar ? { avatar_url: update.avatar } : {}),
-                ...(update.bio ? { bio: update.bio } : {}),
-              })
-              .eq("id", realAccount.id);
-          }
-          await updateMember(member.id, patch);
+        const batches: typeof twitchMembers[] = [];
+        for (let index = 0; index < twitchMembers.length; index += 100) {
+          batches.push(twitchMembers.slice(index, index + 100));
         }
-        if (realProfileChanged) void refresh();
+        const updates = (
+          await Promise.all(
+            batches.map((batch) =>
+              refreshTwitchStatuses({
+                data: {
+                  channels: batch.map((member) => ({
+                    id: member.id,
+                    channelUrl: member.link,
+                  })),
+                },
+              }),
+            ),
+          )
+        ).flat();
+        if (!active) return;
+        applyMemberSnapshots(
+          updates.map((update) => ({
+            id: update.id,
+            patch: {
+              status: update.status,
+              banner: update.banner,
+              avatar: update.avatar,
+              bio: update.bio,
+              viewerCount: update.viewerCount,
+              gameName: update.gameName,
+              gameImage: update.gameImage,
+              streamTitle: update.title,
+              ...(typeof update.followers === "number" && update.followers > 0
+                ? { followers: update.followers }
+                : {}),
+            },
+          })),
+        );
+        setTwitchStatusReady(true);
       } catch {
         /* Keep the last known status if Twitch is temporarily unavailable. */
       }
     };
 
     void refreshTwitch();
-    const timer = window.setInterval(() => void refreshTwitch(), 5 * 60_000);
+    const timer = window.setInterval(() => void refreshTwitch(), 60_000);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [accounts, refresh, updateMember]);
+  }, [applyMemberSnapshots]);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -718,6 +757,7 @@ function Index() {
                                   {m?.name ?? "Community"}
                                 </button>
                                 {m?.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
+                                {(m?.role === "ai" || p.aiGenerated) && <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300">🤖 AI HOST</span>}
                                 <span className="text-xs text-muted-foreground">
                                   {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>
@@ -1173,13 +1213,14 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 lg:px-7">
       <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-[radial-gradient(circle_at_top_right,_oklch(0.577_0.209_273.9_/_0.42),_transparent_44%),linear-gradient(135deg,_oklch(0.25_0.018_270),_oklch(0.17_0.015_270))] p-6 lg:p-9">
+        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/25 blur-3xl" />
         <div className="relative max-w-3xl">
           <p className="text-xs font-black tracking-[0.25em] text-primary">STREAMCORE</p>
-          <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">Your creator network,<br />live and connected.</h1>
-          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">Discover the actual creators, live streams, posts and clips currently connected to this community.</p>
+          <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">One network.<br />Real creators.</h1>
+          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">The established StreamCore experience, powered by current Twitch streams, real community posts and creator clips.</p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground">Explore creators</button>
-            <button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold">Watch live now</button>
+            <button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-elevated">Explore creators</button>
+            <button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold backdrop-blur hover:bg-accent">Watch live now</button>
           </div>
         </div>
         <div className="relative mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-4">
@@ -1187,7 +1228,7 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
             [members.length.toLocaleString(), "Members"],
             [onlineMembers.toLocaleString(), "Online now"],
             [liveMembers.length.toLocaleString(), "Streams live"],
-            [posts.length.toLocaleString(), "Recent posts loaded"],
+            [posts.length.toLocaleString(), "Recent posts"],
           ].map(([value, label]) => <div key={label} className="bg-background/45 px-4 py-4"><p className="text-2xl font-black">{value}</p><p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">{label}</p></div>)}
         </div>
       </section>
@@ -1220,6 +1261,21 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
         <TopCategoriesWidget members={members} posts={posts}/>
         <div className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p><h2 className="mt-1 text-xl font-extrabold">Published by StreamCore</h2><div className="mt-4 space-y-2">{announcements.map((post)=><button key={post.id} onClick={()=>onOpen("announcements")} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold hover:bg-accent"><span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary">✦</span><span className="min-w-0 flex-1 truncate">{post.text.split("\n")[0]||"Announcement"}<small className="mt-1 block text-xs font-normal text-muted-foreground">{timeAgo(post.time)}</small></span><span>→</span></button>)}{!announcements.length&&<p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">No announcements have been published.</p>}</div></div>
       </section>
+
+      <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold">The StreamCore design, connected to live data</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Browse {members.length.toLocaleString()} connected creators without demo totals or duplicate category art.</p>
+        </div>
+        <button onClick={() => onOpen("creators")} className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground sm:mt-0">Explore the network</button>
+      </section>
+
+      <footer className="grid gap-6 border-t border-border pt-6 text-xs text-muted-foreground sm:grid-cols-4">
+        <div><p className="font-black tracking-widest text-foreground">◈ STREAMCORE</p><p className="mt-2">A creator community for live discovery, conversations and collaboration.</p></div>
+        <div><p className="font-bold text-foreground">COMMUNITY</p><p className="mt-2">Guidelines</p><p>Rules</p><p>Support</p></div>
+        <div><p className="font-bold text-foreground">CREATORS</p><p className="mt-2">Directory</p><p>Live now</p><p>Clips</p></div>
+        <div><p className="font-bold text-foreground">DATA</p><p className="mt-2">Twitch Helix</p><p>Supabase Realtime</p><p>Secure AI host</p></div>
+      </footer>
     </div>
   );
 }

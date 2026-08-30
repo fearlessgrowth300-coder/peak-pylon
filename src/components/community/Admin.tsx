@@ -705,7 +705,7 @@ export function AdminView({
       <div className="space-y-2 rounded-xl bg-popover p-4 border border-border">
         <h2 className="font-bold text-foreground">07 · Secure server integrations</h2>
         <p className="text-xs text-muted-foreground">
-          Gemini and Resend credentials are read only from protected deployment environment variables. No API key is stored in this browser, and automated member impersonation is disabled.
+          Gemini and Resend credentials are read only from protected deployment environment variables. The restored StreamCore AI host is clearly labelled, rate-limited, and never impersonates a community creator.
         </p>
       </div>
       {/* 09 · Resend Email Notifications for Real Streamers */}

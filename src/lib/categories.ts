@@ -35,15 +35,16 @@ function inferCategory(member: Member) {
 }
 
 export function aggregateTopCategories(members: Member[], posts: Post[], tab: CategoryTab = "top"): CategoryInsight[] {
-  const map = new Map<string, { creatorsLive: number; totalViewers: number; discussionCount: number }>();
+  const map = new Map<string, { creatorsLive: number; totalViewers: number; discussionCount: number; boxArtUrl: string }>();
 
   for (const member of members) {
     const name = inferCategory(member);
     if (!name) continue;
-    const current = map.get(name) ?? { creatorsLive: 0, totalViewers: 0, discussionCount: 0 };
+    const current = map.get(name) ?? { creatorsLive: 0, totalViewers: 0, discussionCount: 0, boxArtUrl: "" };
     if (member.status === "live") {
       current.creatorsLive += 1;
       current.totalViewers += member.viewerCount ?? 0;
+      if (member.gameImage) current.boxArtUrl = member.gameImage;
     }
     map.set(name, current);
   }
@@ -57,16 +58,13 @@ export function aggregateTopCategories(members: Member[], posts: Post[], tab: Ca
   }
 
   const insights = [...map.entries()].map(([name, data]) => {
-    const metadata = KNOWN_TWITCH_CATEGORIES[name] ?? {
-      emoji: "🎮",
-      boxArt: "https://static-cdn.jtvnw.net/ttv-boxart/509658-285x380.jpg",
-    };
+    const metadata = KNOWN_TWITCH_CATEGORIES[name] ?? { emoji: "🎮", boxArt: "" };
     const score = data.totalViewers + data.creatorsLive * 100 + data.discussionCount * 10;
     return {
       id: name.toLowerCase().replace(/\s+/g, "-"),
       name,
       emoji: metadata.emoji,
-      boxArtUrl: metadata.boxArt,
+      boxArtUrl: data.boxArtUrl || metadata.boxArt,
       creatorsLive: data.creatorsLive,
       totalViewers: data.totalViewers,
       growthRate: 0,

@@ -95,11 +95,17 @@ export function TopCategoriesWidget({
 
               {/* Twitch Box Art Thumbnail */}
               <div className="h-11 w-8 shrink-0 overflow-hidden rounded-md bg-accent border border-border/50">
-                <img
-                  src={cat.boxArtUrl}
-                  alt={cat.name}
-                  className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                />
+                {cat.boxArtUrl ? (
+                  <img
+                    src={cat.boxArtUrl}
+                    alt={`${cat.name} Twitch category`}
+                    className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                ) : (
+                  <span className="grid h-full place-items-center text-base" aria-label={`${cat.name} artwork unavailable`}>
+                    {cat.emoji}
+                  </span>
+                )}
               </div>
 
               <div className="min-w-0">
