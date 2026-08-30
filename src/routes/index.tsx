@@ -445,6 +445,7 @@ function Index() {
   async function generateManagedMemberClips(
     member: Member,
     amount = 6,
+    engagement?: { likes?: number; comments?: number; shares?: number },
   ) {
     if (!member.link) return;
     try {
@@ -454,17 +455,39 @@ function Index() {
         return;
       }
 
+      const likesCount = engagement?.likes ?? 0;
+      const commentsCount = engagement?.comments ?? 0;
+      const sharesCount = engagement?.shares ?? 0;
+
+      const defaultComments = [
+        "insane clip 🔥",
+        "W stream moment 🙌",
+        "chat was going wild here 😂",
+        "peak gameplay right there",
+        "clip of the day 👑",
+        "nah that reaction was priceless 💀",
+      ];
+
       for (const clip of clips) {
         const alreadyPosted = state.posts.some((p) => (p.text && p.text.includes(clip.url)) || p.image === clip.thumbnail_url);
         if (alreadyPosted) continue;
+
+        const clipComments = Array.from({ length: commentsCount }, (_, i) => ({
+          id: uid(),
+          authorId: state.members[(i + 1) % (state.members.length || 1)]?.id ?? "member",
+          text: defaultComments[i % defaultComments.length],
+          time: Date.now() - (i + 1) * 60_000,
+        }));
+
         await addPost({
           authorId: member.id,
           channel: "clips",
           text: `${clip.title}\n${clip.url}\n👁 ${clip.view_count.toLocaleString()} views`,
           image: clip.thumbnail_url,
-          likes: [],
-          shares: 0,
-          comments: [],
+          reactions: likesCount > 0 ? { "❤️": likesCount, "🔥": Math.max(1, Math.floor(likesCount / 2)) } : {},
+          likes: Array.from({ length: likesCount }, (_, i) => `user-${i + 1}`),
+          shares: sharesCount,
+          comments: clipComments,
         });
       }
       if (session?.access_token) {
@@ -479,9 +502,10 @@ function Index() {
           },
         });
       }
-      setToast(`Posted ${clips.length} real Twitch clip${clips.length === 1 ? "" : "s"} to #clips.`);
+      setToast(`Generated ${clips.length} clips for ${member.name} with ${likesCount} likes, ${commentsCount} comments & ${sharesCount} shares.`);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not fetch Twitch clips");
+      console.error("Clip generation error", error);
+      setToast(`Could not generate clips: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 
@@ -1460,6 +1484,10 @@ function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: 
 }
 
 function LiveStreamEmbed({ member }: { member: Member }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
   const login = (member.handle || "").replace(/^@/, "").trim().toLowerCase() ||
     (member.link ? member.link.split("/").filter(Boolean).pop()?.toLowerCase() : "");
 
@@ -1469,6 +1497,78 @@ function LiveStreamEmbed({ member }: { member: Member }) {
   const parentDomains = Array.from(
     new Set([hostname, "localhost", "127.0.0.1", "peak-pylon.vercel.app"])
   ).filter(Boolean);
+
+  useEffect(() => {
+    if (platform !== "twitch" || !login || !containerRef.current) return;
+    let isDisposed = false;
+
+    const setupTwitch = () => {
+      const Twitch = (window as any).Twitch;
+      if (!Twitch?.Player || !containerRef.current || isDisposed) return;
+
+      containerRef.current.replaceChildren();
+      const mount = document.createElement("div");
+      mount.id = `twitch-player-${login}`;
+      mount.className = "h-full w-full";
+      containerRef.current.appendChild(mount);
+
+      try {
+        const player = new Twitch.Player(mount.id, {
+          channel: login,
+          parent: parentDomains,
+          width: "100%",
+          height: "100%",
+          autoplay: true,
+          muted: true,
+          playsinline: true,
+        });
+        playerRef.current = player;
+
+        const triggerPlay = () => {
+          if (isDisposed) return;
+          try {
+            player.setMuted(true);
+            player.setVolume(0);
+            player.play();
+            setIsPlaying(true);
+          } catch {
+            // ignore
+          }
+        };
+
+        player.addEventListener?.(Twitch.Player.READY, () => {
+          triggerPlay();
+          setTimeout(triggerPlay, 300);
+          setTimeout(triggerPlay, 1000);
+        });
+
+        player.addEventListener?.(Twitch.Player.PLAYING, () => {
+          setIsPlaying(true);
+        });
+      } catch (err) {
+        console.error("Twitch SDK mount error", err);
+      }
+    };
+
+    if ((window as any).Twitch?.Player) {
+      setupTwitch();
+    } else {
+      const scriptId = "twitch-player-sdk";
+      let script = document.getElementById(scriptId) as HTMLScriptElement;
+      if (!script) {
+        script = document.createElement("script");
+        script.id = scriptId;
+        script.src = "https://player.twitch.tv/js/embed/v1.js";
+        script.async = true;
+        document.head.appendChild(script);
+      }
+      script.addEventListener("load", setupTwitch, { once: true });
+    }
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [login, platform, hostname]);
 
   if (platform === "youtube") {
     const ytVideoId = member.link?.match(/(?:v=|youtu\.be\/|\/live\/)([a-zA-Z0-9_-]+)/)?.[1] || "";
@@ -1495,17 +1595,29 @@ function LiveStreamEmbed({ member }: { member: Member }) {
     );
   }
 
-  // Default Twitch Player with parent domain parameters and autoplay muted
   const twitchIframeSrc = `https://player.twitch.tv/?channel=${encodeURIComponent(login)}&parent=${parentDomains.join("&parent=")}&autoplay=true&muted=true`;
 
   return (
-    <iframe
-      src={twitchIframeSrc}
-      title={`${member.name} Twitch Live Stream`}
-      allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-      allowFullScreen
-      className="h-full w-full border-0"
-    />
+    <div
+      ref={containerRef}
+      onClick={() => {
+        try {
+          playerRef.current?.setMuted(false);
+          playerRef.current?.play();
+        } catch {
+          // ignore
+        }
+      }}
+      className="relative h-full w-full bg-black [&>div]:h-full [&>div]:w-full [&_iframe]:h-full [&_iframe]:w-full cursor-pointer"
+    >
+      <iframe
+        src={twitchIframeSrc}
+        title={`${member.name} Twitch Live Stream`}
+        allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+        allowFullScreen
+        className="h-full w-full border-0"
+      />
+    </div>
   );
 }
 
