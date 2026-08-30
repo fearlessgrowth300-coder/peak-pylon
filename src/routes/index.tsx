@@ -13,6 +13,7 @@ import { CreatorDirectoryView } from "@/components/community/CreatorDirectoryVie
 import { FeaturedCreatorsView } from "@/components/community/FeaturedCreatorsView";
 import { PartnersView } from "@/components/community/PartnersView";
 import { CreatorAnalyticsView } from "@/components/community/CreatorAnalyticsView";
+import { CommunityAnalyticsView } from "@/components/community/CommunityAnalyticsView";
 import { NotificationsView } from "@/components/community/NotificationsView";
 import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget";
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
@@ -43,7 +44,7 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "notifications" | "messages" | "admin" | "moderation" | "integrations" | "me" | `channel:${string}`;
+type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "community-analytics" | "notifications" | "messages" | "admin" | "moderation" | "integrations" | "me" | `channel:${string}`;
 
 function Index() {
   const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
@@ -150,9 +151,9 @@ function Index() {
       },
     ];
     if (myAccount)
-      groups.push({ group: "Your space", items: [{ id: "me", label: "My profile", icon: "@" }, { id: "analytics", label: "Creator analytics", icon: "◫" }, { id: "notifications", label: "Notifications", icon: "🔔" }, { id: "messages", label: "Messages", icon: "✉" }] });
+      groups.push({ group: "Your space", items: [{ id: "me", label: "My profile", icon: "@" }, { id: "analytics", label: "My analytics", icon: "📊" }, { id: "notifications", label: "Notifications", icon: "🔔" }, { id: "messages", label: "Messages", icon: "✉" }] });
     if (isAdmin) {
-      groups.push({ group: "Admin", items: [{ id: "admin", label: "Control center", icon: "⚙" }, { id: "moderation", label: "Moderation", icon: "🛡" }, { id: "integrations", label: "Integrations", icon: "⌁" }] });
+      groups.push({ group: "Admin / Owner", items: [{ id: "admin", label: "Control center", icon: "⚙" }, { id: "community-analytics", label: "Community analytics", icon: "🌎" }, { id: "moderation", label: "Moderation", icon: "🛡" }, { id: "integrations", label: "Integrations", icon: "⌁" }] });
     }
     return groups;
   }, [isAdmin, myAccount, state.channels]);
@@ -173,7 +174,6 @@ function Index() {
     const t = setTimeout(() => setToast(""), 1800);
     return () => clearTimeout(t);
   }, [toast]);
-
 
   useEffect(() => {
     if (view !== "general" && !view.startsWith("channel:")) return;
@@ -972,6 +972,14 @@ function Index() {
             {view === "analytics" && (
               <CreatorAnalyticsView
                 myMember={myAccount ? accountToMember(myAccount) : allMembers[0]}
+                posts={state.posts}
+                setToast={setToast}
+              />
+            )}
+
+            {view === "community-analytics" && (
+              <CommunityAnalyticsView
+                members={allMembers}
                 posts={state.posts}
                 setToast={setToast}
               />
