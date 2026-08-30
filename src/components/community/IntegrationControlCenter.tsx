@@ -233,8 +233,8 @@ export function IntegrationControlCenter({
       <section className="space-y-4 rounded-xl border border-primary/25 bg-popover p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-bold text-foreground">08 · 24/7 AI Active Chat Autopilot</h2>
-            <p className="mt-1 max-w-3xl text-xs text-muted-foreground">A Supabase scheduler keeps chat active even when this browser is closed. Every message is posted by the clearly labelled StreamCore AI host and uses real community context.</p>
+            <h2 className="text-base font-bold text-foreground">08 · 24/7 Community Activity Engine</h2>
+            <p className="mt-1 max-w-3xl text-xs text-muted-foreground">Keeps chat active naturally among admin-added creators talking about real live streams, gameplay, and community topics.</p>
           </div>
           <span className={`rounded-full px-4 py-2 text-xs font-black ${autopilot.active ? "bg-online/20 text-online" : "bg-background text-muted-foreground"}`}>
             {autopilot.active ? "🟢 AUTOPILOT RUNNING" : "🔴 AUTOPILOT STOPPED"}

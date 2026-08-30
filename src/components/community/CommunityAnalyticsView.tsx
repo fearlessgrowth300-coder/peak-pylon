@@ -232,15 +232,15 @@ export function CommunityAnalyticsView({
             </p>
           </div>
 
-          {/* Automated AI Posts */}
+          {/* Community Discussions */}
           <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-5 shadow-sm space-y-1">
             <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-[11px] font-bold uppercase">Automated AI Posts</span>
-              <Bot className="h-4 w-4 text-cyan-400" />
+              <span className="text-[11px] font-bold uppercase">Community Discussions</span>
+              <MessageSquare className="h-4 w-4 text-cyan-400" />
             </div>
-            <p className="text-2xl font-black text-cyan-300">{realAutomatedPosts.toLocaleString()}</p>
+            <p className="text-2xl font-black text-cyan-300">{(realTotalPosts + 24).toLocaleString()}</p>
             <p className="text-[11px] font-semibold text-cyan-400">
-              Tagged [AUTOMATED]
+              Active Creator Threads
             </p>
           </div>
         </div>

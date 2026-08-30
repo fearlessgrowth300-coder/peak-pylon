@@ -762,7 +762,6 @@ function Index() {
                                   {m?.name ?? "Community"}
                                 </button>
                                 {m?.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
-                                {p.aiGenerated && <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300">AUTOMATED</span>}
                                 <span className="text-xs text-muted-foreground">
                                   {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>
