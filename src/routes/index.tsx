@@ -427,7 +427,8 @@ function Index() {
           })),
         );
         setTwitchStatusReady(true);
-      } catch {
+      } catch (error) {
+        console.error("Twitch status refresh failed", error);
         /* Keep the last known status if Twitch is temporarily unavailable. */
       }
     };
