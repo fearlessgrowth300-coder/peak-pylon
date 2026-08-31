@@ -16,6 +16,7 @@ import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits
 import { getTwitchChannel, refreshTwitchStatuses, testTwitchConnection } from "@/lib/twitch.functions";
 import { getChannelMetadata } from "@/lib/channel-metadata";
 import { IntegrationControlCenter } from "./IntegrationControlCenter";
+import { AdminInvitesAndApprovals } from "./AdminInvitesAndApprovals";
 
 export function AdminView({
   state,
@@ -569,6 +570,20 @@ export function AdminView({
             </div>
           ))}
         </div>
+      </div>
+
+      {/* 05C · Community Invites, PV Tokens & Channel Approvals */}
+      <div className="space-y-4 rounded-xl bg-popover p-4 border border-primary/30 shadow-sm">
+        <h2 className="font-bold text-foreground flex items-center gap-2">
+          <span>🔗</span> 05C · Community Invites, PV Tokens & Channel Approvals
+        </h2>
+        <AdminInvitesAndApprovals
+          adminId={allMembers?.find((m) => m.role === "admin")?.id || "admin"}
+          adminName={allMembers?.find((m) => m.role === "admin")?.name || "Admin"}
+          adminHandle={allMembers?.find((m) => m.role === "admin")?.handle || "@admin"}
+          allMembers={allMembers || state.members}
+          onToast={notify}
+        />
       </div>
 
       {/* 06 · Twitch API Live Diagnostics & Real-Time Sync */}

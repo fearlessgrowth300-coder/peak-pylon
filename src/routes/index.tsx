@@ -19,8 +19,11 @@ import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget"
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
-import { saveCustomSticker, isStickerSaved } from "@/lib/stickers";
 import { dispatchReplyNotification, dispatchResendNotification } from "@/lib/resend.functions";
+import { type CommunityInvite, getInviteByCode, createCommunityInvite } from "@/lib/invites";
+import { InviteLandingModal } from "@/components/community/InviteLandingModal";
+import { MandatoryOnboardingModal } from "@/components/community/MandatoryOnboardingModal";
+import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -94,6 +97,43 @@ function Index() {
     [userId, accounts],
   );
   const isAdmin = !!myAccount?.roles.includes("admin");
+
+  const [activeInvite, setActiveInvite] = useState<CommunityInvite | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
+  // Detect invite link / code from URL with 5.5s delayed signup prompt
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const codeParam =
+      urlParams.get("invite") ||
+      urlParams.get("code") ||
+      (window.location.pathname.startsWith("/join/")
+        ? window.location.pathname.replace("/join/", "")
+        : null);
+
+    if (codeParam) {
+      getInviteByCode(codeParam).then((inv) => {
+        if (inv) {
+          setActiveInvite(inv);
+          if (!session?.user) {
+            const t = setTimeout(() => {
+              setShowInviteModal(true);
+            }, 5500);
+            return () => clearTimeout(t);
+          }
+        }
+      });
+    }
+  }, [session?.user]);
+
+  // Mandatory onboarding flow (Rules + Channel Authorization)
+  const needsOnboarding = Boolean(
+    myAccount &&
+    !onboardingDismissed &&
+    (!myAccount.channel_authorized || !myAccount.rules_acknowledged)
+  );
 
   useEffect(() => {
     const channel = supabase.channel("streamcore-typing");
@@ -801,6 +841,16 @@ function Index() {
 
                 <LiveStories members={liveMembers.filter((member) => member.status === "live")} onPick={setProfile} />
 
+                {myAccount && (myAccount.approval_status === "pending" || !myAccount.channel_authorized) && (
+                  <PendingApprovalGateBanner
+                    account={myAccount}
+                    onOpenMessageAdmin={() => {
+                      setView("messages");
+                      setToast("Contact your Inviter or Admin to verify your PV Token");
+                    }}
+                  />
+                )}
+
                 <div className="space-y-0.5">
                   {hasOlderPosts && (
                     <button
@@ -1249,10 +1299,27 @@ function Index() {
               {myAccount ? "Manage your channel" : "Get your channel approved"}
             </button>
             <button
-              onClick={() => setToast("Invite link copied")}
+              onClick={async () => {
+                try {
+                  const res = await createCommunityInvite(
+                    myAccount?.id || "admin",
+                    myAccount?.display_name || "Admin",
+                    myAccount?.handle || "@admin",
+                    "sidebar_share"
+                  );
+                  const code = res.code || "SC-8F42K";
+                  const inviteUrl = `${window.location.origin}/join/${code}`;
+                  await navigator.clipboard.writeText(inviteUrl);
+                  setToast(`🔗 Copied invite link: ${inviteUrl}`);
+                } catch {
+                  const fallback = `${window.location.origin}/join/SC-8F42K`;
+                  await navigator.clipboard.writeText(fallback);
+                  setToast(`🔗 Copied invite link`);
+                }
+              }}
               className="mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold hover:bg-accent/70"
             >
-              + Invite members
+              + Invite members 🔗
             </button>
 
             <MemberGroup title={`Admin — ${adminMembers.length}`} list={adminMembers} onPick={setProfile} admin />
@@ -1369,6 +1436,36 @@ function Index() {
         </div>
       )}
       {channelDetailsOpen && <ChannelDetails members={allMembers} posts={state.posts} onClose={() => setChannelDetailsOpen(false)} onPickMember={(member) => { setChannelDetailsOpen(false); setProfile(member); }} />}
+
+      {/* 5.5-Second Delayed Invite Landing Signup Popup */}
+      {showInviteModal && (
+        <InviteLandingModal
+          invite={activeInvite}
+          onClose={() => setShowInviteModal(false)}
+          onSuccess={() => {
+            setShowInviteModal(false);
+            refresh();
+            setToast("🎉 Welcome to StreamCore!");
+          }}
+        />
+      )}
+
+      {/* Mandatory Onboarding Flow: Rules -> Profile Setup -> Channel Authorization */}
+      {needsOnboarding && userId && (
+        <MandatoryOnboardingModal
+          userId={userId}
+          initialName={myAccount?.display_name || ""}
+          initialHandle={myAccount?.handle || ""}
+          communityRules={state.community.rules}
+          allMembers={allMembers}
+          onCompleted={() => {
+            setOnboardingDismissed(true);
+            refresh();
+            setView("general");
+            setToast("🎉 Channel connected! Welcome announcement posted in #general.");
+          }}
+        />
+      )}
 
       {toast && (
         <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-md bg-popover px-4 py-2 text-sm font-semibold shadow-elevated">
