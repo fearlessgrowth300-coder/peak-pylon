@@ -20,7 +20,7 @@ import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_MET
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
 import { dispatchReplyNotification, dispatchResendNotification } from "@/lib/resend.functions";
-import { type CommunityInvite, getInviteByCode, createCommunityInvite } from "@/lib/invites";
+import { type CommunityInvite, getInviteByCode, createCommunityInvite, claimInviteOnSignup } from "@/lib/invites";
 import { InviteLandingModal } from "@/components/community/InviteLandingModal";
 import { MandatoryOnboardingModal } from "@/components/community/MandatoryOnboardingModal";
 import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
@@ -116,16 +116,28 @@ function Index() {
         : null);
 
     if (codeParam) {
-      getInviteByCode(codeParam).then((inv) => {
+      getInviteByCode(codeParam).then(async (inv) => {
         if (inv) {
           setActiveInvite(inv);
-          if (!session?.user) {
-            setShowInviteModal(true);
+          const pendingOAuthCode = localStorage.getItem("streamcore:pending-invite-code");
+          if (session?.user && pendingOAuthCode === inv.code) {
+            const metadata = session.user.user_metadata ?? {};
+            await claimInviteOnSignup(
+              inv.code,
+              session.user.id,
+              String(metadata.display_name || metadata.full_name || session.user.email?.split("@")[0] || "Creator"),
+              String(metadata.handle || `@${session.user.email?.split("@")[0] || "creator"}`),
+            );
+            localStorage.removeItem("streamcore:pending-invite-code");
+            setToast("🎉 Invitation accepted. Welcome to StreamCore!");
+            refresh();
+            return;
           }
+          setShowInviteModal(true);
         }
       });
     }
-  }, [session?.user]);
+  }, [refresh, session?.user]);
 
   // Let new members experience the community before requesting their required
   // rules acknowledgement and streamer profile authorization. The owner/admin
@@ -1332,29 +1344,26 @@ function Index() {
             >
               {myAccount ? "Manage your channel" : "Get your channel approved"}
             </button>
-            <button
+            {isAdmin && <button
               onClick={async () => {
-                try {
-                  const res = await createCommunityInvite(
-                    myAccount?.id || "admin",
-                    myAccount?.display_name || "Admin",
-                    myAccount?.handle || "@admin",
-                    "sidebar_share"
-                  );
-                  const code = res.code || "SC-8F42K";
-                  const inviteUrl = `${window.location.origin}/join/${code}`;
-                  await navigator.clipboard.writeText(inviteUrl);
-                  setToast(`🔗 Copied invite link: ${inviteUrl}`);
-                } catch {
-                  const fallback = `${window.location.origin}/join/SC-8F42K`;
-                  await navigator.clipboard.writeText(fallback);
-                  setToast(`🔗 Copied invite link`);
+                const res = await createCommunityInvite(
+                  myAccount!.id,
+                  myAccount!.display_name,
+                  myAccount!.handle || "@admin",
+                  "sidebar_share",
+                );
+                if (!res.success || !res.code) {
+                  setToast(res.error || "Invite generation failed. No link was copied.");
+                  return;
                 }
+                const inviteUrl = `${window.location.origin}/join/${res.code}`;
+                await navigator.clipboard.writeText(inviteUrl);
+                setToast(`🔗 Copied valid invite link: ${inviteUrl}`);
               }}
               className="mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold hover:bg-accent/70"
             >
               + Invite members 🔗
-            </button>
+            </button>}
 
             <MemberGroup title={`Admin — ${adminMembers.length}`} list={adminMembers} onPick={setProfile} admin />
             <MemberGroup title={`Online — ${online.length}`} list={online} onPick={setProfile} />
@@ -1486,6 +1495,7 @@ function Index() {
             refresh();
             setToast("🎉 Welcome to StreamCore!");
           }}
+          isAuthenticated={Boolean(session?.user)}
         />
       )}
 

@@ -11,12 +11,14 @@ export function InviteLandingModal({
   onClose,
   onSuccess,
   onNavigateView,
+  isAuthenticated = false,
 }: {
   invite: CommunityInvite | null;
   allMembers?: Member[];
   onClose: () => void;
   onSuccess: () => void;
   onNavigateView?: (view: string) => void;
+  isAuthenticated?: boolean;
 }) {
   const [showSignupForm, setShowSignupForm] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(5);
@@ -32,7 +34,7 @@ export function InviteLandingModal({
 
   // 5-second countdown to automatically open signup prompt if user hasn't clicked yet
   useEffect(() => {
-    if (showSignupForm) return;
+    if (showSignupForm || isAuthenticated) return;
     const timer = setInterval(() => {
       setSecondsRemaining((prev) => {
         if (prev <= 1) {
@@ -45,7 +47,7 @@ export function InviteLandingModal({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [showSignupForm]);
+  }, [isAuthenticated, showSignupForm]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -111,14 +113,32 @@ export function InviteLandingModal({
 
   async function googleSignIn() {
     setMsg("");
+    if (invite?.code) {
+      localStorage.setItem("streamcore:pending-invite-code", invite.code);
+    }
+    const inviteSearch = invite?.code
+      ? `/?invite=${encodeURIComponent(invite.code)}`
+      : "/";
     const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
+      redirect_uri: `${window.location.origin}${inviteSearch}`,
     });
-    if (result.error) return setMsg("Google sign-in failed. Please try email.");
+    if (result.error) {
+      localStorage.removeItem("streamcore:pending-invite-code");
+      return setMsg("Google sign-in failed. Please try email.");
+    }
   }
 
-  // Top featured creators for preview
-  const previewCreators = (allMembers && allMembers.length > 0) ? allMembers.slice(0, 6) : [];
+  // Only confirmed current Twitch live states belong in the live roster.
+  const members = allMembers ?? [];
+  const previewCreators = members.filter((member) => member.status === "live").slice(0, 6);
+  const memberCount = members.length;
+  const onlineCount = members.filter((member) => member.status !== "offline").length;
+  const liveCount = members.filter((member) => member.status === "live").length;
+
+  const returnToPreview = () => {
+    setSecondsRemaining(5);
+    setShowSignupForm(false);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-300">
@@ -156,13 +176,13 @@ export function InviteLandingModal({
           {/* Core Network Metrics */}
           <div className="mt-6 grid grid-cols-3 gap-3 text-center">
             <div className="rounded-2xl border border-border/70 bg-popover/80 p-3.5 shadow-sm">
-              <p className="text-xl sm:text-2xl font-black text-foreground">42M+</p>
+              <p className="text-xl sm:text-2xl font-black text-foreground">{memberCount.toLocaleString()}</p>
               <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground mt-0.5">
                 Community members
               </p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-popover/80 p-3.5 shadow-sm">
-              <p className="text-xl sm:text-2xl font-black text-online">1,642</p>
+              <p className="text-xl sm:text-2xl font-black text-online">{onlineCount.toLocaleString()}</p>
               <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground mt-0.5">
                 Creators online
               </p>
@@ -170,7 +190,7 @@ export function InviteLandingModal({
             <div className="rounded-2xl border border-border/70 bg-popover/80 p-3.5 shadow-sm">
               <p className="text-xl sm:text-2xl font-black text-destructive flex items-center justify-center gap-1">
                 <span className="h-2 w-2 rounded-full bg-destructive animate-ping" />
-                3,821
+                {liveCount.toLocaleString()}
               </p>
               <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground mt-0.5">
                 Creators live
@@ -222,7 +242,11 @@ export function InviteLandingModal({
                     key={creator.id}
                     className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-popover px-2.5 py-1"
                   >
-                    <Avatar member={creator} size={22} showStatus={false} />
+                    <span className="relative rounded-full ring-2 ring-destructive ring-offset-1 ring-offset-popover">
+                      <Avatar member={creator} size={22} showStatus={false} />
+                      <span className="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full bg-destructive" />
+                      <span className="absolute -right-0.5 -bottom-0.5 h-2 w-2 animate-ping rounded-full bg-destructive" />
+                    </span>
                     <span className="text-xs font-bold text-foreground">{creator.name}</span>
                     <span className="text-[10px] text-online font-bold">✓</span>
                   </div>
@@ -235,14 +259,14 @@ export function InviteLandingModal({
           <div className="mt-7 space-y-3">
             <button
               type="button"
-              onClick={() => setShowSignupForm(true)}
+              onClick={() => isAuthenticated ? onClose() : setShowSignupForm(true)}
               className={`${buttonClass} w-full py-4 text-base font-black tracking-wide shadow-xl shadow-primary/30 hover:scale-[1.02] transition-transform`}
             >
-              [ Join StreamCore Free → ]
+              {isAuthenticated ? "[ Enter StreamCore → ]" : "[ Join StreamCore Free → ]"}
             </button>
 
             <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-              <span>Opening signup in <strong>{secondsRemaining}s</strong>...</span>
+              <span>{isAuthenticated ? "You are already signed in." : <>Opening signup in <strong>{secondsRemaining}s</strong>...</>}</span>
               <button
                 type="button"
                 onClick={onClose}
@@ -379,7 +403,7 @@ export function InviteLandingModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowSignupForm(false)}
+                  onClick={returnToPreview}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   ← Back to Preview

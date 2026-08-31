@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as JoinCodeRouteImport } from './routes/join.$code'
 import { Route as TwitchCallbackRouteImport } from './routes/twitch/callback'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JoinCodeRoute = JoinCodeRouteImport.update({
+  id: '/join/$code',
+  path: '/join/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TwitchCallbackRoute = TwitchCallbackRouteImport.update({
   id: '/twitch/callback',
   path: '/twitch/callback',
@@ -32,30 +38,34 @@ const TwitchCallbackRoute = TwitchCallbackRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/join/$code': typeof JoinCodeRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/join/$code': typeof JoinCodeRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/join/$code': typeof JoinCodeRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/twitch/callback'
+  fullPaths: '/' | '/auth' | '/join/$code' | '/twitch/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/twitch/callback'
-  id: '__root__' | '/' | '/auth' | '/twitch/callback'
+  to: '/' | '/auth' | '/join/$code' | '/twitch/callback'
+  id: '__root__' | '/' | '/auth' | '/join/$code' | '/twitch/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
+  JoinCodeRoute: typeof JoinCodeRoute
   TwitchCallbackRoute: typeof TwitchCallbackRoute
 }
 
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/join/$code': {
+      id: '/join/$code'
+      path: '/join/$code'
+      fullPath: '/join/$code'
+      preLoaderRoute: typeof JoinCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/twitch/callback': {
       id: '/twitch/callback'
       path: '/twitch/callback'
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
+  JoinCodeRoute: JoinCodeRoute,
   TwitchCallbackRoute: TwitchCallbackRoute,
 }
 export const routeTree = rootRouteImport
