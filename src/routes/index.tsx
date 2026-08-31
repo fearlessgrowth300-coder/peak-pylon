@@ -55,15 +55,34 @@ export const Route = createFileRoute("/")({
 
 type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "community-analytics" | "notifications" | "messages" | "admin" | "moderation" | "integrations" | "me" | `channel:${string}`;
 
+const SAVED_VIEW_KEY = "streamcore:last-view";
+const STANDARD_VIEWS = new Set<string>([
+  "home", "rules", "general", "creators", "live-now", "trending", "rankings",
+  "announcements", "featured", "rising", "partners", "events", "analytics",
+  "community-analytics", "notifications", "messages", "admin", "moderation",
+  "integrations", "me",
+]);
+const ADMIN_VIEWS = new Set<string>(["admin", "community-analytics", "moderation", "integrations"]);
+const ACCOUNT_VIEWS = new Set<string>(["analytics", "notifications", "messages", "me"]);
+
+function isSavedView(value: string | null): value is View {
+  return Boolean(
+    value &&
+      (STANDARD_VIEWS.has(value) ||
+        (value.startsWith("channel:") && value.length > "channel:".length)),
+  );
+}
+
 function Index() {
   const inviteSearch = Route.useSearch();
   const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
   const navigate = useNavigate();
-  const { session } = useSession();
-  const { accounts, refresh } = useAccounts();
+  const { session, loading: sessionLoading } = useSession();
+  const { accounts, loading: accountsLoading, refresh } = useAccounts();
   // Keep the SSR and browser's first render identical. View changes happen only
   // from real user navigation after React has hydrated.
   const [view, setView] = useState<View>("home");
+  const [viewRestored, setViewRestored] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [channelDetailsOpen, setChannelDetailsOpen] = useState(false);
@@ -228,15 +247,32 @@ function Index() {
   }, [isAdmin, myAccount, state.channels]);
 
   useEffect(() => {
+    if (viewRestored || sessionLoading || accountsLoading) return;
+
     if (localStorage.getItem("streamcore:open-rules") === "1") {
       localStorage.removeItem("streamcore:open-rules");
       setView("rules");
+      setViewRestored(true);
+      return;
     }
-  }, []);
+
+    const savedView = localStorage.getItem(SAVED_VIEW_KEY);
+    if (isSavedView(savedView)) {
+      const requiresAdmin = ADMIN_VIEWS.has(savedView);
+      const requiresAccount = ACCOUNT_VIEWS.has(savedView);
+      if ((!requiresAdmin || isAdmin) && (!requiresAccount || Boolean(myAccount))) {
+        setView(savedView);
+      } else {
+        localStorage.removeItem(SAVED_VIEW_KEY);
+      }
+    }
+    setViewRestored(true);
+  }, [accountsLoading, isAdmin, myAccount, sessionLoading, viewRestored]);
 
   useEffect(() => {
-    localStorage.setItem("streamcore:last-view", view);
-  }, [view]);
+    if (!viewRestored) return;
+    localStorage.setItem(SAVED_VIEW_KEY, view);
+  }, [view, viewRestored]);
 
   useEffect(() => {
     if (!toast) return;
