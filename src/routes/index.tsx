@@ -27,6 +27,10 @@ import { PendingApprovalGateBanner } from "@/components/community/PendingApprova
 import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
 
 export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    invite: typeof search.invite === "string" ? search.invite : undefined,
+    code: typeof search.code === "string" ? search.code : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "StreamCore — Discord-style Streamer Community" },
@@ -51,6 +55,7 @@ export const Route = createFileRoute("/")({
 type View = "home" | "rules" | "general" | "creators" | "live-now" | "trending" | "rankings" | "announcements" | "featured" | "rising" | "partners" | "events" | "analytics" | "community-analytics" | "notifications" | "messages" | "admin" | "moderation" | "integrations" | "me" | `channel:${string}`;
 
 function Index() {
+  const inviteSearch = Route.useSearch();
   const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
   const navigate = useNavigate();
   const { session } = useSession();
@@ -107,10 +112,9 @@ function Index() {
   // Detect invite link / code from URL: Show Community Preview Screen immediately, with 5s transition to signup
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const urlParams = new URLSearchParams(window.location.search);
     const codeParam =
-      urlParams.get("invite") ||
-      urlParams.get("code") ||
+      inviteSearch.invite ||
+      inviteSearch.code ||
       (window.location.pathname.startsWith("/join/")
         ? window.location.pathname.replace("/join/", "")
         : null);
@@ -137,7 +141,7 @@ function Index() {
         }
       });
     }
-  }, [refresh, session?.user]);
+  }, [inviteSearch.code, inviteSearch.invite, refresh, session?.user]);
 
   // Let new members experience the community before requesting their required
   // rules acknowledgement and streamer profile authorization. The owner/admin
