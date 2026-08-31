@@ -9,6 +9,21 @@ export const GEMINI_MODEL_OPTIONS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview (Deep Reasoning)" },
 ] as const;
 
+export const AI_AUTOPILOT_INTERVAL_OPTIONS = [
+  { value: 8 / 60, label: "Every 8 seconds (instant live activity)" },
+  { value: 15 / 60, label: "Every 15 seconds" },
+  { value: 20 / 60, label: "Every 20 seconds" },
+  { value: 30 / 60, label: "Every 30 seconds" },
+  { value: 45 / 60, label: "Every 45 seconds" },
+  { value: 1, label: "Every 1 minute" },
+  { value: 2, label: "Every 2 minutes" },
+  { value: 5, label: "Every 5 minutes" },
+  { value: 10, label: "Every 10 minutes (recommended)" },
+  { value: 15, label: "Every 15 minutes" },
+  { value: 30, label: "Every 30 minutes" },
+  { value: 60, label: "Every hour" },
+] as const;
+
 export type GeminiModel = (typeof GEMINI_MODEL_OPTIONS)[number]["value"];
 
 export type AiAutopilotConfig = {
@@ -31,6 +46,14 @@ const AUTOPILOT_SETTING = "ai_autopilot";
 const modelValues = GEMINI_MODEL_OPTIONS.map((model) => model.value) as [GeminiModel, ...GeminiModel[]];
 const modelSchema = z.enum(modelValues);
 
+function normalizeAutopilotInterval(value: number) {
+  return AI_AUTOPILOT_INTERVAL_OPTIONS.find((option) => Math.abs(option.value - value) < 0.000001)?.value;
+}
+
+const autopilotIntervalSchema = z.number().finite()
+  .refine((value) => normalizeAutopilotInterval(value) !== undefined, "Choose one of the supported activity intervals.")
+  .transform((value) => normalizeAutopilotInterval(value)!);
+
 const adminTokenInput = z.object({ accessToken: z.string().min(20) });
 const saveGeminiPoolInput = adminTokenInput.extend({
   apiKeys: z.array(z.string().trim().min(20).max(500)).max(10),
@@ -38,10 +61,7 @@ const saveGeminiPoolInput = adminTokenInput.extend({
 });
 const autopilotInput = adminTokenInput.extend({
   active: z.boolean(),
-  // Normalize stale browser values from the former sub-five-minute choices.
-  // The database cron runs every five minutes, so accepting 0.5/1/2 without
-  // normalization would be both misleading and unnecessarily expensive.
-  intervalMinutes: z.number().finite().transform((value) => Math.max(5, Math.min(60, Math.round(value)))),
+  intervalMinutes: autopilotIntervalSchema,
   channel: z.string().trim().min(1).max(80),
   stickers: z.boolean(),
   liveContext: z.boolean(),
@@ -87,7 +107,7 @@ async function loadAutopilotConfig(db: any): Promise<AiAutopilotConfig> {
     ...DEFAULT_AUTOPILOT,
     ...stored,
     model,
-    intervalMinutes: Math.max(5, Math.min(60, Number(stored.intervalMinutes) || 10)),
+    intervalMinutes: normalizeAutopilotInterval(Number(stored.intervalMinutes)) ?? 10,
   };
 }
 
@@ -185,6 +205,18 @@ export const setAiAutopilotConfig = createServerFn({ method: "POST" })
       lastError: null,
     };
     await writeIntegrationSetting(db, AUTOPILOT_SETTING, next, user.id);
+    const { error: scheduleError } = await db.rpc("configure_streamcore_ai_autopilot_schedule", {
+      interval_minutes: data.intervalMinutes,
+      is_active: data.active,
+    });
+    if (scheduleError) {
+      await writeIntegrationSetting(db, AUTOPILOT_SETTING, current, user.id);
+      await db.rpc("configure_streamcore_ai_autopilot_schedule", {
+        interval_minutes: current.intervalMinutes,
+        is_active: current.active,
+      });
+      throw new Error(`The activity schedule could not be updated: ${scheduleError.message}`);
+    }
     return next;
   });
 

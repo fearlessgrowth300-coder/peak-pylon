@@ -420,45 +420,6 @@ function Index() {
     }
   };
 
-  // 24/7 Fast Community Activity Runner (handles 8s, 15s, 20s, 30s, etc. sub-minute intervals)
-  useEffect(() => {
-    let timer: number | null = null;
-    let isRunning = false;
-
-    const checkFastAutopilot = async () => {
-      if (isRunning) return;
-      try {
-        const { data: config } = await supabase
-          .from("integration_settings")
-          .select("setting_value")
-          .eq("setting_name", "ai_autopilot")
-          .maybeSingle();
-
-        const setting = config?.setting_value as { active?: boolean; intervalMinutes?: number; lastRunAt?: string } | null;
-        if (!setting?.active) return;
-
-        const intervalSec = Math.max(5, (setting.intervalMinutes ?? 10) * 60);
-        const lastRunTime = setting.lastRunAt ? Date.parse(setting.lastRunAt) : 0;
-        const elapsed = (Date.now() - lastRunTime) / 1000;
-
-        if (elapsed >= intervalSec - 1) {
-          isRunning = true;
-          const { generateCommunityAiMessage } = await import("@/lib/gemini.functions");
-          await generateCommunityAiMessage({ data: {} });
-        }
-      } catch {
-        // ignore tick errors
-      } finally {
-        isRunning = false;
-      }
-    };
-
-    timer = window.setInterval(checkFastAutopilot, 3500);
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, []);
-
   useEffect(() => {
     let active = true;
     const refreshTwitch = async () => {
