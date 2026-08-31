@@ -25,6 +25,7 @@ import { InviteLandingModal } from "@/components/community/InviteLandingModal";
 import { MandatoryOnboardingModal } from "@/components/community/MandatoryOnboardingModal";
 import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
 import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
+import { triggerStreamerReactionsToPost } from "@/lib/streamer-reactions";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -551,6 +552,57 @@ function Index() {
     };
   }, [applyMemberSnapshots, twitchChannelKey]);
 
+  // 24/7 AI Community Activity Engine Heartbeat
+  useEffect(() => {
+    let intervalId: number | null = null;
+
+    const checkAndRunAutopilot = async () => {
+      try {
+        const { data: settingRow } = await (supabase as any)
+          .from("integration_settings")
+          .select("setting_value")
+          .eq("setting_name", "ai_autopilot")
+          .maybeSingle();
+
+        const config = settingRow?.setting_value;
+        if (!config || !config.active) return;
+
+        const intervalSec = Math.max(8, Math.round((config.intervalMinutes || 10) * 60));
+        const lastRunMs = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
+        const nowMs = Date.now();
+
+        if (nowMs - lastRunMs >= intervalSec * 1000) {
+          const { data: result } = await (supabase as any).rpc("run_streamcore_ai_autopilot", { force_run: false });
+          if (result?.created && result?.postId) {
+            setTimeout(() => {
+              void triggerStreamerReactionsToPost(
+                result.postId,
+                result.text || "",
+                result.authorId || "streamer",
+                allMembersRef.current
+              );
+            }, 2500);
+          }
+        }
+      } catch (err) {
+        // Autopilot heartbeat tick
+      }
+    };
+
+    const initTimer = window.setTimeout(() => {
+      void checkAndRunAutopilot();
+    }, 2000);
+
+    intervalId = window.setInterval(() => {
+      void checkAndRunAutopilot();
+    }, 8000);
+
+    return () => {
+      window.clearTimeout(initTimer);
+      if (intervalId) window.clearInterval(intervalId);
+    };
+  }, []);
+
   async function signOut() {
     await supabase.auth.signOut();
     setView("home");
@@ -559,6 +611,21 @@ function Index() {
 
   async function sendCommunityPost(post: PostInput) {
     await addPost(post);
+
+    setTimeout(() => {
+      const latestPost = state.posts[0];
+      if (latestPost) {
+        void triggerStreamerReactionsToPost(
+          latestPost.id,
+          post.text || "",
+          post.authorId,
+          allMembersRef.current,
+          latestPost.reactions,
+          latestPost.likes
+        );
+      }
+    }, 2500);
+
     if (!post.replyToId || !session?.access_token) return;
     const author = memberById.get(post.authorId);
     try {
