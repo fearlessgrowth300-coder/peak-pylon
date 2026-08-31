@@ -585,26 +585,34 @@ function Index() {
       ];
 
       for (const clip of clips) {
-        const alreadyPosted = state.posts.some((p) => (p.text && p.text.includes(clip.url)) || p.image === clip.thumbnail_url);
-        if (alreadyPosted) continue;
-
+        const existing = state.posts.find((p) => (p.text && p.text.includes(clip.url)) || p.image === clip.thumbnail_url);
+        
         const clipComments = Array.from({ length: commentsCount }, (_, i) => ({
           id: uid(),
-          authorId: state.members[(i + 1) % (state.members.length || 1)]?.id ?? "member",
+          authorId: (allMembers && allMembers[(i + 1) % allMembers.length]?.id) || state.members[(i + 1) % (state.members.length || 1)]?.id || "member",
           text: defaultComments[i % defaultComments.length],
           time: Date.now() - (i + 1) * 60_000,
         }));
 
-        await addPost({
-          authorId: member.id,
-          channel: "clips",
-          text: `${clip.title}\n${clip.url}\n👁 ${clip.view_count.toLocaleString()} views`,
-          image: clip.thumbnail_url,
-          reactions: likesCount > 0 ? { "❤️": likesCount, "🔥": Math.max(1, Math.floor(likesCount / 2)) } : {},
-          likes: Array.from({ length: likesCount }, (_, i) => `user-${i + 1}`),
-          shares: sharesCount,
-          comments: clipComments,
-        });
+        if (existing) {
+          await updatePost(existing.id, {
+            reactions: likesCount > 0 ? { "❤️": likesCount, "🔥": Math.max(1, Math.floor(likesCount / 2)) } : {},
+            likes: Array.from({ length: likesCount }, (_, i) => `user-${i + 1}`),
+            shares: sharesCount,
+            comments: clipComments,
+          });
+        } else {
+          await addPost({
+            authorId: member.id,
+            channel: "clips",
+            text: `${clip.title}\n${clip.url}\n👁 ${clip.view_count.toLocaleString()} views`,
+            image: clip.thumbnail_url,
+            reactions: likesCount > 0 ? { "❤️": likesCount, "🔥": Math.max(1, Math.floor(likesCount / 2)) } : {},
+            likes: Array.from({ length: likesCount }, (_, i) => `user-${i + 1}`),
+            shares: sharesCount,
+            comments: clipComments,
+          });
+        }
       }
       if (session?.access_token) {
         await dispatchResendNotification({
@@ -949,38 +957,53 @@ function Index() {
                               )}
                               {(() => {
                                 const twitchMatch = p.text?.match(/https?:\/\/(?:www\.)?twitch\.tv\/([a-zA-Z0-9_]+)/i);
-                                const streamChannel = twitchMatch?.[1] || (m?.status === "live" && m?.handle?.replace(/^@/, ""));
+                                const isLiveAnnouncement = Boolean(
+                                  twitchMatch ||
+                                  p.text?.toLowerCase().includes("live now") ||
+                                  p.text?.toLowerCase().includes("streaming now") ||
+                                  p.text?.toLowerCase().includes("going live") ||
+                                  p.text?.toLowerCase().includes("twitch.tv")
+                                );
+                                const streamChannel = twitchMatch?.[1] || (m?.status === "live" && isLiveAnnouncement ? m?.handle?.replace(/^@/, "") : null);
                                 if (streamChannel && !p.image && !p.sticker) {
                                   const liveThumb = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${streamChannel.toLowerCase()}-640x360.jpg`;
                                   return (
-                                    <div className="mt-2.5 max-w-md overflow-hidden rounded-xl border border-border bg-popover shadow-md">
-                                      <div className="relative aspect-video w-full bg-black">
+                                    <div className="mt-2.5 max-w-md overflow-hidden rounded-2xl border border-primary/40 bg-gradient-to-b from-popover to-background shadow-lg">
+                                      <div className="relative aspect-video w-full overflow-hidden bg-accent/40 flex items-center justify-center">
                                         <img
-                                          src={liveThumb}
+                                          src={m?.banner || liveThumb}
                                           alt={`${streamChannel} stream preview`}
                                           onError={(e) => {
-                                            (e.currentTarget as HTMLImageElement).src = m?.banner || "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=640&q=80";
+                                            (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=640&q=80";
                                           }}
                                           className="h-full w-full object-cover"
                                         />
-                                        <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-md bg-destructive px-2 py-0.5 text-[10px] font-black text-white shadow">
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
+                                        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-md bg-destructive px-2 py-0.5 text-[10px] font-black text-white shadow-md">
                                           <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
-                                          LIVE
+                                          LIVE NOW
                                         </div>
-                                        <div className="absolute bottom-2 right-2 rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
-                                          Twitch
+                                        <div className="absolute bottom-2.5 right-2.5 rounded-md bg-black/80 px-2 py-0.5 text-[10px] font-bold text-[#a78bfa] backdrop-blur-sm border border-purple-500/30">
+                                          Twitch Live
+                                        </div>
+                                        <div className="absolute bottom-2.5 left-2.5 flex items-center gap-2">
+                                          <Avatar member={m ?? { name: streamChannel, avatar: "", status: "live" }} size={32} showStatus={false} />
+                                          <div className="min-w-0">
+                                            <p className="text-xs font-bold text-white drop-shadow truncate">{m?.name || streamChannel}</p>
+                                            <p className="text-[10px] text-purple-200 drop-shadow truncate">{m?.gameName || "Live Stream"}</p>
+                                          </div>
                                         </div>
                                       </div>
-                                      <div className="flex items-center justify-between p-3">
+                                      <div className="flex items-center justify-between p-3 bg-popover">
                                         <div className="min-w-0 pr-2">
-                                          <p className="truncate text-xs font-bold text-foreground">{m?.name || streamChannel}</p>
-                                          <p className="truncate text-[11px] text-muted-foreground">{m?.gameName || m?.streamTitle || "Live Stream"}</p>
+                                          <p className="truncate text-xs font-bold text-foreground">{m?.streamTitle || `${m?.name || streamChannel} is LIVE on Twitch`}</p>
+                                          <p className="truncate text-[11px] text-muted-foreground">{m?.gameName ? `Playing ${m.gameName}` : "Join the live stream & chat"}</p>
                                         </div>
                                         <a
                                           href={`https://www.twitch.tv/${streamChannel}`}
                                           target="_blank"
                                           rel="noopener noreferrer"
-                                          className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+                                          className="shrink-0 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-black text-primary-foreground shadow hover:scale-105 transition-transform"
                                         >
                                           Watch Stream ↗
                                         </a>
@@ -1007,7 +1030,7 @@ function Index() {
                                   className="mt-2 max-h-80 w-full rounded-lg"
                                 />
                               )}
-                              <MessageActions post={p} member={m} isAdmin={isAdmin} currentUserId={myAccount?.id} onReply={() => setReplyTo({ id: p.id, name: m?.name ?? "Community" })} onReact={toggleReaction} onDelete={removePost} onRemoveMember={async () => { if (m?.real) await removeFromCommunity(m.id); else if (m) await removeMember(m.id); }} />
+                              <MessageActions post={p} member={m} isAdmin={isAdmin} currentUserId={myAccount?.id} onReply={() => setReplyTo({ id: p.id, name: m?.name ?? "Community" })} onReact={(id, emoji) => toggleReaction(id, emoji, myAccount?.id || "user")} onDelete={removePost} onRemoveMember={async () => { if (m?.real) await removeFromCommunity(m.id); else if (m) await removeMember(m.id); }} />
                             </div>
                           </div>
                         </article>
@@ -1143,7 +1166,7 @@ function Index() {
                   members={memberById}
                   allMemberList={allMembers}
                   onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })}
-                  onReact={toggleReaction}
+                  onReact={(id, emoji) => toggleReaction(id, emoji, myAccount?.id || "user")}
                   isAdmin={isAdmin}
                   currentUserId={myAccount?.id}
                   onDelete={removePost}
@@ -3255,19 +3278,6 @@ function CustomChannel({
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      {(isAdmin || post.authorId === currentUserId || !post.authorId || post.authorId === "community") && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void onDelete(post.id);
-                            onToast?.("Clip deleted");
-                          }}
-                          className="flex items-center gap-1 rounded-md bg-destructive/15 px-2 py-1 text-xs font-bold text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
-                          title="Delete clip"
-                        >
-                          <span>🗑️ Delete</span>
-                        </button>
-                      )}
                       <MessageActions
                         post={post}
                         member={member}

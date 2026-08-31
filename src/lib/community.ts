@@ -453,14 +453,22 @@ export function useCommunity() {
     setState((s) => ({ ...s, channels: s.channels.filter((channel) => channel.id !== id) }));
   }, []);
 
-  const toggleReaction = useCallback((id: string, emoji: string) => {
+  const toggleReaction = useCallback((id: string, emoji: string, userId?: string) => {
     const post = state.posts.find((item) => item.id === id);
     if (!post) return;
+    const currentCount = (post.reactions ?? {})[emoji] ?? 0;
     const reactions = {
       ...(post.reactions ?? {}),
-      [emoji]: ((post.reactions ?? {})[emoji] ?? 0) + 1,
+      [emoji]: currentCount + 1,
     };
-    void updatePost(id, { reactions });
+    const userKey = userId || "me";
+    const currentLikes = post.likes ?? [];
+    const isLikeEmoji = emoji === "❤️" || emoji === "💖";
+    const likes = isLikeEmoji
+      ? (currentLikes.includes(userKey) ? currentLikes.filter((x) => x !== userKey) : [...currentLikes, userKey])
+      : currentLikes;
+
+    void updatePost(id, { reactions, likes });
   }, [state.posts, updatePost]);
 
   // Twitch polling is transient, authoritative data. Apply it locally in one
