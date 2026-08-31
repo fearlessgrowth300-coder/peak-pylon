@@ -102,7 +102,7 @@ function Index() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
-  // Detect invite link / code from URL with 5.5s delayed signup prompt
+  // Detect invite link / code from URL: Show Community Preview Screen immediately, with 5s transition to signup
   useEffect(() => {
     if (typeof window === "undefined") return;
     const urlParams = new URLSearchParams(window.location.search);
@@ -118,10 +118,7 @@ function Index() {
         if (inv) {
           setActiveInvite(inv);
           if (!session?.user) {
-            const t = setTimeout(() => {
-              setShowInviteModal(true);
-            }, 5500);
-            return () => clearTimeout(t);
+            setShowInviteModal(true);
           }
         }
       });
@@ -1437,10 +1434,15 @@ function Index() {
       )}
       {channelDetailsOpen && <ChannelDetails members={allMembers} posts={state.posts} onClose={() => setChannelDetailsOpen(false)} onPickMember={(member) => { setChannelDetailsOpen(false); setProfile(member); }} />}
 
-      {/* 5.5-Second Delayed Invite Landing Signup Popup */}
+      {/* Community Invite Preview Screen & 5s Delayed Signup Modal */}
       {showInviteModal && (
         <InviteLandingModal
           invite={activeInvite}
+          allMembers={allMembers}
+          onNavigateView={(targetView) => {
+            setView(targetView as View);
+            setShowInviteModal(false);
+          }}
           onClose={() => setShowInviteModal(false)}
           onSuccess={() => {
             setShowInviteModal(false);

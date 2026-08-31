@@ -1,18 +1,25 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { type CommunityInvite, claimInviteOnSignup } from "@/lib/invites";
-import { inputClass, buttonClass, ghostButtonClass } from "@/components/community/Bits";
+import { type Member } from "@/lib/community";
+import { inputClass, buttonClass, ghostButtonClass, Avatar } from "@/components/community/Bits";
 
 export function InviteLandingModal({
   invite,
+  allMembers,
   onClose,
   onSuccess,
+  onNavigateView,
 }: {
   invite: CommunityInvite | null;
+  allMembers?: Member[];
   onClose: () => void;
   onSuccess: () => void;
+  onNavigateView?: (view: string) => void;
 }) {
+  const [showSignupForm, setShowSignupForm] = useState(false);
+  const [secondsRemaining, setSecondsRemaining] = useState(5);
   const [mode, setMode] = useState<"signup" | "signin">("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +29,23 @@ export function InviteLandingModal({
   const [awaitingVerification, setAwaitingVerification] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // 5-second countdown to automatically open signup prompt if user hasn't clicked yet
+  useEffect(() => {
+    if (showSignupForm) return;
+    const timer = setInterval(() => {
+      setSecondsRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setShowSignupForm(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [showSignupForm]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -93,57 +117,192 @@ export function InviteLandingModal({
     if (result.error) return setMsg("Google sign-in failed. Please try email.");
   }
 
+  // Top featured creators for preview
+  const previewCreators = (allMembers && allMembers.length > 0) ? allMembers.slice(0, 6) : [];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
-      <div
-        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-primary/40 bg-popover p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header Invite Badge */}
-        <div className="mb-4 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-3.5 py-1 text-xs font-black text-primary">
-            <span>🔗</span>
-            <span>INVITATION CODE: {invite?.code || "EXCLUSIVE CREATOR INVITE"}</span>
-          </div>
-
-          <h2 className="mt-3 text-2xl font-black tracking-tight text-foreground">
-            {invite?.inviter_name ? `Join ${invite.inviter_name} on StreamCore` : "Join StreamCore Creator Network"}
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {invite?.inviter_name
-              ? `You were personally invited by ${invite.inviter_name} (${invite.inviter_handle}) to join our verified streamer community.`
-              : "Connect your channel, participate in raids, and grow alongside verified streamers."}
-          </p>
-        </div>
-
-        {msg && (
-          <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3 text-xs font-medium text-foreground">
-            {msg}
-          </div>
-        )}
-
-        {awaitingVerification ? (
-          <form onSubmit={verifyOtp} className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground">Enter Verification Code</label>
-              <input
-                type="text"
-                required
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value)}
-                placeholder="123456"
-                className={inputClass}
-                autoFocus
-              />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-300">
+      {!showSignupForm ? (
+        /* ========================================================================= */
+        /* PHASE 1: BEAUTIFUL COMMUNITY PREVIEW SCREEN                               */
+        /* ========================================================================= */
+        <div
+          className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-primary/50 bg-gradient-to-b from-popover via-background to-popover p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 duration-300"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Inviter top tag */}
+          <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-3.5 py-1 text-xs font-black text-primary">
+              <span>✨</span>
+              <span>INVITATION: {invite?.code || "EXCLUSIVE CREATOR PASS"}</span>
             </div>
-            <button type="submit" disabled={busy} className={`${buttonClass} w-full py-3 text-sm font-bold`}>
-              {busy ? "Verifying..." : "Verify & Complete Signup →"}
+            {invite?.inviter_name && (
+              <span className="text-xs font-bold text-muted-foreground">
+                Invited by <strong className="text-foreground">{invite.inviter_name}</strong> ({invite.inviter_handle})
+              </span>
+            )}
+          </div>
+
+          {/* Hero Branding */}
+          <div className="mt-6 text-center space-y-2">
+            <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-foreground">
+              STREAMCORE
+            </h1>
+            <p className="text-sm font-bold uppercase tracking-widest text-primary">
+              The creator network.
+            </p>
+          </div>
+
+          {/* Core Network Metrics */}
+          <div className="mt-6 grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-2xl border border-border/70 bg-popover/80 p-3.5 shadow-sm">
+              <p className="text-xl sm:text-2xl font-black text-foreground">42M+</p>
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground mt-0.5">
+                Community members
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-popover/80 p-3.5 shadow-sm">
+              <p className="text-xl sm:text-2xl font-black text-online">1,642</p>
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground mt-0.5">
+                Creators online
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-popover/80 p-3.5 shadow-sm">
+              <p className="text-xl sm:text-2xl font-black text-destructive flex items-center justify-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-destructive animate-ping" />
+                3,821
+              </p>
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground mt-0.5">
+                Creators live
+              </p>
+            </div>
+          </div>
+
+          {/* Community Navigation Pills */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigateView?.("trending")}
+              className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
+            >
+              <span>🔥</span> Trending
             </button>
-          </form>
-        ) : (
-          <form onSubmit={submit} className="space-y-3.5">
-            {mode === "signup" && (
-              <>
+            <button
+              type="button"
+              onClick={() => onNavigateView?.("live-now")}
+              className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
+            >
+              <span className="text-destructive font-black">●</span> Live Now
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateView?.("general")}
+              className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
+            >
+              <span>💬</span> General Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateView?.("rankings")}
+              className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
+            >
+              <span>🏆</span> Creator Rankings
+            </button>
+          </div>
+
+          {/* Live Creators Strip */}
+          {previewCreators.length > 0 && (
+            <div className="mt-5 rounded-2xl border border-border/60 bg-background/50 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 text-center">
+                🔴 Active Verified Streamers in Community:
+              </p>
+              <div className="flex items-center justify-center gap-2.5 overflow-x-auto py-1">
+                {previewCreators.map((creator) => (
+                  <div
+                    key={creator.id}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-popover px-2.5 py-1"
+                  >
+                    <Avatar member={creator} size={22} showStatus={false} />
+                    <span className="text-xs font-bold text-foreground">{creator.name}</span>
+                    <span className="text-[10px] text-online font-bold">✓</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Primary Action Button & Auto-Join Countdown */}
+          <div className="mt-7 space-y-3">
+            <button
+              type="button"
+              onClick={() => setShowSignupForm(true)}
+              className={`${buttonClass} w-full py-4 text-base font-black tracking-wide shadow-xl shadow-primary/30 hover:scale-[1.02] transition-transform`}
+            >
+              [ Join StreamCore Free → ]
+            </button>
+
+            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+              <span>Opening signup in <strong>{secondsRemaining}s</strong>...</span>
+              <button
+                type="button"
+                onClick={onClose}
+                className="hover:text-foreground font-semibold"
+              >
+                Explore preview mode
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ========================================================================= */
+        /* PHASE 2: SIGNUP / SIGNIN FORM (OPENS INSTANTLY OR AFTER 5 SECONDS)        */
+        /* ========================================================================= */
+        <div
+          className="relative w-full max-w-md overflow-hidden rounded-2xl border border-primary/50 bg-popover p-6 sm:p-7 shadow-2xl animate-in zoom-in-95 duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header Invite Badge */}
+          <div className="mb-4 text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-3.5 py-1 text-xs font-black text-primary">
+              <span>🔗</span>
+              <span>INVITATION CODE: {invite?.code || "EXCLUSIVE PASS"}</span>
+            </div>
+
+            <h2 className="mt-3 text-2xl font-black tracking-tight text-foreground">
+              {invite?.inviter_name ? `Join ${invite.inviter_name} on StreamCore` : "Create Your Creator Account"}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Connect your Twitch channel, participate in raids, and grow alongside verified streamers.
+            </p>
+          </div>
+
+          {msg && (
+            <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3 text-xs font-medium text-foreground">
+              {msg}
+            </div>
+          )}
+
+          {awaitingVerification ? (
+            <form onSubmit={verifyOtp} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground">Enter 6-digit Verification Code</label>
+                <input
+                  type="text"
+                  required
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value)}
+                  placeholder="123456"
+                  className={inputClass}
+                  autoFocus
+                />
+              </div>
+              <button type="submit" disabled={busy} className={`${buttonClass} w-full py-3 text-sm font-bold`}>
+                {busy ? "Verifying..." : "Verify & Complete Signup →"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={submit} className="space-y-3.5">
+              {mode === "signup" && (
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-muted-foreground">Streamer Name</label>
@@ -152,7 +311,7 @@ export function InviteLandingModal({
                       required
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="e.g. KaiCenat"
+                      placeholder="e.g. NovaStreams"
                       className={inputClass}
                     />
                   </div>
@@ -163,73 +322,73 @@ export function InviteLandingModal({
                       required
                       value={handle}
                       onChange={(e) => setHandle(e.target.value)}
-                      placeholder="@kaicenat"
+                      placeholder="@novastreams"
                       className={inputClass}
                     />
                   </div>
                 </div>
-              </>
-            )}
+              )}
 
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground">Email address</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@streamer.com"
-                className={inputClass}
-              />
-            </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground">Email address</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@streamer.com"
+                  className={inputClass}
+                />
+              </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground">Password</label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className={inputClass}
-              />
-            </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground">Password</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className={inputClass}
+                />
+              </div>
 
-            <button type="submit" disabled={busy} className={`${buttonClass} w-full py-3 text-sm font-black shadow-lg shadow-primary/20`}>
-              {busy ? "Processing..." : mode === "signup" ? "Accept Invitation & Join Free →" : "Sign In & Join Community"}
-            </button>
+              <button type="submit" disabled={busy} className={`${buttonClass} w-full py-3.5 text-sm font-black shadow-lg shadow-primary/20`}>
+                {busy ? "Processing..." : mode === "signup" ? "Accept Invitation & Join Free →" : "Sign In & Join Community"}
+              </button>
 
-            <button
-              type="button"
-              onClick={googleSignIn}
-              className={`${ghostButtonClass} w-full border border-border py-2.5 text-xs font-bold hover:bg-accent flex items-center justify-center gap-2`}
-            >
-              <span>🌐</span> Continue with Google
-            </button>
-
-            <div className="flex items-center justify-between pt-2 text-xs">
               <button
                 type="button"
-                onClick={() => {
-                  setMode(mode === "signup" ? "signin" : "signup");
-                  setMsg("");
-                }}
-                className="font-bold text-primary hover:underline"
+                onClick={googleSignIn}
+                className={`${ghostButtonClass} w-full border border-border py-2.5 text-xs font-bold hover:bg-accent flex items-center justify-center gap-2`}
               >
-                {mode === "signup" ? "Already have an account? Sign In" : "Need an account? Sign Up"}
+                <span>🌐</span> Continue with Google
               </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Browse as Guest
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
+
+              <div className="flex items-center justify-between pt-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode(mode === "signup" ? "signin" : "signup");
+                    setMsg("");
+                  }}
+                  className="font-bold text-primary hover:underline"
+                >
+                  {mode === "signup" ? "Already have an account? Sign In" : "Need an account? Sign Up"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSignupForm(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ← Back to Preview
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }
