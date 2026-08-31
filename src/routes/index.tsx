@@ -107,6 +107,7 @@ function Index() {
 
   const [activeInvite, setActiveInvite] = useState<CommunityInvite | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingPromptReady, setOnboardingPromptReady] = useState(false);
 
@@ -609,6 +610,56 @@ function Index() {
     setToast("Signed out");
   }
 
+  async function copyInviteUrl(inviteUrl: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      return true;
+    } catch {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = inviteUrl;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        textarea.remove();
+        return copied;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  async function createAndCopyInvite() {
+    if (!isAdmin || !myAccount || inviteBusy) return;
+
+    setInviteBusy(true);
+    try {
+      const result = await createCommunityInvite(
+        myAccount.id,
+        myAccount.display_name,
+        myAccount.handle || "@admin",
+        "sidebar_share",
+      );
+      if (!result.success || !result.code) {
+        setToast(result.error || "Invite generation failed. No link was copied.");
+        return;
+      }
+
+      const inviteUrl = `${window.location.origin}/join/${result.code}`;
+      const copied = await copyInviteUrl(inviteUrl);
+      setToast(
+        copied
+          ? `🔗 Invite copied: ${inviteUrl}`
+          : `Invite created: ${inviteUrl}`,
+      );
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
   async function sendCommunityPost(post: PostInput) {
     await addPost(post);
 
@@ -809,14 +860,16 @@ function Index() {
           <span className="h-2 w-2 shrink-0 rounded-full bg-online" />
         </div>
 
-        <div className="p-3">
+        {isAdmin && <div className="p-3">
           <button
-            onClick={() => setToast("Invite link copied")}
+            type="button"
+            onClick={() => void createAndCopyInvite()}
+            disabled={inviteBusy}
             className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold hover:bg-accent/70"
           >
-            Invite
+            {inviteBusy ? "Creating invite..." : "Invite"}
           </button>
-        </div>
+        </div>}
 
         <div className="flex-1 overflow-y-auto px-2 pb-4">
           {channels.map((group) => (
@@ -1416,24 +1469,12 @@ function Index() {
               {myAccount ? "Manage your channel" : "Get your channel approved"}
             </button>
             {isAdmin && <button
-              onClick={async () => {
-                const res = await createCommunityInvite(
-                  myAccount!.id,
-                  myAccount!.display_name,
-                  myAccount!.handle || "@admin",
-                  "sidebar_share",
-                );
-                if (!res.success || !res.code) {
-                  setToast(res.error || "Invite generation failed. No link was copied.");
-                  return;
-                }
-                const inviteUrl = `${window.location.origin}/join/${res.code}`;
-                await navigator.clipboard.writeText(inviteUrl);
-                setToast(`🔗 Copied valid invite link: ${inviteUrl}`);
-              }}
+              type="button"
+              onClick={() => void createAndCopyInvite()}
+              disabled={inviteBusy}
               className="mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold hover:bg-accent/70"
             >
-              + Invite members 🔗
+              {inviteBusy ? "Creating invite..." : "+ Invite members 🔗"}
             </button>}
 
             <MemberGroup title={`Admin — ${adminMembers.length}`} list={adminMembers} onPick={setProfile} admin />
