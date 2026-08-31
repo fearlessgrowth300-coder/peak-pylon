@@ -89,6 +89,7 @@ export type State = {
 };
 
 const POSTS_PAGE_SIZE = 40;
+const CHANNEL_POSTS_PAGE_SIZE = 40;
 
 export const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -145,18 +146,36 @@ export function useCommunity() {
       const versionAtStart = mutationVersion.current;
       const [
         { data: memberRows, error: memberError },
-        { data: postRows, error: postError },
+        { data: generalRows, error: generalError },
+        { data: channelRows, error: channelError },
       ] = await Promise.all([
         db.from("community_listed_members").select("id, data").limit(100),
-        db.from("community_posts").select("id, data, created_at").order("created_at", { ascending: false }).limit(POSTS_PAGE_SIZE),
+        db
+          .from("community_posts")
+          .select("id, data, created_at")
+          .eq("data->>channel", "general")
+          .order("created_at", { ascending: false })
+          .limit(POSTS_PAGE_SIZE),
+        db
+          .from("community_posts")
+          .select("id, data, created_at")
+          .neq("data->>channel", "general")
+          .order("created_at", { ascending: false })
+          .limit(CHANNEL_POSTS_PAGE_SIZE),
       ]);
       if (!active || versionAtStart !== mutationVersion.current) return;
       if (!memberError && memberRows && memberRows.length > 0) {
         const members = memberRows.map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
         setState((current) => ({ ...current, members }));
       }
-      if (!postError) {
-        const rows = postRows ?? [];
+      if (!generalError || !channelError) {
+        // General is intentionally paginated independently. High-frequency
+        // chat must never push durable #clips, trending posts, or events out
+        // of a visitor's initial result set.
+        const rows = [
+          ...(!generalError ? generalRows ?? [] : []),
+          ...(!channelError ? channelRows ?? [] : []),
+        ];
         const postMap = new Map<string, Post>();
         for (const r of rows) {
           if (r?.id && r?.data) {
@@ -164,8 +183,9 @@ export function useCommunity() {
           }
         }
         const posts = Array.from(postMap.values()).sort((a, b) => b.time - a.time);
-        oldestPostCreatedAt.current = rows.at(-1)?.created_at ?? null;
-        setHasOlderPosts(rows.length === POSTS_PAGE_SIZE);
+        const loadedGeneralRows = !generalError ? generalRows ?? [] : [];
+        oldestPostCreatedAt.current = loadedGeneralRows.at(-1)?.created_at ?? null;
+        setHasOlderPosts(loadedGeneralRows.length === POSTS_PAGE_SIZE);
         setState((current) => ({
           ...current,
           posts,
@@ -207,6 +227,7 @@ export function useCommunity() {
       const { data, error } = await (supabase as any)
         .from("community_posts")
         .select("id, data, created_at")
+        .eq("data->>channel", "general")
         .lt("created_at", oldestPostCreatedAt.current)
         .order("created_at", { ascending: false })
         .limit(POSTS_PAGE_SIZE);

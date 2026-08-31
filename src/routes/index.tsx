@@ -24,6 +24,7 @@ import { type CommunityInvite, getInviteByCode, createCommunityInvite } from "@/
 import { InviteLandingModal } from "@/components/community/InviteLandingModal";
 import { MandatoryOnboardingModal } from "@/components/community/MandatoryOnboardingModal";
 import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
+import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
 
 export const Route = createFileRoute("/")({
   head: () => ({
