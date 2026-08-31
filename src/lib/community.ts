@@ -85,6 +85,7 @@ export type State = {
   community: Community;
   members: Member[];
   posts: Post[];
+  totalPosts: number;
   channels: CommunityChannel[];
 };
 
@@ -114,6 +115,7 @@ export function defaultState(): State {
     ],
     members: [],
     posts: [],
+    totalPosts: 0,
   };
 }
 
@@ -136,18 +138,13 @@ export function useCommunity() {
     if (!hydrated) return;
     const db = supabase as any;
     let active = true;
-    const mergePost = (incoming: Post) => {
-      setState((current) => ({
-        ...current,
-        posts: [incoming, ...current.posts.filter((post) => post.id !== incoming.id)],
-      }));
-    };
     const loadInitial = async () => {
       const versionAtStart = mutationVersion.current;
       const [
         { data: memberRows, error: memberError },
         { data: generalRows, error: generalError },
         { data: channelRows, error: channelError },
+        { count: totalPostCount, error: totalPostCountError },
       ] = await Promise.all([
         db.from("community_listed_members").select("id, data").limit(100),
         db
@@ -162,6 +159,7 @@ export function useCommunity() {
           .neq("data->>channel", "general")
           .order("created_at", { ascending: false })
           .limit(CHANNEL_POSTS_PAGE_SIZE),
+        db.from("community_posts").select("id", { count: "exact", head: true }),
       ]);
       if (!active || versionAtStart !== mutationVersion.current) return;
       if (!memberError && memberRows && memberRows.length > 0) {
@@ -189,7 +187,12 @@ export function useCommunity() {
         setState((current) => ({
           ...current,
           posts,
+          totalPosts: !totalPostCountError && typeof totalPostCount === "number"
+            ? totalPostCount
+            : current.totalPosts,
         }));
+      } else if (!totalPostCountError && typeof totalPostCount === "number") {
+        setState((current) => ({ ...current, totalPosts: totalPostCount }));
       }
     };
     void loadInitial();
@@ -199,10 +202,26 @@ export function useCommunity() {
       .on("postgres_changes", { event: "*", schema: "public", table: "community_posts" }, (payload: any) => {
         if (!active) return;
         if (payload.eventType === "DELETE") {
-          setState((current) => ({ ...current, posts: current.posts.filter((post) => post.id !== payload.old.id) }));
+          setState((current) => ({
+            ...current,
+            posts: current.posts.filter((post) => post.id !== payload.old.id),
+            totalPosts: Math.max(0, current.totalPosts - 1),
+          }));
           return;
         }
-        if (payload.new?.id && payload.new?.data) mergePost({ ...payload.new.data, id: payload.new.id } as Post);
+        if (payload.new?.id && payload.new?.data) {
+          const incoming = { ...payload.new.data, id: payload.new.id } as Post;
+          setState((current) => {
+            const alreadyLoaded = current.posts.some((post) => post.id === incoming.id);
+            return {
+              ...current,
+              posts: [incoming, ...current.posts.filter((post) => post.id !== incoming.id)],
+              totalPosts: payload.eventType === "INSERT" && !alreadyLoaded
+                ? current.totalPosts + 1
+                : current.totalPosts,
+            };
+          });
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "community_listed_members" }, (payload: any) => {
         if (!active) return;

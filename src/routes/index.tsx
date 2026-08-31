@@ -359,6 +359,8 @@ function Index() {
         gameName: matchingStateMember?.gameName ?? m.gameName,
         gameImage: matchingStateMember?.gameImage ?? m.gameImage,
         streamTitle: matchingStateMember?.streamTitle ?? m.streamTitle,
+        isPinned: matchingStateMember?.isPinned ?? m.isPinned,
+        managedByAdmin: matchingStateMember?.managedByAdmin ?? m.managedByAdmin,
       };
 
       const idKey = m.id?.toLowerCase() || "";
@@ -469,19 +471,12 @@ function Index() {
           .select("setting_value")
           .eq("setting_name", "community_pinned_streamers")
           .maybeSingle();
-        if (!error && data?.setting_value && Array.isArray(data.setting_value) && data.setting_value.length > 0) {
+        if (!error && data?.setting_value && Array.isArray(data.setting_value)) {
           if (active) setPinnedStreamerIds(data.setting_value as string[]);
-        } else {
-          const saved = localStorage.getItem("streamcore:pinned-streamers");
-          if (saved) {
-            const parsed: unknown = JSON.parse(saved);
-            if (Array.isArray(parsed) && active && parsed.length > 0) {
-              setPinnedStreamerIds(parsed as string[]);
-            }
-          }
         }
       } catch {
-        // fallback
+        // Keep the last shared value. Per-browser pin fallbacks cause visitors
+        // to see a different community rail from the administrator.
       }
     };
     void fetchPinned();
@@ -529,16 +524,14 @@ function Index() {
       ? effectivePinnedIds.filter((x) => x !== id)
       : [...effectivePinnedIds, id];
 
+    const previous = pinnedStreamerIds;
     setPinnedStreamerIds(current);
-    try {
-      localStorage.setItem("streamcore:pinned-streamers", JSON.stringify(current));
-    } catch {}
 
     const target = allMembers.find((m) => m.id === id);
     const isNowPinned = current.includes(id);
 
     try {
-      await Promise.all([
+      const [, settingsResult] = await Promise.all([
         updateMember(id, { isPinned: isNowPinned }),
         supabase.from("integration_settings").upsert(
           {
@@ -549,10 +542,12 @@ function Index() {
           { onConflict: "setting_name" }
         ),
       ]);
+      if (settingsResult.error) throw settingsResult.error;
       setToast(isNowPinned ? `📌 ${target?.name ?? "Streamer"} pinned to left rail for all visitors!` : `${target?.name ?? "Streamer"} unpinned from left rail`);
     } catch (err) {
       console.error("Save pin error", err);
-      setToast("Pinned locally");
+      setPinnedStreamerIds(previous);
+      setToast("Could not update the shared pinned creators");
     }
   };
 
@@ -1750,7 +1745,7 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
             [members.length.toLocaleString(), "Members"],
             [onlineMembers.toLocaleString(), "Online now"],
             [liveMembers.length.toLocaleString(), "Streams live"],
-            [posts.length.toLocaleString(), "Recent posts"],
+            [state.totalPosts.toLocaleString(), "Community posts"],
           ].map(([value, label]) => <div key={label} className="bg-background/45 px-4 py-4"><p className="text-2xl font-black">{value}</p><p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">{label}</p></div>)}
         </div>
       </section>
