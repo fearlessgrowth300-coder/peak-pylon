@@ -420,6 +420,45 @@ function Index() {
     }
   };
 
+  // 24/7 Fast Community Activity Runner (handles 8s, 15s, 20s, 30s, etc. sub-minute intervals)
+  useEffect(() => {
+    let timer: number | null = null;
+    let isRunning = false;
+
+    const checkFastAutopilot = async () => {
+      if (isRunning) return;
+      try {
+        const { data: config } = await supabase
+          .from("integration_settings")
+          .select("setting_value")
+          .eq("setting_name", "ai_autopilot")
+          .maybeSingle();
+
+        const setting = config?.setting_value as { active?: boolean; intervalMinutes?: number; lastRunAt?: string } | null;
+        if (!setting?.active) return;
+
+        const intervalSec = Math.max(5, (setting.intervalMinutes ?? 10) * 60);
+        const lastRunTime = setting.lastRunAt ? Date.parse(setting.lastRunAt) : 0;
+        const elapsed = (Date.now() - lastRunTime) / 1000;
+
+        if (elapsed >= intervalSec - 1) {
+          isRunning = true;
+          const { generateCommunityAiMessage } = await import("@/lib/gemini.functions");
+          await generateCommunityAiMessage({ data: {} });
+        }
+      } catch {
+        // ignore tick errors
+      } finally {
+        isRunning = false;
+      }
+    };
+
+    timer = window.setInterval(checkFastAutopilot, 3500);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, []);
+
   useEffect(() => {
     let active = true;
     const refreshTwitch = async () => {
@@ -886,18 +925,63 @@ function Index() {
                               {p.sticker && (
                                 <StickerDisplay sticker={p.sticker} onToast={setToast} />
                               )}
+                              {(() => {
+                                const twitchMatch = p.text?.match(/https?:\/\/(?:www\.)?twitch\.tv\/([a-zA-Z0-9_]+)/i);
+                                const streamChannel = twitchMatch?.[1] || (m?.status === "live" && m?.handle?.replace(/^@/, ""));
+                                if (streamChannel && !p.image && !p.sticker) {
+                                  const liveThumb = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${streamChannel.toLowerCase()}-640x360.jpg`;
+                                  return (
+                                    <div className="mt-2.5 max-w-md overflow-hidden rounded-xl border border-border bg-popover shadow-md">
+                                      <div className="relative aspect-video w-full bg-black">
+                                        <img
+                                          src={liveThumb}
+                                          alt={`${streamChannel} stream preview`}
+                                          onError={(e) => {
+                                            (e.currentTarget as HTMLImageElement).src = m?.banner || "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=640&q=80";
+                                          }}
+                                          className="h-full w-full object-cover"
+                                        />
+                                        <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-md bg-destructive px-2 py-0.5 text-[10px] font-black text-white shadow">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
+                                          LIVE
+                                        </div>
+                                        <div className="absolute bottom-2 right-2 rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
+                                          Twitch
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center justify-between p-3">
+                                        <div className="min-w-0 pr-2">
+                                          <p className="truncate text-xs font-bold text-foreground">{m?.name || streamChannel}</p>
+                                          <p className="truncate text-[11px] text-muted-foreground">{m?.gameName || m?.streamTitle || "Live Stream"}</p>
+                                        </div>
+                                        <a
+                                          href={`https://www.twitch.tv/${streamChannel}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+                                        >
+                                          Watch Stream ↗
+                                        </a>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                               {p.image && (
                                 <img
                                   src={p.image}
                                   alt="Community post attachment"
                                   loading="lazy"
+                                  onError={(e) => (e.currentTarget.style.display = "none")}
                                   className="mt-2 max-h-80 rounded-lg object-cover"
                                 />
                               )}
-                              {p.video && (
+                              {p.video && (p.video.endsWith(".mp4") || p.video.endsWith(".webm") || p.video.startsWith("data:video") || p.video.startsWith("blob:")) && (
                                 <video
                                   src={p.video}
                                   controls
+                                  onError={(e) => (e.currentTarget.style.display = "none")}
                                   className="mt-2 max-h-80 w-full rounded-lg"
                                 />
                               )}
