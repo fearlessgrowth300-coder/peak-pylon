@@ -101,6 +101,7 @@ function Index() {
   const [activeInvite, setActiveInvite] = useState<CommunityInvite | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [onboardingPromptReady, setOnboardingPromptReady] = useState(false);
 
   // Detect invite link / code from URL: Show Community Preview Screen immediately, with 5s transition to signup
   useEffect(() => {
@@ -125,12 +126,24 @@ function Index() {
     }
   }, [session?.user]);
 
-  // Mandatory onboarding flow (Rules + Channel Authorization)
-  const needsOnboarding = Boolean(
+  // Let new members experience the community before requesting their required
+  // rules acknowledgement and streamer profile authorization. The owner/admin
+  // manages the community and must never be blocked by creator onboarding.
+  const onboardingRequired = Boolean(
     myAccount &&
-    !onboardingDismissed &&
+    !isAdmin &&
     (!myAccount.channel_authorized || !myAccount.rules_acknowledged)
   );
+
+  useEffect(() => {
+    setOnboardingPromptReady(false);
+    if (!onboardingRequired || onboardingDismissed) return;
+
+    const timer = window.setTimeout(() => setOnboardingPromptReady(true), 30_000);
+    return () => window.clearTimeout(timer);
+  }, [onboardingRequired, onboardingDismissed, userId]);
+
+  const needsOnboarding = onboardingRequired && !onboardingDismissed && onboardingPromptReady;
 
   useEffect(() => {
     const channel = supabase.channel("streamcore-typing");
