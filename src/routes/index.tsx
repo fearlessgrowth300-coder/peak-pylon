@@ -183,20 +183,51 @@ function Index() {
 
   const needsOnboarding = onboardingRequired && !onboardingDismissed && onboardingPromptReady;
 
+  const clientIdRef = useRef<string>(Math.random().toString(36).slice(2, 9));
+  const typingChannelRef = useRef<any>(null);
+
   useEffect(() => {
-    const channel = supabase.channel("streamcore-typing");
+    const currentClientId = userId || clientIdRef.current;
+    const channel = supabase.channel("streamcore-typing", {
+      config: { broadcast: { self: false } },
+    });
+
     channel.on("broadcast", { event: "typing" }, ({ payload }) => {
-      if (payload?.userId !== userId) setTypingName(payload?.typing ? payload.name : null);
+      if (payload && payload.senderId !== currentClientId) {
+        setTypingName(payload.typing ? payload.name : null);
+        if (payload.typing) {
+          if (typingTimer.current) window.clearTimeout(typingTimer.current);
+          typingTimer.current = window.setTimeout(() => setTypingName(null), 3500);
+        }
+      }
     }).subscribe();
-    return () => { void supabase.removeChannel(channel); };
+
+    typingChannelRef.current = channel;
+
+    return () => {
+      typingChannelRef.current = null;
+      void supabase.removeChannel(channel);
+    };
   }, [userId]);
 
   function broadcastTyping(typing: boolean) {
     const author = postingAuthors.find((member) => member.id === selectedChatAuthor);
-    if (!author || !userId) return;
-    void supabase.channel("streamcore-typing").send({ type: "broadcast", event: "typing", payload: { userId, name: author.name, typing } });
+    const authorName = author?.name || myAccount?.display_name || "Community member";
+    const senderId = userId || clientIdRef.current;
+    const channel = typingChannelRef.current;
+
+    if (channel) {
+      void channel.send({
+        type: "broadcast",
+        event: "typing",
+        payload: { senderId, name: authorName, typing },
+      });
+    }
+
     if (typingTimer.current) window.clearTimeout(typingTimer.current);
-    if (typing) typingTimer.current = window.setTimeout(() => broadcastTyping(false), 2500);
+    if (typing) {
+      typingTimer.current = window.setTimeout(() => broadcastTyping(false), 2500);
+    }
   }
 
   useEffect(() => {
@@ -609,17 +640,27 @@ function Index() {
         const nowMs = Date.now();
 
         if (nowMs - lastRunMs >= intervalSec * 1000) {
-          const { data: result } = await (supabase as any).rpc("run_streamcore_ai_autopilot", { force_run: false });
-          if (result?.created && result?.postId) {
-            setTimeout(() => {
-              void triggerStreamerReactionsToPost(
-                result.postId,
-                result.text || "",
-                result.authorId || "streamer",
-                allMembersRef.current
-              );
-            }, 2500);
+          // 1. Show realistic typing indicator 2s before message lands
+          const membersList = allMembersRef.current.filter((m) => m.role !== "admin" && m.id !== "community");
+          const typingStreamer = membersList[Math.floor(Math.random() * membersList.length)] || allMembersRef.current[0];
+          if (typingStreamer) {
+            setTypingName(typingStreamer.name);
           }
+
+          setTimeout(async () => {
+            const { data: result } = await (supabase as any).rpc("run_streamcore_ai_autopilot", { force_run: false });
+            setTypingName(null);
+            if (result?.created && result?.postId) {
+              setTimeout(() => {
+                void triggerStreamerReactionsToPost(
+                  result.postId,
+                  result.text || "",
+                  result.authorId || "streamer",
+                  allMembersRef.current
+                );
+              }, 2500);
+            }
+          }, 2000);
         }
       } catch (err) {
         // Autopilot heartbeat tick
