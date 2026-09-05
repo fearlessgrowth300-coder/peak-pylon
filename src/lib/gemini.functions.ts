@@ -10,14 +10,6 @@ export const GEMINI_MODEL_OPTIONS = [
 ] as const;
 
 export const AI_AUTOPILOT_INTERVAL_OPTIONS = [
-  { value: 8 / 60, label: "Every 8 seconds (instant live activity)" },
-  { value: 15 / 60, label: "Every 15 seconds" },
-  { value: 20 / 60, label: "Every 20 seconds" },
-  { value: 30 / 60, label: "Every 30 seconds" },
-  { value: 45 / 60, label: "Every 45 seconds" },
-  { value: 1, label: "Every 1 minute" },
-  { value: 2, label: "Every 2 minutes" },
-  { value: 5, label: "Every 5 minutes" },
   { value: 10, label: "Every 10 minutes (recommended)" },
   { value: 15, label: "Every 15 minutes" },
   { value: 30, label: "Every 30 minutes" },

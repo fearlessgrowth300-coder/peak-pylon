@@ -119,7 +119,7 @@ export function defaultState(): State {
   };
 }
 
-export function useCommunity() {
+export function useCommunity({ enablePostRealtime = false }: { enablePostRealtime?: boolean } = {}) {
   // The first render must be identical on the server and in the browser.
   // Members and posts are loaded from Supabase after hydration; no demo/local data is used.
   const [state, setState] = useState<State>(defaultState);
@@ -198,7 +198,29 @@ export function useCommunity() {
     void loadInitial();
 
     const subscription = db
-      .channel("streamcore-community-data")
+      .channel("streamcore-community-members")
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_listed_members" }, (payload: any) => {
+        if (!active) return;
+        if (payload.eventType === "DELETE") {
+          setState((current) => ({ ...current, members: current.members.filter((member) => member.id !== payload.old.id) }));
+          return;
+        }
+        if (payload.new?.id && payload.new?.data) {
+          const incoming = { ...payload.new.data, id: payload.new.id } as Member;
+          setState((current) => ({ ...current, members: [...current.members.filter((member) => member.id !== incoming.id), incoming] }));
+        }
+      })
+      .subscribe();
+
+    return () => { active = false; void supabase.removeChannel(subscription); };
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || !enablePostRealtime) return;
+    const db = supabase as any;
+    let active = true;
+    const subscription = db
+      .channel("streamcore-visible-post-feed")
       .on("postgres_changes", { event: "*", schema: "public", table: "community_posts" }, (payload: any) => {
         if (!active) return;
         if (payload.eventType === "DELETE") {
@@ -223,21 +245,13 @@ export function useCommunity() {
           });
         }
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "community_listed_members" }, (payload: any) => {
-        if (!active) return;
-        if (payload.eventType === "DELETE") {
-          setState((current) => ({ ...current, members: current.members.filter((member) => member.id !== payload.old.id) }));
-          return;
-        }
-        if (payload.new?.id && payload.new?.data) {
-          const incoming = { ...payload.new.data, id: payload.new.id } as Member;
-          setState((current) => ({ ...current, members: [...current.members.filter((member) => member.id !== incoming.id), incoming] }));
-        }
-      })
       .subscribe();
 
-    return () => { active = false; void supabase.removeChannel(subscription); };
-  }, [hydrated]);
+    return () => {
+      active = false;
+      void supabase.removeChannel(subscription);
+    };
+  }, [enablePostRealtime, hydrated]);
 
   const loadOlderPosts = useCallback(async () => {
     if (loadingOlderPosts || !hasOlderPosts || !oldestPostCreatedAt.current) return;

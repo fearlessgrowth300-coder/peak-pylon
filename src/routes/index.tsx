@@ -75,13 +75,14 @@ function isSavedView(value: string | null): value is View {
 
 function Index() {
   const inviteSearch = Route.useSearch();
-  const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity();
+  const [view, setView] = useState<View>("home");
+  const enablePostRealtime = view === "general" || view === "trending" || view === "announcements" || view.startsWith("channel:");
+  const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity({ enablePostRealtime });
   const navigate = useNavigate();
   const { session, loading: sessionLoading } = useSession();
   const { accounts, loading: accountsLoading, refresh } = useAccounts();
   // Keep the SSR and browser's first render identical. View changes happen only
   // from real user navigation after React has hydrated.
-  const [view, setView] = useState<View>("home");
   const [viewRestored, setViewRestored] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -614,67 +615,6 @@ function Index() {
       window.clearInterval(timer);
     };
   }, [applyMemberSnapshots, twitchChannelKey]);
-
-  // 24/7 AI Community Activity Engine Heartbeat
-  useEffect(() => {
-    let intervalId: number | null = null;
-
-    const checkAndRunAutopilot = async () => {
-      try {
-        const { data: settingRow } = await (supabase as any)
-          .from("integration_settings")
-          .select("setting_value")
-          .eq("setting_name", "ai_autopilot")
-          .maybeSingle();
-
-        const config = settingRow?.setting_value;
-        if (!config || !config.active) return;
-
-        const intervalSec = Math.max(8, Math.round((config.intervalMinutes || 10) * 60));
-        const lastRunMs = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
-        const nowMs = Date.now();
-
-        if (nowMs - lastRunMs >= intervalSec * 1000) {
-          // 1. Show realistic typing indicator 2s before message lands
-          const membersList = allMembersRef.current.filter((m) => m.role !== "admin" && m.id !== "community");
-          const typingStreamer = membersList[Math.floor(Math.random() * membersList.length)] || allMembersRef.current[0];
-          if (typingStreamer) {
-            setTypingName(typingStreamer.name);
-          }
-
-          setTimeout(async () => {
-            const { data: result } = await (supabase as any).rpc("run_streamcore_ai_autopilot", { force_run: false });
-            setTypingName(null);
-            if (result?.created && result?.postId) {
-              setTimeout(() => {
-                void triggerStreamerReactionsToPost(
-                  result.postId,
-                  result.text || "",
-                  result.authorId || "streamer",
-                  allMembersRef.current
-                );
-              }, 2500);
-            }
-          }, 2000);
-        }
-      } catch (err) {
-        // Autopilot heartbeat tick
-      }
-    };
-
-    const initTimer = window.setTimeout(() => {
-      void checkAndRunAutopilot();
-    }, 2000);
-
-    intervalId = window.setInterval(() => {
-      void checkAndRunAutopilot();
-    }, 8000);
-
-    return () => {
-      window.clearTimeout(initTimer);
-      if (intervalId) window.clearInterval(intervalId);
-    };
-  }, []);
 
   async function signOut() {
     await supabase.auth.signOut();
