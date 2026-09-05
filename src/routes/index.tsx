@@ -1028,7 +1028,7 @@ function Index() {
                       {loadingOlderPosts ? "Loading messages…" : "Load earlier messages"}
                     </button>
                   )}
-                  {[...state.posts.filter((post) => !post.channel || post.channel === "general")]
+                  {[...state.posts.filter((post) => (!post.channel || post.channel === "general") && !/[\u4e00-\u9fa5]/.test(post.text || ""))]
                     .sort((a, b) => a.time - b.time)
                     .map((p) => {
                       const m = memberById.get(p.authorId);
@@ -1310,7 +1310,7 @@ function Index() {
                 <CustomChannel
                   name={channel.name}
                   topic={channel.topic}
-                  posts={state.posts.filter((post) => post.channel === channel.id || post.channel === channel.name)}
+                  posts={state.posts.filter((post) => (post.channel === channel.id || post.channel === channel.name) && !/[\u4e00-\u9fa5]/.test(post.text || ""))}
                   members={memberById}
                   allMemberList={allMembers}
                   onReply={(post) => setReplyTo({ id: post.id, name: memberById.get(post.authorId)?.name ?? "Community" })}

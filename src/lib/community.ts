@@ -180,7 +180,9 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
             postMap.set(r.id, { ...r.data, id: r.id });
           }
         }
-        const posts = Array.from(postMap.values()).sort((a, b) => b.time - a.time);
+        const posts = Array.from(postMap.values())
+          .filter((p) => !/[\u4e00-\u9fa5]/.test(p.text || ""))
+          .sort((a, b) => b.time - a.time);
         const loadedGeneralRows = !generalError ? generalRows ?? [] : [];
         oldestPostCreatedAt.current = loadedGeneralRows.at(-1)?.created_at ?? null;
         setHasOlderPosts(loadedGeneralRows.length === POSTS_PAGE_SIZE);
@@ -233,16 +235,18 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
         }
         if (payload.new?.id && payload.new?.data) {
           const incoming = { ...payload.new.data, id: payload.new.id } as Post;
-          setState((current) => {
-            const alreadyLoaded = current.posts.some((post) => post.id === incoming.id);
-            return {
-              ...current,
-              posts: [incoming, ...current.posts.filter((post) => post.id !== incoming.id)],
-              totalPosts: payload.eventType === "INSERT" && !alreadyLoaded
-                ? current.totalPosts + 1
-                : current.totalPosts,
-            };
-          });
+          if (!/[\u4e00-\u9fa5]/.test(incoming.text || "")) {
+            setState((current) => {
+              const alreadyLoaded = current.posts.some((post) => post.id === incoming.id);
+              return {
+                ...current,
+                posts: [incoming, ...current.posts.filter((post) => post.id !== incoming.id)],
+                totalPosts: payload.eventType === "INSERT" && !alreadyLoaded
+                  ? current.totalPosts + 1
+                  : current.totalPosts,
+              };
+            });
+          }
         }
       })
       .subscribe();
@@ -268,7 +272,9 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
       const rows = data ?? [];
       if (rows.length) oldestPostCreatedAt.current = rows.at(-1)?.created_at ?? oldestPostCreatedAt.current;
       setHasOlderPosts(rows.length === POSTS_PAGE_SIZE);
-      const older = rows.map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id })) as Post[];
+      const older = rows
+        .map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id }))
+        .filter((p) => !/[\u4e00-\u9fa5]/.test(p.text || "")) as Post[];
       setState((current) => ({
         ...current,
         posts: [...current.posts, ...older.filter((post) => !current.posts.some((currentPost) => currentPost.id === post.id))]
