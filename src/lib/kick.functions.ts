@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-const input = z.object({ channelUrl: z.string().url() });
+const input = z.object({ channelUrl: z.string().trim().min(1).max(300) });
 
 export type KickSocial = {
   platform: string;

@@ -31,6 +31,8 @@ export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
     invite: typeof search.invite === "string" ? search.invite : undefined,
     code: typeof search.code === "string" ? search.code : undefined,
+    view: typeof search.view === "string" ? search.view : undefined,
+    post: typeof search.post === "string" ? search.post : undefined,
   }),
   head: () => ({
     meta: [
@@ -130,9 +132,10 @@ function Index() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteBusy, setInviteBusy] = useState(false);
 
-  // Detect invite link / code from URL: Show Community Preview Screen immediately, with 5s transition to signup
+  // Detect invite link / code from URL. Signed-in members must never be trapped
+  // behind the invite preview while an OAuth session is being restored.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || sessionLoading) return;
     const codeParam =
       inviteSearch.invite ||
       inviteSearch.code ||
@@ -154,18 +157,16 @@ function Index() {
               String(metadata.handle || `@${session.user.email?.split("@")[0] || "creator"}`),
             );
             localStorage.removeItem("streamcore:pending-invite-code");
+            setShowInviteModal(false);
             setToast("🎉 Invitation accepted. Welcome to StreamCore!");
             refresh();
             return;
           }
-          // If already signed in, do not keep re-popping the invite modal
-          if (!session?.user) {
-            setShowInviteModal(true);
-          }
+          setShowInviteModal(!session?.user);
         }
       });
     }
-  }, [inviteSearch.code, inviteSearch.invite, refresh, session?.user]);
+  }, [inviteSearch.code, inviteSearch.invite, refresh, session?.user, sessionLoading]);
 
   const navigateToView = useCallback(
     (nextView: View) => {
@@ -296,6 +297,12 @@ function Index() {
   useEffect(() => {
     if (viewRestored || sessionLoading || accountsLoading) return;
 
+    if (inviteSearch.view && isSavedView(inviteSearch.view)) {
+      setView(inviteSearch.view);
+      setViewRestored(true);
+      return;
+    }
+
     if (localStorage.getItem("streamcore:open-rules") === "1") {
       localStorage.removeItem("streamcore:open-rules");
       setView("rules");
@@ -314,7 +321,20 @@ function Index() {
       }
     }
     setViewRestored(true);
-  }, [accountsLoading, isAdmin, myAccount, sessionLoading, viewRestored]);
+  }, [accountsLoading, inviteSearch.view, isAdmin, myAccount, sessionLoading, viewRestored]);
+
+  useEffect(() => {
+    const targetId = inviteSearch.post;
+    if (!targetId || !viewRestored) return;
+    const reveal = () => {
+      const target = document.getElementById(`post-${targetId}`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target?.classList.add("ring-2", "ring-primary");
+      window.setTimeout(() => target?.classList.remove("ring-2", "ring-primary"), 3000);
+    };
+    const timer = window.setTimeout(reveal, 250);
+    return () => window.clearTimeout(timer);
+  }, [inviteSearch.post, state.posts.length, view, viewRestored]);
 
   useEffect(() => {
     if (!viewRestored) return;
@@ -705,28 +725,28 @@ function Index() {
   }
 
   async function sendCommunityPost(post: PostInput) {
-    await addPost(post);
+    const createdPost = await addPost(post);
+    if (!createdPost) return;
 
     setTimeout(() => {
-      const latestPost = state.posts[0];
-      if (latestPost) {
-        void triggerStreamerReactionsToPost(
-          latestPost.id,
+      void triggerStreamerReactionsToPost(
+          createdPost.id,
           post.text || "",
           post.authorId,
           allMembersRef.current,
-          latestPost.reactions,
-          latestPost.likes
+          createdPost.reactions,
+          createdPost.likes
         );
-      }
     }, 2500);
 
-    if (!post.replyToId || !session?.access_token) return;
+    if (!session?.access_token) return;
     const author = memberById.get(post.authorId);
     try {
       await dispatchReplyNotification({ data: {
         accessToken: session.access_token,
-        parentPostId: post.replyToId,
+        postId: createdPost.id,
+        channel: createdPost.channel || "general",
+        parentPostId: post.replyToId || "none",
         replyAuthorId: post.authorId,
         replyAuthorName: author?.name || "Community member",
         replyText: post.text || "Shared an attachment",
@@ -1073,6 +1093,7 @@ function Index() {
                       return (
                         <article
                           key={p.id}
+                          id={`post-${p.id}`}
                           className="group rounded-md px-1 py-2 hover:bg-accent/25"
                         >
                           {parent && (
@@ -1265,7 +1286,7 @@ function Index() {
                 onCreate={async (post) => {
                   const authorId = myAccount?.id ?? adminMembers[0]?.id;
                   if (authorId) {
-                    await addPost({ ...post, authorId, channel: "trending" });
+                    const created = await addPost({ ...post, authorId, channel: "trending" });
                     if (session?.access_token) {
                       await dispatchResendNotification({ data: {
                         accessToken: session.access_token,
@@ -1273,7 +1294,7 @@ function Index() {
                         dedupeKey: `trending:${authorId}:${post.time ?? Date.now()}`,
                         subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore update"}`,
                         text: post.text.slice(0, 4000),
-                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore update</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app" style="color:#fbbf24">Read on StreamCore →</a></div>`,
+                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore update</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app/?view=trending${created?.id ? `&post=${encodeURIComponent(created.id)}` : ""}" style="color:#fbbf24">Read on StreamCore →</a></div>`,
                       } });
                     }
                   }
@@ -1300,7 +1321,7 @@ function Index() {
                 onCreate={async (post) => {
                   const authorId = myAccount?.id ?? adminMembers[0]?.id;
                   if (authorId) {
-                    await addPost({ ...post, authorId, channel: "announcements" });
+                    const created = await addPost({ ...post, authorId, channel: "announcements" });
                     if (session?.access_token) {
                       await dispatchResendNotification({ data: {
                         accessToken: session.access_token,
@@ -1308,7 +1329,7 @@ function Index() {
                         dedupeKey: `announcement:${authorId}:${post.time ?? Date.now()}`,
                         subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore announcement"}`,
                         text: post.text.slice(0, 4000),
-                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore announcement</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app" style="color:#fbbf24">Read on StreamCore →</a></div>`,
+                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore announcement</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app/?view=announcements${created?.id ? `&post=${encodeURIComponent(created.id)}` : ""}" style="color:#fbbf24">Read on StreamCore →</a></div>`,
                       } });
                     }
                   }
@@ -1426,8 +1447,11 @@ function Index() {
 
             {view === "notifications" && (
               <NotificationsView
-                onNavigate={(v) => {
-                  setView(v as View);
+                onNavigate={(v, targetId) => {
+                  if (isSavedView(v)) setView(v);
+                  if (targetId) {
+                    void navigate({ to: "/", search: { view: v, post: targetId } as never, replace: true });
+                  }
                 }}
                 onPickMember={setProfile}
                 members={allMembers}
@@ -1497,6 +1521,13 @@ function Index() {
                   }
                 />
               </ErrorBoundary>
+            )}
+            {isUserPendingApproval && !["home", "general", "live-now", "me", "rules", "messages"].includes(view) && (
+              <div className="sticky bottom-4 z-20 mx-auto -mt-28 mb-5 w-[calc(100%-2rem)] max-w-3xl rounded-2xl border border-primary/50 bg-background/75 p-5 text-center shadow-2xl backdrop-blur-xl">
+                <p className="text-sm font-black text-foreground">🔒 Preview access</p>
+                <p className="mt-1 text-xs text-muted-foreground">You can explore this section, but full content and interactions unlock after an admin approves your PV Token.</p>
+                <button type="button" onClick={() => setView("messages")} className="mt-3 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground">Check verification status</button>
+              </div>
             )}
           </div>
           {typingName && (view === "general" || view.startsWith("channel:")) && (
@@ -2386,6 +2417,7 @@ function TrendingCommunityView({
           return (
             <article
               key={post.id}
+              id={`post-${post.id}`}
               className="rounded-2xl border border-border bg-popover p-6 shadow-sm transition-all hover:border-primary/50"
             >
               <div className="flex items-start justify-between gap-4">
@@ -3554,6 +3586,7 @@ function CustomChannel({
           return (
             <article
               key={post.id}
+              id={`post-${post.id}`}
               className="rounded-2xl border border-border/80 bg-popover p-4 shadow-sm transition-all hover:border-border"
             >
               <div className="flex items-start gap-3">

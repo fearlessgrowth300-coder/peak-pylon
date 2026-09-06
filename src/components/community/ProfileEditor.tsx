@@ -69,6 +69,7 @@ export function ProfileEditor({
   const [milestonesLoading, setMilestonesLoading] = useState(false);
   const [userEmail, setUserEmail] = useState<string>("");
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [authorizingSocial, setAuthorizingSocial] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -146,11 +147,103 @@ export function ProfileEditor({
     }
   }
 
-  function setSocialUrl(platform: string, url: string) {
-    const others = form.social_links.filter((link) => link.platform !== platform);
-    const next = url.trim() ? [...others, { platform, label: platform, url }] : others;
-    setForm({ ...form, social_links: next });
+  async function connectSocialIdentity(platform: string) {
+    const providers: Record<string, { provider: string; scopes?: string }> = {
+      YouTube: { provider: "google", scopes: "openid email profile https://www.googleapis.com/auth/youtube.readonly" },
+      Discord: { provider: "discord", scopes: "identify email" },
+      X: { provider: "twitter" },
+    };
+    const config = providers[platform];
+    if (!config) {
+      notify(`${platform} requires its own OAuth app credentials. URL pasting is disabled so an unverified account cannot be shown as connected.`);
+      return;
+    }
+    setAuthorizingSocial(platform);
+    try {
+      localStorage.setItem("streamcore:pending-social-provider", platform);
+      const { data, error } = await (supabase.auth as any).linkIdentity({
+        provider: config.provider,
+        options: {
+          redirectTo: `${window.location.origin}/?view=me`,
+          scopes: config.scopes,
+        },
+      });
+      if (error) throw error;
+      if (data?.url) window.location.assign(data.url);
+    } catch (error) {
+      localStorage.removeItem("streamcore:pending-social-provider");
+      setAuthorizingSocial(null);
+      notify(error instanceof Error ? error.message : `${platform} authorization could not start.`);
+    }
   }
+
+  useEffect(() => {
+    if (!accessToken || isAdmin) return;
+    const pendingPlatform = localStorage.getItem("streamcore:pending-social-provider");
+    if (!pendingPlatform) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const providerByPlatform: Record<string, string> = { YouTube: "google", Discord: "discord", X: "twitter" };
+        const expectedProvider = providerByPlatform[pendingPlatform];
+        const [{ data: identityData, error: identityError }, { data: sessionData }] = await Promise.all([
+          supabase.auth.getUserIdentities(),
+          supabase.auth.getSession(),
+        ]);
+        if (identityError) throw identityError;
+        const identity = identityData.identities.find((item) => item.provider === expectedProvider);
+        if (!identity) throw new Error(`${pendingPlatform} did not return a linked identity.`);
+        const details = (identity.identity_data ?? {}) as Record<string, unknown>;
+        let label = String(details["user_name"] || details["preferred_username"] || details["name"] || pendingPlatform);
+        let url = "";
+        if (pendingPlatform === "Discord") {
+          const providerId = String(details["sub"] || identity.id);
+          url = `https://discord.com/users/${providerId}`;
+        } else if (pendingPlatform === "X") {
+          label = label.replace(/^@/, "");
+          url = `https://x.com/${encodeURIComponent(label)}`;
+          label = `@${label}`;
+        } else if (pendingPlatform === "YouTube") {
+          const providerToken = sessionData.session?.provider_token;
+          if (!providerToken) throw new Error("Google connected, but YouTube channel access was not returned. Reconnect and approve YouTube access.");
+          const response = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
+            headers: { Authorization: `Bearer ${providerToken}` },
+          });
+          const payload = await response.json();
+          const channel = payload?.items?.[0];
+          if (!response.ok || !channel?.id) throw new Error("No YouTube channel was found for that authorized Google account.");
+          label = String(channel.snippet?.title || "YouTube");
+          url = `https://www.youtube.com/channel/${channel.id}`;
+        }
+        const verifiedLink: SocialLink = {
+          platform: pendingPlatform,
+          label,
+          url,
+          verified: true,
+          provider: expectedProvider,
+          providerIdentityId: String(identity.id),
+        };
+        const links = [...form.social_links.filter((link) => link.platform !== pendingPlatform), verifiedLink];
+        await saveCreatorProfile({ data: { accessToken, profile: {
+          display_name: form.display_name,
+          bio: form.bio,
+          avatar_url: form.avatar_url,
+          banner_url: form.banner_url,
+          social_links: links,
+        } } });
+        if (!cancelled) {
+          setForm((current) => ({ ...current, social_links: links }));
+          notify(`✓ ${pendingPlatform} was securely authorized and connected.`);
+        }
+      } catch (error) {
+        if (!cancelled) notify(error instanceof Error ? error.message : "Social authorization could not be completed.");
+      } finally {
+        localStorage.removeItem("streamcore:pending-social-provider");
+        if (!cancelled) setAuthorizingSocial(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken, account.id, isAdmin]);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -361,7 +454,7 @@ export function ProfileEditor({
               <div className="grid gap-2 sm:grid-cols-2">
                 {LOCKED_MILESTONES.map((item) => {
                   const unlocked = Boolean(milestones?.unlocks[item.key]);
-                  const existing = form.social_links.find((link) => link.platform === item.platform)?.url ?? "";
+                  const existing = form.social_links.find((link) => link.platform === item.platform);
                   return (
                     <div key={item.platform} className={`rounded-lg border px-3 py-2 text-xs ${unlocked ? "border-emerald-500/35 bg-emerald-500/10" : "border-border/40 bg-accent/20 opacity-85"}`}>
                       <div className="flex items-center justify-between gap-2">
@@ -374,15 +467,15 @@ export function ProfileEditor({
                         </span>
                       </div>
                       <p className="mt-1 text-[10px] text-muted-foreground">{milestoneProgress(item.key, milestones)}</p>
-                      {unlocked && (
-                        <input
-                          type="url"
-                          className={`${inputClass} mt-2 h-8 text-xs`}
-                          placeholder={`${item.platform} profile URL`}
-                          value={existing}
-                          onChange={(event) => setSocialUrl(item.platform, event.target.value)}
-                        />
-                      )}
+                      {unlocked && existing?.verified ? (
+                        <a href={existing.url} target="_blank" rel="noreferrer" className="mt-2 flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 font-semibold text-emerald-300">
+                          <span>✓ Authorized as {existing.label}</span><span>↗</span>
+                        </a>
+                      ) : unlocked ? (
+                        <button type="button" disabled={authorizingSocial === item.platform} onClick={() => void connectSocialIdentity(item.platform)} className="mt-2 w-full rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-2 font-bold text-primary hover:bg-primary/20 disabled:opacity-50">
+                          {authorizingSocial === item.platform ? "Opening authorization…" : existing ? `Re-authorize ${item.platform}` : `Authorize ${item.platform}`}
+                        </button>
+                      ) : null}
                     </div>
                   );
                 })}

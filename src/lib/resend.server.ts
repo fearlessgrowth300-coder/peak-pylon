@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-type NotificationKind = "announcement" | "clip" | "live" | "reply" | "twitch_connected";
+type NotificationKind = "announcement" | "clip" | "live" | "reply" | "mention" | "twitch_connected";
 
 type ResendEvent = {
   kind: NotificationKind;
@@ -16,6 +16,7 @@ const ENABLED_FIELD: Partial<Record<NotificationKind, string>> = {
   clip: "notifyNewClips",
   live: "notifyStreamerLive",
   reply: "notifyRepliesAndMentions",
+  mention: "notifyRepliesAndMentions",
 };
 
 export async function dispatchConfiguredResendEvent(event: ResendEvent) {

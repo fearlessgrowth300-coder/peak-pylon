@@ -1,6 +1,5 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { type CommunityInvite, claimInviteOnSignup } from "@/lib/invites";
 import { type Member } from "@/lib/community";
 import { inputClass, buttonClass, ghostButtonClass, Avatar } from "@/components/community/Bits";
@@ -153,7 +152,6 @@ export function InviteLandingModal({
       : "/";
     const redirectUrl = `${window.location.origin}${inviteSearch}`;
 
-    // Try native Supabase OAuth first
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -161,20 +159,12 @@ export function InviteLandingModal({
           redirectTo: redirectUrl,
         },
       });
-      if (!error && data?.url) {
-        window.location.assign(data.url);
-        return;
-      }
-    } catch {
-      // Fall back to Lovable Cloud Auth helper
-    }
-
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: redirectUrl,
-    });
-    if (result.error) {
+      if (error) throw error;
+      if (!data?.url) throw new Error("Google did not return an authorization URL.");
+      window.location.assign(data.url);
+    } catch (error) {
       localStorage.removeItem("streamcore:pending-invite-code");
-      return setMsg("Google sign-in failed. Please enter your email and password above.");
+      setMsg(error instanceof Error ? `Google sign-in failed: ${error.message}` : "Google sign-in failed. Please enter your email and password above.");
     }
   }
 

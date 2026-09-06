@@ -416,7 +416,7 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
         Math.abs(Date.now() - p.time) < 45_000,
     );
     if (isDuplicate) {
-      return;
+      return null;
     }
 
     const id = uid();
@@ -442,6 +442,7 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
       ...s,
       posts: [post, ...s.posts],
     }));
+    return post;
   }, []);
 
   const updatePost = useCallback(async (id: string, patch: Partial<Post>) => {

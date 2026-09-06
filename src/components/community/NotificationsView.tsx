@@ -13,6 +13,7 @@ type RealNotification = {
   body: string;
   time: number;
   view: string;
+  targetId?: string;
 };
 
 export function NotificationsView({
@@ -62,6 +63,7 @@ export function NotificationsView({
           body: post.text.split("\n")[0]?.slice(0, 160) || "Open post",
           time: post.time,
           view: post.channel,
+          targetId: post.id,
         });
       }
 
@@ -77,6 +79,7 @@ export function NotificationsView({
             body: comment.text,
             time: comment.time,
             view: post.channel || "general",
+            targetId: post.id,
           });
         }
       }
@@ -90,6 +93,7 @@ export function NotificationsView({
           body: post.text.slice(0, 180),
           time: post.time,
           view: post.channel || "general",
+          targetId: post.id,
         });
       }
     }
@@ -137,7 +141,7 @@ export function NotificationsView({
               key={item.id}
               onClick={() => {
                 setReadIds((current) => new Set(current).add(item.id));
-                onNavigate(item.view, item.id);
+                onNavigate(item.view, item.targetId);
               }}
               className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition hover:bg-accent/40 ${isRead ? "border-border bg-card/50" : "border-primary/40 bg-primary/5"}`}
             >

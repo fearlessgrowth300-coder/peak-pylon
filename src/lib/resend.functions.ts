@@ -39,13 +39,15 @@ const resendEmailInput = adminTokenInput.extend({
 });
 const resendTestInput = adminTokenInput.extend({ to: z.string().email() });
 const notificationInput = adminTokenInput.extend({
-  kind: z.enum(["announcement", "clip", "live", "reply"]),
+  kind: z.enum(["announcement", "clip", "live", "reply", "mention"]),
   dedupeKey: z.string().min(1).max(240),
   subject: z.string().min(1).max(180),
   html: z.string().min(1).max(40_000),
   text: z.string().min(1).max(10_000),
 });
 const replyNotificationInput = adminTokenInput.extend({
+  postId: z.string().min(1).max(240),
+  channel: z.string().min(1).max(120).default("general"),
   parentPostId: z.string().min(1).max(240),
   replyAuthorId: z.string().min(1).max(240),
   replyAuthorName: z.string().min(1).max(120),
@@ -157,29 +159,32 @@ export const dispatchReplyNotification = createServerFn({ method: "POST" })
       if (!adminRole) throw new Error("You cannot send notifications as another member.");
     }
 
-    const [{ data: parent }, { data: replyRows }] = await Promise.all([
-      db.from("community_posts").select("id, data").eq("id", data.parentPostId).maybeSingle(),
-      db.from("community_posts")
-        .select("id, data, created_at")
-        .eq("data->>replyToId", data.parentPostId)
-        .eq("data->>authorId", data.replyAuthorId)
-        .order("created_at", { ascending: false })
-        .limit(1),
+    const [{ data: parent }, { data: post }, { data: profiles }] = await Promise.all([
+      data.parentPostId ? db.from("community_posts").select("id, data").eq("id", data.parentPostId).maybeSingle() : Promise.resolve({ data: null }),
+      db.from("community_posts").select("id, data").eq("id", data.postId).maybeSingle(),
+      db.from("profiles").select("id, handle"),
     ]);
-    const reply = replyRows?.[0];
-    const recipientUserId = parent?.data?.authorId as string | undefined;
-    if (!reply || !recipientUserId || recipientUserId === data.replyAuthorId) return { sent: 0, status: "not_applicable" };
+    if (!post || post.data?.authorId !== data.replyAuthorId) return { sent: 0, status: "not_applicable" };
+    const recipientIds = new Set<string>();
+    const parentAuthorId = parent?.data?.authorId as string | undefined;
+    if (parentAuthorId && parentAuthorId !== data.replyAuthorId) recipientIds.add(parentAuthorId);
+    const mentions = new Set(Array.from(data.replyText.matchAll(/@([a-zA-Z0-9_]{2,40})/g), (match) => match[1]!.toLowerCase()));
+    for (const profile of profiles ?? []) {
+      const handle = String(profile.handle || "").replace(/^@/, "").toLowerCase();
+      if (handle && mentions.has(handle) && profile.id !== data.replyAuthorId) recipientIds.add(profile.id);
+    }
+    if (!recipientIds.size) return { sent: 0, status: "not_applicable" };
 
     const safeName = data.replyAuthorName.replace(/[<>&\"']/g, "");
     const safeText = data.replyText.replace(/[<>&\"']/g, "");
     const { dispatchConfiguredResendEvent } = await import("@/lib/resend.server");
     return dispatchConfiguredResendEvent({
-      kind: "reply",
-      dedupeKey: `reply:${reply.id}`,
-      recipientUserIds: [recipientUserId],
-      subject: `💬 ${data.replyAuthorName} replied to you on StreamCore`,
+      kind: parentAuthorId ? "reply" : "mention",
+      dedupeKey: `post-alert:${post.id}`,
+      recipientUserIds: [...recipientIds],
+      subject: parentAuthorId ? `💬 ${data.replyAuthorName} replied to you on StreamCore` : `🔔 ${data.replyAuthorName} mentioned you on StreamCore`,
       text: `${data.replyAuthorName}: ${data.replyText}`,
-      html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#8b5cf6">New reply from ${safeName}</h2><p>${safeText}</p><a href="https://peak-pylon.vercel.app" style="color:#a78bfa">Open the conversation →</a></div>`,
+      html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#8b5cf6">Message from ${safeName}</h2><p>${safeText}</p><a href="https://peak-pylon.vercel.app/?view=${encodeURIComponent(data.channel)}&post=${encodeURIComponent(post.id)}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:12px 18px;border-radius:9px">Open the exact message →</a></div>`,
     });
   });
 

@@ -216,8 +216,8 @@ export function AdminView({
       } catch {
         hostname = form.link.toLowerCase();
       }
-      const isTwitch = /(^|\.)twitch\.tv/i.test(hostname);
-      const isKick = /(^|\.)kick\.com/i.test(hostname);
+      const isTwitch = form.platform === "Twitch" || /(^|\.)twitch\.tv/i.test(hostname);
+      const isKick = form.platform === "Kick" || /(^|\.)kick\.com/i.test(hostname);
       const metadata = isTwitch
         ? await getTwitchChannel({ data: { channelUrl: form.link } })
         : isKick
@@ -247,6 +247,9 @@ export function AdminView({
 
       setForm((current) => ({
         ...current,
+        link: metadata.platform === "Kick"
+          ? `https://kick.com/${metadata.handle.replace(/^@/, "")}`
+          : current.link,
         name: metadata.name || current.name,
         handle: metadata.handle || current.handle,
         bio: metadata.bio || current.bio,
@@ -383,9 +386,9 @@ export function AdminView({
           />
         </Field>
         <Field label="Channel link">
-          <div className="flex gap-2"><input type="url" className={inputClass} value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="https://twitch.tv/..." /><button type="button" disabled={autoFilling} onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0 disabled:opacity-50`}>{autoFilling ? "Checking…" : "Auto-fill"}</button></div>
+          <div className="flex gap-2"><input type="text" className={inputClass} value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="Twitch/Kick URL or channel username" /><button type="button" disabled={autoFilling} onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0 disabled:opacity-50`}>{autoFilling ? "Checking…" : "Auto-fill"}</button></div>
         </Field>
-        <p className="-mt-1 text-xs text-muted-foreground">Twitch links fill the public profile and live status automatically. Other platforms use available public metadata.</p>
+        <p className="-mt-1 text-xs text-muted-foreground">Select Twitch or Kick, then paste a channel URL or username. Auto-fill imports the real public profile and current live state.</p>
         <Field label="Bio">
           <textarea
             rows={3}

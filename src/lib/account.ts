@@ -3,7 +3,14 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Member, Status } from "@/lib/community";
 
-export type SocialLink = { platform: string; url: string; label: string };
+export type SocialLink = {
+  platform: string;
+  url: string;
+  label: string;
+  verified?: boolean;
+  provider?: string;
+  providerIdentityId?: string;
+};
 
 export const ROLES = [
   "member",

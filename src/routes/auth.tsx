@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { buttonClass, ghostButtonClass, inputClass, Field } from "@/components/community/Bits";
 
 export const Route = createFileRoute("/auth")({
@@ -127,20 +126,12 @@ function AuthPage() {
           redirectTo: window.location.origin,
         },
       });
-      if (!error && data?.url) {
-        window.location.assign(data.url);
-        return;
-      }
-    } catch {
-      // Fall back to Lovable Auth
+      if (error) throw error;
+      if (!data?.url) throw new Error("Google did not return an authorization URL.");
+      window.location.assign(data.url);
+    } catch (error) {
+      setMsg(error instanceof Error ? `Google sign-in failed: ${error.message}` : "Google sign-in failed. Try again.");
     }
-
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-    if (result.error) return setMsg("Google sign-in failed. Try again.");
-    if (result.redirected) return;
-    void navigate({ to: "/" });
   }
 
   return (

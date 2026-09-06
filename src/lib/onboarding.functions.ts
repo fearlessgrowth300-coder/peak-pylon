@@ -12,6 +12,9 @@ const profileInput = authenticatedInput.extend({
       platform: z.string().min(1).max(40),
       label: z.string().max(80),
       url: z.string().url().max(2048),
+      verified: z.boolean().optional(),
+      provider: z.string().max(40).optional(),
+      providerIdentityId: z.string().max(200).optional(),
     })).max(6),
   }),
 });
@@ -130,6 +133,7 @@ export const saveCreatorProfile = createServerFn({ method: "POST" })
       YouTube: "youtube",
       Discord: "discord",
       "X (Twitter)": "twitter",
+      X: "twitter",
       Kick: "kick",
       TikTok: "tiktok",
       Instagram: "instagram",
@@ -139,6 +143,9 @@ export const saveCreatorProfile = createServerFn({ method: "POST" })
       const unchangedExistingLink = currentLinks.get(link.platform) === link.url;
       if (!unchangedExistingLink && (!key || !status.unlocks[key])) {
         throw new Error(`${link.platform} has not been unlocked by your real community milestones.`);
+      }
+      if (!unchangedExistingLink && !link.verified) {
+        throw new Error(`${link.platform} must be connected through secure authorization, not pasted as a URL.`);
       }
     }
     const { error } = await db.from("profiles").update(data.profile).eq("id", user.id);

@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { type Account } from "@/lib/account";
 import { buttonClass } from "@/components/community/Bits";
 
@@ -9,19 +8,6 @@ export function PendingApprovalGateBanner({
   account: Account;
   onOpenMessageAdmin: () => void;
 }) {
-  const [secondsLeft, setSecondsLeft] = useState(300); // 5 minutes = 300 seconds
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const minutes = Math.floor(secondsLeft / 60);
-  const seconds = secondsLeft % 60;
-  const timeFormatted = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
-
   return (
     <div className="relative mb-4 overflow-hidden rounded-2xl border-2 border-primary/50 bg-gradient-to-r from-primary/20 via-popover to-accent/40 p-5 shadow-xl animate-in slide-in-from-top-4 duration-300">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -31,7 +17,7 @@ export function PendingApprovalGateBanner({
               🔒 PENDING CHANNEL APPROVAL
             </span>
             <span className="flex items-center gap-1 rounded-md bg-destructive/20 px-2 py-0.5 text-[11px] font-black text-destructive border border-destructive/30 animate-pulse">
-              ⏱️ Unapproved Chat Lock: {timeFormatted}
+              Chat is read-only until approval
             </span>
           </div>
 
