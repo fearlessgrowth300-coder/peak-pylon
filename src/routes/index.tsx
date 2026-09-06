@@ -124,6 +124,7 @@ function Index() {
     [userId, accounts],
   );
   const isAdmin = !!myAccount?.roles.includes("admin");
+  const isUserPendingApproval = Boolean(myAccount && !isAdmin && (myAccount.approval_status === "pending" || !myAccount.channel_authorized));
 
   const [activeInvite, setActiveInvite] = useState<CommunityInvite | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -157,7 +158,10 @@ function Index() {
             refresh();
             return;
           }
-          setShowInviteModal(true);
+          // If already signed in, do not keep re-popping the invite modal
+          if (!session?.user) {
+            setShowInviteModal(true);
+          }
         }
       });
     }
@@ -412,8 +416,25 @@ function Index() {
     return list;
   }, [realMembers, state.members]);
 
+  const STREAMCORE_BOT_MEMBER: Member = useMemo(() => ({
+    id: "streamcore_bot",
+    name: "STREAMCORE BOT",
+    handle: "@streamcore",
+    avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=streamcore_bot",
+    status: "online",
+    role: "moderator",
+    platform: "Twitch",
+    link: "",
+    bio: "Official StreamCore Community Assistant Bot",
+    joined: Date.now(),
+  }), []);
+
   const memberById = useMemo(() => {
     const map = new Map<string, Member>();
+    map.set("streamcore_bot", STREAMCORE_BOT_MEMBER);
+    map.set("streamcore_admin", STREAMCORE_BOT_MEMBER);
+    map.set("streamcore", STREAMCORE_BOT_MEMBER);
+    map.set("bot", STREAMCORE_BOT_MEMBER);
     for (const m of allMembers) {
       if (m.id) {
         map.set(m.id, m);
@@ -430,7 +451,7 @@ function Index() {
       }
     }
     return map;
-  }, [allMembers]);
+  }, [allMembers, STREAMCORE_BOT_MEMBER]);
 
   const allMembersRef = useRef(allMembers);
   allMembersRef.current = allMembers;
@@ -1202,6 +1223,7 @@ function Index() {
             {view === "rules" && (
               <RulesChannel
                 rules={state.community.rules}
+                isAcknowledged={Boolean(myAccount?.rules_acknowledged)}
                 onContinue={async () => {
                   if (!myAccount || !session?.access_token) {
                     setToast("Sign in before accepting the community rules.");
@@ -1219,7 +1241,14 @@ function Index() {
               />
             )}
 
-            {view === "live-now" && <LiveNowCommunityView members={liveMembers} onPick={setProfile} />}
+            {view === "live-now" && (
+              <LiveNowCommunityView
+                members={liveMembers}
+                onPick={setProfile}
+                isPendingApproval={isUserPendingApproval}
+                onGoToProfile={() => setView("me")}
+              />
+            )}
 
             {view === "trending" && (
               <TrendingCommunityView
@@ -1483,17 +1512,41 @@ function Index() {
             </div>
           )}
           {view === "general" && (
-            <Composer
-              authors={postingAuthors}
-              authorId={selectedChatAuthor}
-              setAuthorId={setChatAuthor}
-              replyTo={replyTo}
-              clearReply={() => setReplyTo(null)}
-              onSend={async (post: PostInput) => {
-                await sendCommunityPost(post);
-              }}
-              onTyping={broadcastTyping}
-            />
+            isUserPendingApproval ? (
+              <div className="flex items-center justify-between gap-3 border-t border-border/80 bg-background/90 px-5 py-4 backdrop-blur-md">
+                <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-amber-500/15 text-sm text-amber-400">
+                    🔒
+                  </span>
+                  <div>
+                    <p className="font-bold text-foreground">Chat is locked for pending accounts</p>
+                    <p className="text-[11px]">Verify your channel with a PV Token to chat and upload with streamers.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView("messages");
+                    setToast("Contact your Inviter or Admin for PV Token");
+                  }}
+                  className="rounded-xl border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-xs font-bold text-primary hover:bg-primary/20 transition"
+                >
+                  Request PV Token
+                </button>
+              </div>
+            ) : (
+              <Composer
+                authors={postingAuthors}
+                authorId={selectedChatAuthor}
+                setAuthorId={setChatAuthor}
+                replyTo={replyTo}
+                clearReply={() => setReplyTo(null)}
+                onSend={async (post: PostInput) => {
+                  await sendCommunityPost(post);
+                }}
+                onTyping={broadcastTyping}
+              />
+            )
           )}
           {view.startsWith("channel:") && (() => { const channel = state.channels.find((item) => `channel:${item.id}` === view); return channel?.allowChat && postingAuthors.length ? <Composer authors={postingAuthors} authorId={selectedChatAuthor} setAuthorId={setChatAuthor} replyTo={replyTo} clearReply={() => setReplyTo(null)} onSend={async (post: PostInput) => { await sendCommunityPost({ ...post, channel: channel.name }); }} onTyping={broadcastTyping} channel={channel.name} /> : null; })()}
           </div>
@@ -1750,7 +1803,17 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
   );
 }
 
-function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: (member: Member) => void }) {
+function LiveNowCommunityView({
+  members,
+  onPick,
+  isPendingApproval,
+  onGoToProfile,
+}: {
+  members: Member[];
+  onPick: (member: Member) => void;
+  isPendingApproval?: boolean;
+  onGoToProfile?: () => void;
+}) {
   const [activeMember, setActiveMember] = useState<Member | null>(() => members[0] ?? null);
 
   useEffect(() => {
@@ -1760,6 +1823,7 @@ function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: 
   }, [members, activeMember]);
 
   const featured = activeMember ?? members[0] ?? null;
+  const visibleMembers = isPendingApproval ? members.slice(0, 5) : members;
 
   return (
     <div className="space-y-6 px-4 py-6">
@@ -1823,10 +1887,10 @@ function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: 
 
       <div>
         <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-muted-foreground">
-          All Live Creators ({members.length})
+          All Live Creators ({isPendingApproval && members.length > 5 ? `${visibleMembers.length} of ${members.length}` : members.length})
         </h3>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {members.map((member) => {
+          {visibleMembers.map((member) => {
             const isCurrent = featured?.id === member.id;
             return (
               <article
@@ -1876,6 +1940,29 @@ function LiveNowCommunityView({ members, onPick }: { members: Member[]; onPick: 
             );
           })}
         </div>
+
+        {isPendingApproval && members.length > 5 && (
+          <div className="relative mt-6 overflow-hidden rounded-3xl border border-purple-500/40 bg-gradient-to-b from-purple-950/30 via-purple-900/10 to-background p-8 text-center shadow-2xl">
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-purple-600/25 border border-purple-500/40 text-2xl shadow-lg mb-3">
+              🔒
+            </div>
+            <h3 className="text-lg font-black text-foreground">
+              {members.length - 5} More Live Streams Gated
+            </h3>
+            <p className="mx-auto mt-2 max-w-lg text-xs leading-relaxed text-muted-foreground">
+              You are currently viewing a 5-channel preview of active community streams. Verify your creator channel using your PV Token to unlock unrestricted access to all live streams, community rankings, raids, and collaborator matchmaking.
+            </p>
+            {onGoToProfile && (
+              <button
+                onClick={onGoToProfile}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-purple-600 px-5 py-2.5 text-xs font-black text-white hover:bg-purple-500 shadow-md transition"
+              >
+                <span>Check Verification Status</span>
+                <span>→</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {!members.length && (
@@ -3285,15 +3372,27 @@ function CommunityMark({ community, size }: { community: { name: string; logo: s
   return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
 }
 
-function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => void }) {
-  const [agreed, setAgreed] = useState(false);
+function RulesChannel({ rules, onContinue, isAcknowledged }: { rules: string; onContinue: () => void; isAcknowledged?: boolean }) {
+  const [agreed, setAgreed] = useState(Boolean(isAcknowledged));
+
+  useEffect(() => {
+    if (isAcknowledged) setAgreed(true);
+  }, [isAcknowledged]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 px-4 py-8">
       <section className="rounded-xl bg-popover p-6 shadow-sm border border-border/50">
-        <span className="grid h-12 w-12 place-items-center rounded-full bg-primary/15 text-2xl text-primary font-bold">
-          #
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="grid h-12 w-12 place-items-center rounded-full bg-primary/15 text-2xl text-primary font-bold">
+            #
+          </span>
+          {isAcknowledged && (
+            <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 px-3 py-1 text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+              <span>✓</span>
+              <span>Rules Acknowledged</span>
+            </span>
+          )}
+        </div>
         <h1 className="mt-4 text-2xl font-extrabold text-foreground">Welcome to #rules!</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Please review the official StreamCore community rules before setting up your creator profile.
@@ -3314,15 +3413,18 @@ function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => 
         </ol>
 
         <div className="mt-8 border-t border-border/50 pt-6 space-y-4">
-          <label className="flex items-start sm:items-center gap-3 cursor-pointer select-none rounded-xl border-2 border-primary/30 bg-primary/5 p-4 hover:bg-primary/10 transition">
+          <label className={`flex items-start sm:items-center gap-3 cursor-pointer select-none rounded-xl border-2 p-4 transition ${
+            isAcknowledged ? "border-emerald-500/40 bg-emerald-500/10" : "border-primary/30 bg-primary/5 hover:bg-primary/10"
+          }`}>
             <input
               type="checkbox"
               checked={agreed}
               onChange={(e) => setAgreed(e.target.checked)}
               className="mt-0.5 sm:mt-0 h-5 w-5 rounded border-primary text-primary focus:ring-primary accent-primary cursor-pointer"
             />
-            <span className="text-sm font-bold text-foreground">
-              I have read and understand the StreamCore Community Rules
+            <span className="text-sm font-bold text-foreground flex items-center gap-2">
+              <span>I have read and understand the StreamCore Community Rules</span>
+              {isAcknowledged && <span className="text-xs text-emerald-400 font-normal">(Already Accepted)</span>}
             </span>
           </label>
 
@@ -3466,6 +3568,11 @@ function CustomChannel({
                       <p className="text-sm font-bold text-foreground">
                         {member?.name ?? "Community Creator"}
                       </p>
+                      {(post.authorId === "streamcore_bot" || member?.id === "streamcore_bot") && (
+                        <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-black text-indigo-400 border border-indigo-500/30 tracking-wider">
+                          BOT
+                        </span>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {member?.handle || ""}
                       </span>
@@ -3508,6 +3615,34 @@ function CustomChannel({
                       )}
                     </p>
                   )}
+
+                  {(post.authorId === "streamcore_bot" || member?.id === "streamcore_bot") &&
+                    segments.some((s) => /^https?:\/\//.test(s)) && (
+                      <div className="mt-3 overflow-hidden rounded-2xl border border-purple-500/40 bg-gradient-to-r from-purple-950/40 via-purple-900/20 to-background p-4 flex flex-wrap items-center justify-between gap-3 shadow-md">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-purple-600/30 border border-purple-500/50 text-xl shadow">
+                            🎉
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-black text-foreground uppercase tracking-wide">
+                              New Creator Welcome
+                            </p>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              Official StreamCore Community Creator Announcement
+                            </p>
+                          </div>
+                        </div>
+                        <a
+                          href={segments.find((s) => /^https?:\/\//.test(s))}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-black text-white hover:bg-purple-500 transition shadow-md flex items-center gap-1.5 shrink-0"
+                        >
+                          <span>Explore Channel</span>
+                          <span>↗</span>
+                        </a>
+                      </div>
+                    )}
 
                   {post.sticker && <StickerDisplay sticker={post.sticker} onToast={onToast} />}
 

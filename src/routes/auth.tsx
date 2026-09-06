@@ -87,6 +87,21 @@ function AuthPage() {
 
   async function google() {
     setMsg("");
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (!error && data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+    } catch {
+      // Fall back to Lovable Auth
+    }
+
     const result = await lovable.auth.signInWithOAuth("google", {
       redirect_uri: window.location.origin,
     });

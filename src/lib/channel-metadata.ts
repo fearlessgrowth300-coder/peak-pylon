@@ -30,6 +30,23 @@ export async function getChannelMetadata(channelUrl: string): Promise<ChannelMet
     banner: "",
   };
 
+  if (platform === "Kick") {
+    try {
+      const { getKickChannel } = await import("./kick.functions");
+      const kickData = await getKickChannel({ data: { channelUrl: url.href } });
+      return {
+        platform: "Kick",
+        name: kickData.name || fallback.name,
+        handle: kickData.handle || fallback.handle,
+        bio: kickData.bio || "",
+        avatar: kickData.avatar || "",
+        banner: kickData.banner || "",
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
   try {
     const response = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url.href)}`);
     if (!response.ok) return fallback;

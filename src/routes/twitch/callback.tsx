@@ -22,10 +22,10 @@ function TwitchCallback() {
         } });
         localStorage.removeItem("streamcore:twitch-oauth-state");
         localStorage.removeItem("streamcore:twitch-expected-login");
-        localStorage.setItem("streamcore:last-view", "general");
+        localStorage.setItem("streamcore:last-view", "me");
         setMessage(result.emailStatus === "error"
-          ? "Twitch verified. Opening #general (the celebration email could not be delivered)."
-          : "Twitch verified. Opening #general…");
+          ? "Twitch verified! Opening your profile (the celebration email could not be delivered)."
+          : "Twitch verified! Opening your profile…");
         setTimeout(() => void navigate({ to: "/", search: { invite: undefined, code: undefined } }), 800);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Twitch verification could not be completed. Please try again.");

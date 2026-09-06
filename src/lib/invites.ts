@@ -161,32 +161,74 @@ export async function triggerCreatorWelcomeBurst(
   channelUrl: string
 ): Promise<boolean> {
   try {
-    const { error } = await supabase.rpc("trigger_creator_welcome_burst", {
-      p_creator_id: creatorId,
-      p_creator_name: creatorName,
-      p_creator_handle: creatorHandle.startsWith("@") ? creatorHandle : `@${creatorHandle}`,
-      p_channel_url: channelUrl || "https://twitch.tv",
+    const handle = creatorHandle.startsWith("@") ? creatorHandle : `@${creatorHandle}`;
+    const cleanUrl = channelUrl || "https://twitch.tv";
+    const nowMs = Date.now();
+
+    // Fetch existing streamers to create 10-15 authentic welcome replies
+    const { data: memberRows } = await supabase
+      .from("community_listed_members")
+      .select("id, data")
+      .limit(15);
+
+    const streamerPool = (memberRows || []).map((row: any) => ({
+      id: row.id,
+      name: row.data?.name || "Creator",
+    }));
+
+    const WELCOME_TEMPLATES = [
+      `Welcome to StreamCore ${creatorName}! 🎉 Excited to catch your live streams!`,
+      `LFG!! Welcome aboard ${handle} 🚀`,
+      `Big warm welcome ${creatorName}! Hit me up if you ever want to collab or run dual raids! 🔥`,
+      `Welcome to the family! Dropped you a follow 💜`,
+      `Super glad you joined us ${handle}! What games or categories do you usually stream?`,
+      `Welcome creator! Let's grow together 🌟`,
+      `Welcome in! Don't forget to drop your best stream clips in #clips! 🎬`,
+      `Ayy welcome ${creatorName}! Let's run some squad streams sometime 🎮`,
+      `Welcome to the crew! Stoked to have another passionate streamer here 🙌`,
+      `Welcome aboard ${handle}! Check out the creator resources in announcements when you get a chance!`,
+      `Welcome to the community! Looking forward to your next live session! 🔥`,
+      `Massive welcome ${creatorName}! Hope to see you live soon ✨`,
+    ];
+
+    const comments = WELCOME_TEMPLATES.map((text, i) => {
+      const streamer = streamerPool[i % (streamerPool.length || 1)] || {
+        id: `streamer_${i + 1}`,
+        name: "Community Creator",
+      };
+      return {
+        id: crypto.randomUUID(),
+        authorId: streamer.id,
+        text,
+        time: nowMs + (i + 1) * 3500,
+      };
     });
 
-    if (error) {
-      console.warn("RPC welcome burst error, inserting standard welcome:", error);
-      // Fallback standard insert
-      const nowMs = Date.now();
-      await supabase.from("community_posts").insert({
-        id: crypto.randomUUID(),
-        data: {
-          authorId: "streamcore_admin",
-          text: `🎉 Everyone give a massive warm welcome to our newest creator ${creatorName} (${creatorHandle}) to StreamCore! Check out their channel: ${channelUrl || "https://twitch.tv"}`,
-          image: "",
-          sticker: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif",
-          channel: "general",
-          reactions: { "🔥": 4, "👏": 6 },
-          likes: [],
-          shares: 1,
-          comments: [],
-          aiGenerated: false,
-          time: nowMs,
-        },
+    const postId = crypto.randomUUID();
+    const { error: insertError } = await supabase.from("community_posts").insert({
+      id: postId,
+      data: {
+        authorId: "streamcore_bot",
+        text: `🎉 Everyone let's give a massive warm welcome to our newest creator ${creatorName} (${handle}) to StreamCore!\n\nCheck out their channel: ${cleanUrl}`,
+        image: "",
+        sticker: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif",
+        channel: "general",
+        reactions: { "🔥": 8, "👏": 12, "🎉": 16, "🚀": 7 },
+        likes: streamerPool.slice(0, 6).map((s) => s.id),
+        shares: 4,
+        comments,
+        aiGenerated: false,
+        time: nowMs,
+      },
+    });
+
+    if (insertError) {
+      console.warn("Direct post insert failed, attempting RPC fallback:", insertError);
+      await supabase.rpc("trigger_creator_welcome_burst", {
+        p_creator_id: creatorId,
+        p_creator_name: creatorName,
+        p_creator_handle: handle,
+        p_channel_url: cleanUrl,
       });
     }
 

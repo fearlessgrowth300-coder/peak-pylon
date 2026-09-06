@@ -5,14 +5,15 @@ import { formatDate } from "@/lib/community";
 import { Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { beginTwitchAuthorization } from "@/lib/twitch.functions";
 import { getCreatorMilestoneStatus, saveCreatorProfile, type CreatorMilestoneStatus } from "@/lib/onboarding.functions";
+import { BrandIcon } from "./BrandIcon";
 
 const LOCKED_MILESTONES = [
-  { key: "youtube", platform: "YouTube", milestone: "Unlocks at 50 Community Chat Messages", icon: "▶" },
-  { key: "discord", platform: "Discord", milestone: "Unlocks at Level 2 Streamer Milestone", icon: "💬" },
-  { key: "twitter", platform: "X (Twitter)", milestone: "Unlocks at 100 Post Reactions", icon: "✖" },
-  { key: "kick", platform: "Kick", milestone: "Unlocks at 5 Hosted Stream Raids", icon: "🟢" },
-  { key: "tiktok", platform: "TikTok", milestone: "Unlocks at Top 50 Creator Rankings", icon: "🎵" },
-  { key: "instagram", platform: "Instagram", milestone: "Unlocks at Verified Partner Milestone", icon: "📸" },
+  { key: "youtube", platform: "YouTube", milestone: "Unlocks at 50 Community Chat Messages" },
+  { key: "discord", platform: "Discord", milestone: "Unlocks at Level 2 Streamer Milestone" },
+  { key: "twitter", platform: "X", milestone: "Unlocks at 100 Post Reactions" },
+  { key: "kick", platform: "Kick", milestone: "Unlocks at 5 Hosted Stream Raids" },
+  { key: "tiktok", platform: "TikTok", milestone: "Unlocks at Top 50 Creator Rankings" },
+  { key: "instagram", platform: "Instagram", milestone: "Unlocks at Verified Partner Milestone" },
 ] as const;
 
 function twitchLoginFromInput(value: string) {
@@ -66,6 +67,30 @@ export function ProfileEditor({
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [milestones, setMilestones] = useState<CreatorMilestoneStatus | null>(null);
   const [milestonesLoading, setMilestonesLoading] = useState(false);
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.email) setUserEmail(data.user.email);
+    });
+  }, []);
+
+  async function handleResetPassword() {
+    if (!userEmail) return notify("No email address found for this account.");
+    setResettingPassword(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
+        redirectTo: `${window.location.origin}/auth?reset=true`,
+      });
+      if (error) throw error;
+      notify(`📧 Password reset instructions sent to ${userEmail}. Please check your inbox.`);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Password reset request failed. Please try again.");
+    } finally {
+      setResettingPassword(false);
+    }
+  }
 
   useEffect(() => {
     setForm({
@@ -174,8 +199,8 @@ export function ProfileEditor({
       {!isAuthorized && !isAdmin && (
         <div className="rounded-2xl border-2 border-purple-500/50 bg-gradient-to-br from-purple-950/50 via-purple-900/20 to-background p-6 shadow-xl space-y-4 animate-in fade-in">
           <div className="flex items-start gap-4">
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-purple-600 text-2xl text-white shadow-lg">
-              🟣
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-purple-600/30 border border-purple-500/50 shadow-lg">
+              <BrandIcon platform="Twitch" size={28} />
             </div>
             <div className="flex-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -210,7 +235,7 @@ export function ProfileEditor({
                 onClick={() => void handleAuthorizeTwitch()}
                 className="flex-1 rounded-xl bg-purple-600 px-5 py-3 text-sm font-black text-white hover:bg-purple-500 disabled:opacity-50 transition shadow-md flex items-center justify-center gap-2"
               >
-                <span>🟣</span>
+                <BrandIcon platform="Twitch" size={18} plain />
                 <span>{authorizingTwitch ? "Verifying & Authorizing…" : "Authorize Channel & Continue to #general"}</span>
               </button>
 
@@ -218,10 +243,11 @@ export function ProfileEditor({
                 type="button"
                 disabled={authorizingTwitch}
                 onClick={() => void connectTwitchOAuth()}
-                className="rounded-xl border border-purple-500/40 bg-purple-500/10 px-4 py-3 text-xs font-bold text-purple-300 hover:bg-purple-500/20 transition"
+                className="rounded-xl border border-purple-500/40 bg-purple-500/10 px-4 py-3 text-xs font-bold text-purple-300 hover:bg-purple-500/20 transition flex items-center gap-1.5"
                 title="Authorize with Twitch OAuth login"
               >
-                OAuth Login ↗
+                <BrandIcon platform="Twitch" size={16} plain />
+                <span>OAuth Login ↗</span>
               </button>
             </div>
           </div>
@@ -235,8 +261,8 @@ export function ProfileEditor({
 
       {isAuthorized && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-300 flex items-center justify-between">
-          <span className="font-semibold flex items-center gap-1.5">
-            <span>✓</span>
+          <span className="font-semibold flex items-center gap-2">
+            <BrandIcon platform="Twitch" size={20} />
             <span>Twitch Channel Connected & Authorized: <strong className="text-white">{account.channel_url || account.display_name}</strong></span>
           </span>
           <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
@@ -303,7 +329,7 @@ export function ProfileEditor({
           {/* Primary Twitch Connection */}
           <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <span className="text-xl">🟣</span>
+              <BrandIcon platform="Twitch" size={24} />
               <div>
                 <p className="text-xs font-bold text-foreground">Twitch</p>
                 <p className="text-[11px] text-muted-foreground">
@@ -339,7 +365,10 @@ export function ProfileEditor({
                   return (
                     <div key={item.platform} className={`rounded-lg border px-3 py-2 text-xs ${unlocked ? "border-emerald-500/35 bg-emerald-500/10" : "border-border/40 bg-accent/20 opacity-85"}`}>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-foreground">{item.icon} {item.platform}</span>
+                        <span className="font-semibold text-foreground flex items-center gap-1.5">
+                          <BrandIcon platform={item.platform} size={18} />
+                          <span>{item.platform}</span>
+                        </span>
                         <span className={`text-[10px] font-bold ${unlocked ? "text-emerald-400" : "text-amber-400"}`}>
                           {unlocked ? "✓ Unlocked" : "🔒 Locked"}
                         </span>
@@ -494,7 +523,54 @@ export function ProfileEditor({
         </div>
       )}
 
-      <button onClick={onSignOut} className={`${ghostButtonClass} w-full`}>
+      {/* Account Info & Security */}
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm space-y-4">
+        <div>
+          <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <span>🛡️</span>
+            <span>Account & Security</span>
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Manage your StreamCore login credentials and authentication.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-border/80 bg-background/50 p-3.5">
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
+              Registered Email
+            </span>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-sm font-semibold text-foreground truncate">
+                {userEmail || "Signed-in Creator"}
+              </span>
+              <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                ✓ Verified
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={resettingPassword || !userEmail}
+              onClick={() => void handleResetPassword()}
+              className="rounded-xl border border-border bg-background px-3.5 py-2 text-xs font-bold text-foreground hover:bg-accent disabled:opacity-50 transition shadow-sm"
+            >
+              {resettingPassword ? "Sending link…" : "Reset Password"}
+            </button>
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2 text-xs font-bold text-destructive hover:bg-destructive/20 transition"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <button onClick={onSignOut} className={`${ghostButtonClass} w-full sm:hidden`}>
         Sign out
       </button>
     </div>

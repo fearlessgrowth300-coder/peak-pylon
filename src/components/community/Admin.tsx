@@ -14,6 +14,7 @@ import {
 } from "@/lib/community";
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { getTwitchChannel, refreshTwitchStatuses, testTwitchConnection } from "@/lib/twitch.functions";
+import { getKickChannel } from "@/lib/kick.functions";
 import { getChannelMetadata } from "@/lib/channel-metadata";
 import { IntegrationControlCenter } from "./IntegrationControlCenter";
 import { AdminInvitesAndApprovals } from "./AdminInvitesAndApprovals";
@@ -209,9 +210,18 @@ export function AdminView({
     if (!form.link.trim()) return notify("Paste a channel link first");
     setAutoFilling(true);
     try {
-      const isTwitch = /(^|\.)twitch\.tv\//i.test(new URL(form.link).hostname + "/");
+      let hostname = "";
+      try {
+        hostname = new URL(form.link).hostname;
+      } catch {
+        hostname = form.link.toLowerCase();
+      }
+      const isTwitch = /(^|\.)twitch\.tv/i.test(hostname);
+      const isKick = /(^|\.)kick\.com/i.test(hostname);
       const metadata = isTwitch
         ? await getTwitchChannel({ data: { channelUrl: form.link } })
+        : isKick
+        ? await getKickChannel({ data: { channelUrl: form.link } })
         : await getChannelMetadata(form.link);
 
       // Check if channel link already exists
@@ -226,7 +236,13 @@ export function AdminView({
       if (isDuplicate) {
         notify(`⚠️ Streamer "${isDuplicate.name}" (@${isDuplicate.handle.replace(/^@/, "")}) is ALREADY added in this community!`);
       } else {
-        notify(isTwitch ? "Twitch profile and live status filled. Review before saving." : "Public channel details filled. Review before saving.");
+        notify(
+          isTwitch
+            ? "Twitch profile and live status filled. Review before saving."
+            : isKick
+            ? "Kick profile and stream status filled. Review before saving."
+            : "Public channel details filled. Review before saving."
+        );
       }
 
       setForm((current) => ({
@@ -243,6 +259,24 @@ export function AdminView({
       if ("viewerCount" in metadata && metadata.viewerCount) setAutoViewerCount(metadata.viewerCount as number);
       if ("gameName" in metadata && metadata.gameName) setAutoGameName(metadata.gameName as string);
       if ("streamTitle" in metadata && metadata.streamTitle) setAutoStreamTitle(metadata.streamTitle as string);
+
+      if ("socials" in metadata && Array.isArray(metadata.socials) && metadata.socials.length > 0) {
+        setConnections((existing) => {
+          const added: Connection[] = [];
+          for (const s of metadata.socials || []) {
+            if (!existing.some((e) => e.platform.toLowerCase() === s.platform.toLowerCase())) {
+              added.push({
+                id: crypto.randomUUID(),
+                platform: s.platform,
+                label: s.label || s.platform,
+                url: s.url,
+                verified: true,
+              });
+            }
+          }
+          return [...existing, ...added];
+        });
+      }
     } catch {
       notify("Could not read that channel. Fill in the details manually.");
     } finally {

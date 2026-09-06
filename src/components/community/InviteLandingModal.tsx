@@ -21,7 +21,7 @@ export function InviteLandingModal({
   isAuthenticated?: boolean;
 }) {
   const [showSignupForm, setShowSignupForm] = useState(false);
-  const [secondsRemaining, setSecondsRemaining] = useState(5);
+  const [secondsRemaining, setSecondsRemaining] = useState(7);
   const [mode, setMode] = useState<"signup" | "signin">("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,10 +29,12 @@ export function InviteLandingModal({
   const [handle, setHandle] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [awaitingVerification, setAwaitingVerification] = useState(false);
+  const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // 5-second countdown to automatically open signup prompt if user hasn't clicked yet
+  // 7-second countdown to automatically open signup prompt if user hasn't clicked yet
   useEffect(() => {
     if (showSignupForm || isAuthenticated) return;
     const timer = setInterval(() => {
@@ -48,6 +50,14 @@ export function InviteLandingModal({
 
     return () => clearInterval(timer);
   }, [isAuthenticated, showSignupForm]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -77,7 +87,7 @@ export function InviteLandingModal({
       }
 
       setAwaitingVerification(true);
-      setMsg("We sent a verification code to your email. Enter it below:");
+      setMsg(`We sent a 6-digit verification code to ${email}. Enter it below:`);
       return;
     }
 
@@ -90,6 +100,25 @@ export function InviteLandingModal({
     }
 
     onSuccess();
+  }
+
+  async function resendVerificationCode() {
+    if (resendCooldown > 0 || !email) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+      });
+      if (error) throw error;
+      setResendCooldown(60);
+      setMsg(`A fresh verification code was sent to ${email}`);
+    } catch (err: any) {
+      setMsg(err?.message || "Failed to resend verification code");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function verifyOtp(e: FormEvent) {
@@ -108,7 +137,10 @@ export function InviteLandingModal({
       await claimInviteOnSignup(invite.code, data.user.id, displayName || email.split("@")[0], handle || `@${email.split("@")[0]}`);
     }
 
-    onSuccess();
+    setVerifiedSuccess(true);
+    setTimeout(() => {
+      onSuccess();
+    }, 1500);
   }
 
   async function googleSignIn() {
@@ -119,12 +151,30 @@ export function InviteLandingModal({
     const inviteSearch = invite?.code
       ? `/?invite=${encodeURIComponent(invite.code)}`
       : "/";
+    const redirectUrl = `${window.location.origin}${inviteSearch}`;
+
+    // Try native Supabase OAuth first
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: redirectUrl,
+        },
+      });
+      if (!error && data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+    } catch {
+      // Fall back to Lovable Cloud Auth helper
+    }
+
     const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: `${window.location.origin}${inviteSearch}`,
+      redirect_uri: redirectUrl,
     });
     if (result.error) {
       localStorage.removeItem("streamcore:pending-invite-code");
-      return setMsg("Google sign-in failed. Please try email.");
+      return setMsg("Google sign-in failed. Please enter your email and password above.");
     }
   }
 
@@ -136,7 +186,7 @@ export function InviteLandingModal({
   const liveCount = members.filter((member) => member.status === "live").length;
 
   const returnToPreview = () => {
-    setSecondsRemaining(5);
+    setSecondsRemaining(7);
     setShowSignupForm(false);
   };
 
@@ -306,23 +356,68 @@ export function InviteLandingModal({
             </div>
           )}
 
-          {awaitingVerification ? (
+          {verifiedSuccess ? (
+            <div className="py-8 text-center space-y-3 animate-in zoom-in-95">
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-500/20 text-3xl text-emerald-400 border border-emerald-500/40">
+                ✓
+              </div>
+              <h3 className="text-xl font-black text-foreground">Email Verified!</h3>
+              <p className="text-xs text-muted-foreground">
+                Your email has been confirmed. Preparing your creator setup…
+              </p>
+            </div>
+          ) : awaitingVerification ? (
             <form onSubmit={verifyOtp} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-muted-foreground">Enter 6-digit Verification Code</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-muted-foreground">Enter 6-digit Verification Code</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAwaitingVerification(false);
+                      setVerificationCode("");
+                      setMsg("");
+                    }}
+                    className="text-[11px] font-bold text-primary hover:underline"
+                  >
+                    Change Email
+                  </button>
+                </div>
                 <input
                   type="text"
                   required
                   value={verificationCode}
                   onChange={(e) => setVerificationCode(e.target.value)}
                   placeholder="123456"
-                  className={inputClass}
+                  className={`${inputClass} text-center tracking-widest text-base font-mono`}
                   autoFocus
                 />
               </div>
-              <button type="submit" disabled={busy} className={`${buttonClass} w-full py-3 text-sm font-bold`}>
+
+              <button type="submit" disabled={busy} className={`${buttonClass} w-full py-3 text-sm font-bold shadow-md shadow-primary/20`}>
                 {busy ? "Verifying..." : "Verify & Complete Signup →"}
               </button>
+
+              <div className="flex items-center justify-between pt-1 text-xs">
+                <button
+                  type="button"
+                  disabled={busy || resendCooldown > 0}
+                  onClick={() => void resendVerificationCode()}
+                  className="font-bold text-primary hover:underline disabled:opacity-50 disabled:hover:no-underline"
+                >
+                  {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "🔄 Resend code"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAwaitingVerification(false);
+                    setMsg("");
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ← Back to details
+                </button>
+              </div>
             </form>
           ) : (
             <form onSubmit={submit} className="space-y-3.5">
