@@ -3601,7 +3601,7 @@ function CustomChannel({
                       <p className="text-sm font-bold text-foreground">
                         {member?.name ?? "Community Creator"}
                       </p>
-                      {(post.authorId === "streamcore_bot" || member?.id === "streamcore_bot") && (
+                      {(post.authorId === "streamcore_bot" || member?.id === "streamcore_bot" || /streamcore\s*_?bot/i.test(`${member?.name || ""} ${member?.handle || ""}`)) && (
                         <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-black text-indigo-400 border border-indigo-500/30 tracking-wider">
                           BOT
                         </span>
@@ -3649,7 +3649,7 @@ function CustomChannel({
                     </p>
                   )}
 
-                  {(post.authorId === "streamcore_bot" || member?.id === "streamcore_bot") &&
+                  {(post.authorId === "streamcore_bot" || member?.id === "streamcore_bot" || /streamcore\s*_?bot/i.test(`${member?.name || ""} ${member?.handle || ""}`)) &&
                     segments.some((s) => /^https?:\/\//.test(s)) && (
                       <div className="mt-3 overflow-hidden rounded-2xl border border-purple-500/40 bg-gradient-to-r from-purple-950/40 via-purple-900/20 to-background p-4 flex flex-wrap items-center justify-between gap-3 shadow-md">
                         <div className="flex items-center gap-3 min-w-0">
