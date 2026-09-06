@@ -171,8 +171,40 @@ function Index() {
   const onboardingRequired = Boolean(
     myAccount &&
     !isAdmin &&
-    (!myAccount.channel_authorized || !myAccount.rules_acknowledged)
+    (!myAccount.channel_authorized && !myAccount.twitch_verified)
   );
+
+  const navigateToView = useCallback(
+    (nextView: View) => {
+      if (myAccount && !isAdmin) {
+        if (!myAccount.rules_acknowledged) {
+          if (nextView !== "rules") {
+            setView("rules");
+            setToast("⚠️ Please read and accept the Community Rules first.");
+            return;
+          }
+        } else if (!myAccount.channel_authorized && !myAccount.twitch_verified) {
+          if (nextView !== "me") {
+            setView("me");
+            setToast("⚠️ You must connect and authorize your Twitch channel before entering the community.");
+            return;
+          }
+        }
+      }
+      setView(nextView);
+    },
+    [myAccount, isAdmin],
+  );
+
+  // Enforce mandatory sequence: Rules -> Profile (Twitch Auth) -> General
+  useEffect(() => {
+    if (!myAccount || isAdmin) return;
+    if (!myAccount.rules_acknowledged && view !== "rules") {
+      setView("rules");
+    } else if (myAccount.rules_acknowledged && !myAccount.channel_authorized && !myAccount.twitch_verified && view !== "me") {
+      setView("me");
+    }
+  }, [myAccount?.rules_acknowledged, myAccount?.channel_authorized, myAccount?.twitch_verified, isAdmin, view]);
 
   useEffect(() => {
     setOnboardingPromptReady(false);
@@ -893,7 +925,7 @@ function Index() {
                 <button
                   key={c.id}
                   onClick={() => {
-                    setView(c.id);
+                    navigateToView(c.id);
                     setSidebarOpen(false);
                   }}
                   className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[15px] transition-colors ${
@@ -913,7 +945,7 @@ function Index() {
         {myAccount ? (
           <button
             onClick={() => {
-              setView("me");
+              navigateToView("me");
               setSidebarOpen(false);
             }}
             className="flex w-full items-center gap-2 bg-rail px-3 py-2 text-left hover:bg-rail/70"
@@ -1188,7 +1220,22 @@ function Index() {
               </div>
             )}
 
-            {view === "rules" && <RulesChannel rules={state.community.rules} onContinue={() => setView("general")} />}
+            {view === "rules" && (
+              <RulesChannel
+                rules={state.community.rules}
+                onContinue={async () => {
+                  if (myAccount) {
+                    await (supabase as any)
+                      .from("profiles")
+                      .update({ rules_acknowledged: true })
+                      .eq("id", myAccount.id);
+                    await refresh();
+                  }
+                  setView("me");
+                  setToast("Rules acknowledged! Now authorize your Twitch channel to unlock community access.");
+                }}
+              />
+            )}
 
             {view === "live-now" && <LiveNowCommunityView members={liveMembers} onPick={setProfile} />}
 
@@ -1409,6 +1456,11 @@ function Index() {
                 refresh={refresh}
                 notify={setToast}
                 onSignOut={() => void signOut()}
+                accessToken={session?.access_token}
+                onAuthorizedSuccess={() => {
+                  setView("general");
+                  setToast("🎉 Congratulations! Your Twitch channel is authorized. Welcome to #general!");
+                }}
               />
             )}
 
@@ -3268,13 +3320,64 @@ function MessageActions({
     </div>
   );
 }
-
 function CommunityMark({ community, size }: { community: { name: string; logo: string }; size: number }) {
   return <div className="grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-xs font-extrabold text-primary-foreground" style={{ width: size, height: size }}>{community.logo ? <img src={community.logo} alt={`${community.name} logo`} className="h-full w-full object-cover" /> : community.name.slice(0, 2).toUpperCase()}</div>;
 }
 
 function RulesChannel({ rules, onContinue }: { rules: string; onContinue: () => void }) {
-  return <div className="mx-auto max-w-2xl space-y-4 px-4 py-8"><section className="rounded-xl bg-popover p-6"><span className="grid h-12 w-12 place-items-center rounded-full bg-accent text-3xl text-muted-foreground">#</span><h1 className="mt-4 text-2xl font-extrabold">Welcome to #rules!</h1><p className="mt-2 text-sm text-muted-foreground">Please read these rules before taking part in the community.</p></section><section className="space-y-3 rounded-xl bg-popover p-5"><h2 className="font-bold">Community rules</h2><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">{rules.split("\n").filter(Boolean).map((rule) => <li key={rule}>{rule}</li>)}</ol><button onClick={onContinue} className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/85">I have read the rules — Continue to #general</button></section></div>;
+  const [agreed, setAgreed] = useState(false);
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-4 px-4 py-8">
+      <section className="rounded-xl bg-popover p-6 shadow-sm border border-border/50">
+        <span className="grid h-12 w-12 place-items-center rounded-full bg-primary/15 text-2xl text-primary font-bold">
+          #
+        </span>
+        <h1 className="mt-4 text-2xl font-extrabold text-foreground">Welcome to #rules!</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Please review the official StreamCore community rules before setting up your creator profile.
+        </p>
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-popover p-6 shadow-sm border border-border/50">
+        <h2 className="text-base font-bold text-foreground">Community Rules</h2>
+        <ol className="list-decimal space-y-3 pl-5 text-sm leading-relaxed text-muted-foreground">
+          {rules
+            .split("\n")
+            .filter(Boolean)
+            .map((rule) => (
+              <li key={rule} className="pl-1">
+                {rule}
+              </li>
+            ))}
+        </ol>
+
+        <div className="mt-8 border-t border-border/50 pt-6 space-y-4">
+          <label className="flex items-start sm:items-center gap-3 cursor-pointer select-none rounded-xl border-2 border-primary/30 bg-primary/5 p-4 hover:bg-primary/10 transition">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="mt-0.5 sm:mt-0 h-5 w-5 rounded border-primary text-primary focus:ring-primary accent-primary cursor-pointer"
+            />
+            <span className="text-sm font-bold text-foreground">
+              I have read and understand the StreamCore Community Rules
+            </span>
+          </label>
+
+          <button
+            type="button"
+            disabled={!agreed}
+            onClick={onContinue}
+            className="w-full sm:w-auto rounded-xl bg-primary px-8 py-3.5 text-sm font-black tracking-wide text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition shadow-lg flex items-center justify-center gap-2"
+          >
+            <span>[ I UNDERSTAND & CONTINUE ]</span>
+            <span>→</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function CustomChannel({

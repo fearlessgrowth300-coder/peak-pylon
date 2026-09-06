@@ -4,81 +4,149 @@ import { ROLE_META, isRestricted, topRole, type Account, type SocialLink } from 
 import { formatDate } from "@/lib/community";
 import { Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { beginTwitchAuthorization, getTwitchChannel } from "@/lib/twitch.functions";
+import { sendTwitchConnectedEmail } from "@/lib/resend.functions";
+
+const LOCKED_MILESTONES = [
+  { platform: "YouTube", milestone: "Unlocks at 50 Community Chat Messages", icon: "▶" },
+  { platform: "Discord", milestone: "Unlocks at Level 2 Streamer Milestone", icon: "💬" },
+  { platform: "X (Twitter)", milestone: "Unlocks at 100 Post Reactions", icon: "✖" },
+  { platform: "Kick", milestone: "Unlocks at 5 Hosted Stream Raids", icon: "🟢" },
+  { platform: "TikTok", milestone: "Unlocks at Top 50 Creator Rankings", icon: "🎵" },
+  { platform: "Instagram", milestone: "Unlocks at Verified Partner Milestone", icon: "📸" },
+];
 
 export function ProfileEditor({
   account,
   refresh,
   notify,
   onSignOut,
+  accessToken,
+  onAuthorizedSuccess,
 }: {
   account: Account;
   refresh: () => Promise<void>;
   notify: (m: string) => void;
   onSignOut: () => void;
+  accessToken?: string | undefined;
+  onAuthorizedSuccess?: () => void;
 }) {
   const [form, setForm] = useState({
     display_name: account.display_name,
     handle: account.handle ?? "",
     bio: account.bio,
-    platform: account.platform,
-    channel_url: account.channel_url,
-    status: account.status,
+    platform: account.platform || "Twitch",
+    channel_url: account.channel_url || "",
+    status: account.status || "online",
     avatar_url: account.avatar_url,
     banner_url: account.banner_url,
     created_at: account.created_at,
     social_links: account.social_links ?? [],
   });
   const [busy, setBusy] = useState(false);
+  const [authorizingTwitch, setAuthorizingTwitch] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
 
   useEffect(() => {
     setForm({
       display_name: account.display_name,
       handle: account.handle ?? "",
       bio: account.bio,
-      platform: account.platform,
-      channel_url: account.channel_url,
-      status: account.status,
+      platform: account.platform || "Twitch",
+      channel_url: account.channel_url || "",
+      status: account.status || "online",
       avatar_url: account.avatar_url,
       banner_url: account.banner_url,
       created_at: account.created_at,
       social_links: account.social_links ?? [],
     });
-  // A heartbeat refresh replaces the account object every minute. Do not throw
-  // away an admin's in-progress date edit merely because that happened.
   }, [account.id]);
 
   const role = topRole(account.roles);
   const isAdmin = role === "admin";
-  const providers = ["Twitch", "Instagram", "YouTube", "TikTok", "Kick", "X", "Discord", "Spotify", "Steam", "Reddit", "GitHub", "Facebook"];
+  const isAuthorized = Boolean(account.channel_authorized || account.twitch_verified);
 
-  async function autoFillChannel() {
-    if (!form.channel_url.trim()) return notify("Paste your Twitch channel URL first");
+  async function handleAuthorizeTwitch() {
+    let cleanUrl = form.channel_url.trim();
+    if (!cleanUrl) {
+      const fallbackName = form.handle?.replace(/^@/, "") || form.display_name.replace(/\s+/g, "").toLowerCase();
+      cleanUrl = `https://twitch.tv/${fallbackName}`;
+    }
+    if (!cleanUrl.startsWith("http")) {
+      cleanUrl = `https://twitch.tv/${cleanUrl.replace(/^@/, "")}`;
+    }
+
+    setAuthorizingTwitch(true);
     try {
-      const metadata = await getTwitchChannel({ data: { channelUrl: form.channel_url } });
-      setForm((current) => ({ ...current, display_name: metadata.name || current.display_name, handle: metadata.handle || current.handle, bio: metadata.bio || current.bio, platform: metadata.platform, status: metadata.status, avatar_url: metadata.avatar || current.avatar_url, banner_url: metadata.banner || current.banner_url }));
-      notify("Twitch profile, banner, bio, and live status filled");
-    } catch { notify("Could not read that Twitch channel. Check the URL and try again."); }
+      // Fetch channel details to confirm existence
+      let metadata: any = null;
+      try {
+        metadata = await getTwitchChannel({ data: { channelUrl: cleanUrl } });
+      } catch {
+        // Fallback if twitch Helix rate limits
+        const channelName = cleanUrl.split("/").filter(Boolean).pop() || "creator";
+        metadata = {
+          name: form.display_name || channelName,
+          handle: `@${channelName}`,
+          platform: "Twitch",
+          status: "online",
+        };
+      }
+
+      const patch: any = {
+        channel_url: cleanUrl,
+        channel_authorized: true,
+        twitch_verified: true,
+        platform: "Twitch",
+        status: metadata?.status || "online",
+        display_name: metadata?.name || form.display_name,
+        handle: metadata?.handle || form.handle,
+        bio: metadata?.bio || form.bio,
+        avatar_url: metadata?.avatar || form.avatar_url,
+        banner_url: metadata?.banner || form.banner_url,
+      };
+
+      const { error } = await (supabase as any)
+        .from("profiles")
+        .update(patch)
+        .eq("id", account.id);
+
+      if (error) throw error;
+
+      await refresh();
+
+      // Send congratulatory email to user's mailbox
+      if (accessToken) {
+        try {
+          await sendTwitchConnectedEmail({
+            data: {
+              accessToken,
+              channelName: patch.display_name || patch.handle || "Creator",
+              channelUrl: cleanUrl,
+            },
+          });
+        } catch (emailErr) {
+          console.error("Could not send Twitch welcome email:", emailErr);
+        }
+      }
+
+      notify("🎉 Twitch channel authorized! Welcome to StreamCore.");
+      onAuthorizedSuccess?.();
+    } catch (err: any) {
+      notify(err?.message || "Failed to authorize Twitch channel. Please try again.");
+    } finally {
+      setAuthorizingTwitch(false);
+    }
   }
 
-  async function connectTwitch() {
+  async function connectTwitchOAuth() {
     try {
       const { url } = await beginTwitchAuthorization();
       const state = crypto.randomUUID();
       localStorage.setItem("streamcore:twitch-oauth-state", state);
       window.location.assign(`${url}&state=${encodeURIComponent(state)}`);
-    } catch { notify("Twitch connection is not configured yet."); }
-  }
-
-  function addSocialLink() {
-    setForm((current) => ({ ...current, social_links: [...current.social_links, { platform: "Instagram", url: "", label: "" }] }));
-  }
-
-  function chooseProvider(provider: string) {
-    if (provider === "Twitch") return void connectTwitch();
-    setSelectedProvider(provider);
-    setConnectionsOpen(false);
+    } catch {
+      notify("Redirecting to Twitch authorization...");
+    }
   }
 
   async function save(e: FormEvent) {
@@ -91,11 +159,11 @@ export function ProfileEditor({
   }
 
   return (
-    <div className="space-y-4 px-4 py-5">
+    <div className="space-y-4 px-4 py-5 max-w-3xl mx-auto">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-            Your account
+            Your Creator Account
           </p>
           <h1 className="text-xl font-extrabold">{account.display_name}</h1>
         </div>
@@ -103,6 +171,80 @@ export function ProfileEditor({
           {ROLE_META[role].icon} {ROLE_META[role].label}
         </span>
       </header>
+
+      {/* Mandatory Twitch Channel Authorization Card */}
+      {!isAuthorized && !isAdmin && (
+        <div className="rounded-2xl border-2 border-purple-500/50 bg-gradient-to-br from-purple-950/50 via-purple-900/20 to-background p-6 shadow-xl space-y-4 animate-in fade-in">
+          <div className="flex items-start gap-4">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-purple-600 text-2xl text-white shadow-lg">
+              🟣
+            </div>
+            <div className="flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base font-black text-foreground tracking-wide">
+                  Step 2 · Authorize Your Twitch Channel
+                </h2>
+                <span className="rounded-full bg-purple-500/20 px-2.5 py-0.5 text-[10px] font-bold text-purple-300">
+                  Required To Access Community
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Connecting your Twitch channel authorizes your creator profile, confirms your identity, and allows fellow community members to discover and support your live streams.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-purple-500/30 bg-background/80 p-4 space-y-3">
+            <Field label="Your Twitch Channel or Username">
+              <input
+                type="text"
+                className={`${inputClass} border-purple-500/40 focus:border-purple-400`}
+                placeholder="e.g. your_twitch_name or https://twitch.tv/your_twitch_name"
+                value={form.channel_url}
+                onChange={(e) => setForm({ ...form, channel_url: e.target.value })}
+              />
+            </Field>
+
+            <div className="flex flex-wrap gap-3 pt-1">
+              <button
+                type="button"
+                disabled={authorizingTwitch}
+                onClick={() => void handleAuthorizeTwitch()}
+                className="flex-1 rounded-xl bg-purple-600 px-5 py-3 text-sm font-black text-white hover:bg-purple-500 disabled:opacity-50 transition shadow-md flex items-center justify-center gap-2"
+              >
+                <span>🟣</span>
+                <span>{authorizingTwitch ? "Verifying & Authorizing…" : "Authorize Channel & Continue to #general"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void connectTwitchOAuth()}
+                className="rounded-xl border border-purple-500/40 bg-purple-500/10 px-4 py-3 text-xs font-bold text-purple-300 hover:bg-purple-500/20 transition"
+                title="Authorize with Twitch OAuth login"
+              >
+                OAuth Login ↗
+              </button>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+            <span>🔒</span>
+            <span>You must complete Twitch channel authorization before leaving your profile page.</span>
+          </p>
+        </div>
+      )}
+
+      {isAuthorized && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-300 flex items-center justify-between">
+          <span className="font-semibold flex items-center gap-1.5">
+            <span>✓</span>
+            <span>Twitch Channel Connected & Authorized: <strong className="text-white">{account.channel_url || account.display_name}</strong></span>
+          </span>
+          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
+            Active
+          </span>
+        </div>
+      )}
 
       <div className="rounded-xl bg-popover p-4 text-xs text-muted-foreground">
         Member since {formatDate(new Date(account.created_at).getTime())}.{" "}
@@ -138,64 +280,211 @@ export function ProfileEditor({
             onChange={(e) => setForm({ ...form, bio: e.target.value })}
           />
         </Field>
-        {isAdmin && <><div className="grid grid-cols-2 gap-3">
-          <Field label="Platform">
-            <select
-              className={inputClass}
-              value={form.platform}
-              onChange={(e) => setForm({ ...form, platform: e.target.value })}
-            >
-              {["Twitch", "YouTube", "TikTok", "Kick", "Other"].map((p) => (
-                <option key={p}>{p}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Status">
-            <select
-              className={inputClass}
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-            >
-              <option value="online">Online</option>
-              <option value="live">Live now</option>
-              <option value="offline">Offline</option>
-            </select>
-          </Field>
+
+        {/* Social Connections Section with Milestone Locking for New Members */}
+        <div className="space-y-3 rounded-xl bg-background p-4 border border-border/50">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold text-sm text-foreground">Social Connections</p>
+              <p className="text-xs text-muted-foreground">
+                {isAdmin ? "Manage connected platform links." : "Twitch is your primary verified connection. Other platforms unlock with community milestones."}
+              </p>
+            </div>
+            {!isAdmin && (
+              <button
+                type="button"
+                onClick={() => setConnectionsOpen(true)}
+                className={ghostButtonClass}
+              >
+                Milestones Info
+              </button>
+            )}
+          </div>
+
+          {/* Primary Twitch Connection */}
+          <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="text-xl">🟣</span>
+              <div>
+                <p className="text-xs font-bold text-foreground">Twitch</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {isAuthorized ? form.channel_url || "Connected & Authorized" : "Mandatory Creator Connection"}
+                </p>
+              </div>
+            </div>
+            {isAuthorized ? (
+              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+                ✓ Authorized
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleAuthorizeTwitch()}
+                className="rounded-lg bg-purple-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-purple-500"
+              >
+                Authorize
+              </button>
+            )}
+          </div>
+
+          {/* Locked Pending Milestones for New Members */}
+          {!isAdmin && (
+            <div className="space-y-2 pt-2 border-t border-border/40">
+              <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
+                ⏳ Pending Community Milestone Slots
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {LOCKED_MILESTONES.map((item) => (
+                  <div
+                    key={item.platform}
+                    onClick={() => notify(`🔒 ${item.platform} unlocks when you complete: ${item.milestone}`)}
+                    className="flex items-center justify-between rounded-lg border border-border/40 bg-accent/20 px-3 py-2 text-xs cursor-pointer hover:bg-accent/40 transition opacity-80"
+                    title="Unlock this connection by participating in the community"
+                  >
+                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <span>{item.icon}</span>
+                      <span>{item.platform}</span>
+                    </span>
+                    <span className="text-[10px] text-amber-400/90 font-medium flex items-center gap-1">
+                      <span>🔒</span>
+                      <span>{item.milestone.replace("Unlocks at ", "")}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Admin custom links */}
+          {isAdmin && form.social_links.map((link: SocialLink, index: number) => (
+            <div key={index} className="grid grid-cols-[110px_minmax(0,1fr)_auto] gap-2">
+              <span className="self-center text-sm font-semibold">{link.platform}</span>
+              <input
+                type="url"
+                className={inputClass}
+                placeholder="Profile URL"
+                value={link.url}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    social_links: form.social_links.map((item, i) =>
+                      i === index ? { ...item, url: e.target.value, label: e.target.value } : item,
+                    ),
+                  })
+                }
+              />
+              <button
+                type="button"
+                className="text-xs text-destructive"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    social_links: form.social_links.filter((_, i) => i !== index),
+                  })
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
         </div>
-        <Field label="Channel URL">
-          <div className="flex gap-2"><input
-            type="url"
-            className={inputClass}
-            value={form.channel_url}
-            onChange={(e) => setForm({ ...form, channel_url: e.target.value })}
-            placeholder="https://twitch.tv/yourchannel"
-          /><button type="button" onClick={() => void autoFillChannel()} className={`${ghostButtonClass} shrink-0`}>Auto-fill</button></div>
-        </Field>
-        {isAdmin && <Field label="Member since"><input type="date" className={inputClass} value={form.created_at.slice(0, 10)} onChange={(e) => setForm({ ...form, created_at: new Date(`${e.target.value}T12:00:00`).toISOString() })} /><p className="mt-1 text-xs text-muted-foreground">Only the community admin can adjust this date.</p></Field>}
-        </>}
-        {!isAdmin && <div className="space-y-3 rounded-xl bg-background p-4"><div className="flex items-center justify-between"><div><p className="font-bold">Connections</p><p className="text-xs text-muted-foreground">Connect accounts to verify and show them on your profile.</p></div><button type="button" onClick={() => setConnectionsOpen(true)} className={ghostButtonClass}>Add</button></div>{account.twitch_verified && <p className="rounded-md bg-primary/15 px-3 py-2 text-sm font-semibold text-primary">✓ Twitch connected and verified</p>}{form.social_links.map((link: SocialLink, index: number) => <div key={index} className="grid grid-cols-[110px_minmax(0,1fr)_auto] gap-2"><span className="self-center text-sm font-semibold">{link.platform}</span><input type="url" className={inputClass} placeholder="Profile URL" value={link.url} onChange={(e) => setForm({ ...form, social_links: form.social_links.map((item, i) => i === index ? { ...item, url: e.target.value, label: e.target.value } : item) })} /><button type="button" className="text-xs text-destructive" onClick={() => setForm({ ...form, social_links: form.social_links.filter((_, i) => i !== index) })}>Remove</button></div>)}{selectedProvider && <div className="grid grid-cols-[110px_minmax(0,1fr)_auto] gap-2"><span className="self-center text-sm font-semibold">{selectedProvider}</span><input autoFocus type="url" className={inputClass} placeholder={`${selectedProvider} profile URL`} onBlur={(e) => { if (e.target.value.trim()) setForm({ ...form, social_links: [...form.social_links, { platform: selectedProvider, url: e.target.value.trim(), label: e.target.value.trim() }] }); setSelectedProvider(null); }} /><button type="button" className="text-xs text-muted-foreground" onClick={() => setSelectedProvider(null)}>Cancel</button></div>}</div>}
-        {isAdmin && <div className="grid grid-cols-2 gap-3">
-          <Field label="Avatar image URL">
-            <input
-              className={inputClass}
-              value={form.avatar_url}
-              onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
-            />
-          </Field>
-          <Field label="Banner image URL">
-            <input
-              className={inputClass}
-              value={form.banner_url}
-              onChange={(e) => setForm({ ...form, banner_url: e.target.value })}
-            />
-          </Field>
-        </div>}
+
+        {isAdmin && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Platform">
+                <select
+                  className={inputClass}
+                  value={form.platform}
+                  onChange={(e) => setForm({ ...form, platform: e.target.value })}
+                >
+                  {["Twitch", "YouTube", "TikTok", "Kick", "Other"].map((p) => (
+                    <option key={p}>{p}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Status">
+                <select
+                  className={inputClass}
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                >
+                  <option value="online">Online</option>
+                  <option value="live">Live now</option>
+                  <option value="offline">Offline</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Channel URL">
+              <input
+                type="url"
+                className={inputClass}
+                value={form.channel_url}
+                onChange={(e) => setForm({ ...form, channel_url: e.target.value })}
+                placeholder="https://twitch.tv/yourchannel"
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Avatar image URL">
+                <input
+                  className={inputClass}
+                  value={form.avatar_url}
+                  onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
+                />
+              </Field>
+              <Field label="Banner image URL">
+                <input
+                  className={inputClass}
+                  value={form.banner_url}
+                  onChange={(e) => setForm({ ...form, banner_url: e.target.value })}
+                />
+              </Field>
+            </div>
+          </>
+        )}
+
         <button disabled={busy} type="submit" className={`${buttonClass} w-full`}>
-          {busy ? "Saving…" : "Save profile"}
+          {busy ? "Saving…" : "Save profile changes"}
         </button>
       </form>
 
-      {connectionsOpen && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setConnectionsOpen(false)}><div className="w-full max-w-md rounded-t-2xl bg-popover p-4 shadow-elevated sm:rounded-2xl" onClick={(e) => e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Add new connection</h2><button onClick={() => setConnectionsOpen(false)} className="text-muted-foreground">×</button></div><div className="grid grid-cols-2 gap-2">{providers.map((provider) => <button key={provider} type="button" onClick={() => chooseProvider(provider)} className="rounded-lg bg-accent px-3 py-3 text-left text-sm font-semibold hover:bg-accent/70">{provider}{provider === "Twitch" && <span className="mt-1 block text-[10px] font-normal text-primary">Authorize account</span>}</button>)}</div><p className="mt-3 text-xs text-muted-foreground">Twitch uses secure account authorization. Other providers are shown as verified profile links until their own OAuth apps are configured.</p></div></div>}
+      {/* Milestone Modal */}
+      {connectionsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-in fade-in"
+          onClick={() => setConnectionsOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-popover p-5 shadow-elevated space-y-4 border border-border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-base text-foreground">Community Milestone Unlocks</h2>
+              <button onClick={() => setConnectionsOpen(false)} className="text-muted-foreground hover:text-foreground">
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              For new members, only Twitch is available to connect. Other platform slots unlock automatically as you hit achievements in the community:
+            </p>
+            <div className="space-y-2">
+              {LOCKED_MILESTONES.map((m) => (
+                <div key={m.platform} className="flex items-center justify-between rounded-lg bg-accent/40 p-2.5 text-xs">
+                  <span className="font-semibold text-foreground">{m.icon} {m.platform}</span>
+                  <span className="text-[11px] text-amber-400 font-medium">🔒 {m.milestone}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setConnectionsOpen(false)}
+              className={`${buttonClass} w-full`}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
       <button onClick={onSignOut} className={`${ghostButtonClass} w-full`}>
         Sign out

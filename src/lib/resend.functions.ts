@@ -182,3 +182,56 @@ export const dispatchReplyNotification = createServerFn({ method: "POST" })
       html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#8b5cf6">New reply from ${safeName}</h2><p>${safeText}</p><a href="https://peak-pylon.vercel.app" style="color:#a78bfa">Open the conversation →</a></div>`,
     });
   });
+
+const twitchConnectedInput = z.object({
+  accessToken: z.string().min(20),
+  channelName: z.string().min(1),
+  channelUrl: z.string().optional(),
+});
+
+export const sendTwitchConnectedEmail = createServerFn({ method: "POST" })
+  .validator(twitchConnectedInput)
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(data.accessToken);
+    if (authError || !authData.user || !authData.user.email) return { sent: 0, status: "no_email" };
+
+    const db = supabaseAdmin as any;
+    const [apiKey, config] = await Promise.all([loadResendKey(db), loadResendConfig(db)]);
+    if (!apiKey) return { sent: 0, status: "no_api_key" };
+
+    const email = authData.user.email;
+    const cleanName = data.channelName.replace(/[<>&\"']/g, "");
+
+    try {
+      await deliverResendEmail(apiKey, {
+        from: config.fromEmail || "StreamCore <noreply@authenticcommunity.fun>",
+        to: [email],
+        subject: `🎉 Congratulations! Your Twitch channel is connected on StreamCore`,
+        text: `Congratulations! You just connected your Twitch channel (${cleanName}) on StreamCore, where people discover you and make you grow together. Welcome to the creator network!`,
+        html: `
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d0e12;color:#ffffff;padding:32px;border-radius:16px;max-width:560px;margin:0 auto;border:1px solid rgba(139,92,246,0.3)">
+            <div style="text-align:center;margin-bottom:24px">
+              <span style="font-size:36px">🟣</span>
+              <h1 style="color:#a78bfa;margin:12px 0 6px 0;font-size:24px;font-weight:800">Twitch Channel Connected!</h1>
+              <p style="color:#94a3b8;font-size:14px;margin:0">Official StreamCore Creator Network</p>
+            </div>
+            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;margin:20px 0">
+              <p style="font-size:15px;line-height:1.6;color:#e2e8f0;margin:0">
+                <strong>Congratulations!</strong> You just connected your Twitch channel (<strong style="color:#c084fc">@${cleanName}</strong>) on StreamCore, where people discover you and make you grow together!
+              </p>
+            </div>
+            <div style="text-align:center;margin-top:28px">
+              <a href="https://peak-pylon.vercel.app" style="background:#9333ea;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:700;font-size:14px;display:inline-block">
+                Enter Community #general →
+              </a>
+            </div>
+          </div>
+        `,
+      });
+      return { sent: 1, status: "delivered" };
+    } catch (err) {
+      console.error("Failed to deliver Twitch connected email:", err);
+      return { sent: 0, status: "error" };
+    }
+  });
