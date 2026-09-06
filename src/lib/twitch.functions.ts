@@ -7,7 +7,11 @@ const refreshInput = z.object({
   force: z.boolean().optional(),
 });
 const clipsInput = z.object({ channelUrl: z.string().url(), first: z.number().int().min(1).max(20).optional() });
-const codeInput = z.object({ code: z.string().min(1) });
+const codeInput = z.object({
+  code: z.string().min(1),
+  accessToken: z.string().min(20),
+  expectedLogin: z.string().optional(),
+});
 
 function twitchRedirectUri() {
   return process.env["TWITCH_REDIRECT_URI"] || "https://peak-pylon.vercel.app/twitch/callback";
@@ -35,8 +39,8 @@ type TwitchStatusSnapshot = {
   gameImage: string;
   viewerCount: number;
   title: string;
-  streamId?: string;
-  followers?: number;
+  streamId?: string | undefined;
+  followers?: number | undefined;
 };
 
 let memoryStatusCache: { signature: string; snapshots: TwitchStatusSnapshot[]; expiresAt: number } | null = null;
@@ -74,6 +78,19 @@ export const beginTwitchAuthorization = createServerFn({ method: "GET" }).handle
 export const completeTwitchAuthorization = createServerFn({ method: "POST" })
   .validator(codeInput)
   .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(data.accessToken);
+    if (authError || !authData.user) throw new Error("Your StreamCore session has expired. Please sign in again.");
+
+    const db = supabaseAdmin as any;
+    const { data: currentProfile, error: profileReadError } = await db
+      .from("profiles")
+      .select("rules_acknowledged")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (profileReadError) throw profileReadError;
+    if (!currentProfile?.rules_acknowledged) throw new Error("Accept the StreamCore community rules before connecting Twitch.");
+
     const clientId = process.env["TWITCH_CLIENT_ID"];
     const clientSecret = process.env["TWITCH_CLIENT_SECRET"];
     if (!clientId || !clientSecret) throw new Error("Twitch credentials are not configured");
@@ -87,10 +104,50 @@ export const completeTwitchAuthorization = createServerFn({ method: "POST" })
     const users = (await userResponse.json()) as { data?: Array<{ id: string; display_name: string; login: string; description: string; profile_image_url: string; offline_image_url: string }> };
     const user = users.data?.[0];
     if (!user) throw new Error("Twitch did not return a profile");
+    const expectedLogin = (data.expectedLogin ?? "").trim().replace(/^@/, "").toLowerCase();
+    if (expectedLogin && expectedLogin !== user.login.toLowerCase()) {
+      throw new Error(`You authorized @${user.login}, but entered @${expectedLogin}. Sign in to the matching Twitch account.`);
+    }
     const ownStreamResponse = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(user.id)}`, { headers });
     const streams = ownStreamResponse.ok ? (await ownStreamResponse.json()) as { data?: Array<{ thumbnail_url?: string }> } : { data: [] };
     const thumbnail = streams.data?.[0]?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720") ?? "";
-    return { display_name: user.display_name, handle: `@${user.login}`, bio: user.description || "", avatar_url: user.profile_image_url || "", banner_url: thumbnail || user.offline_image_url || "", platform: "Twitch", channel_url: `https://www.twitch.tv/${user.login}`, status: thumbnail ? "live" : "offline" };
+    const profile = {
+      display_name: user.display_name,
+      handle: `@${user.login}`,
+      bio: user.description || "",
+      avatar_url: user.profile_image_url || "",
+      banner_url: thumbnail || user.offline_image_url || "",
+      platform: "Twitch",
+      channel_url: `https://www.twitch.tv/${user.login}`,
+      status: thumbnail ? "live" : "offline",
+      channel_authorized: true,
+      twitch_verified: true,
+      twitch_user_id: user.id,
+      twitch_authorized_at: new Date().toISOString(),
+    };
+
+    const { error: profileError } = await db.from("profiles").update(profile).eq("id", authData.user.id);
+    if (profileError) throw profileError;
+
+    let emailStatus = "not_configured";
+    try {
+      const { dispatchConfiguredResendEvent } = await import("@/lib/resend.server");
+      const safeName = user.display_name.replace(/[<>&\"']/g, "");
+      const result = await dispatchConfiguredResendEvent({
+        kind: "twitch_connected",
+        dedupeKey: `twitch-connected:${authData.user.id}:${user.login}`,
+        recipientUserIds: [authData.user.id],
+        subject: "🎉 Congratulations! Your Twitch channel is connected on StreamCore",
+        text: `Congratulations! You connected @${user.login} on StreamCore. Welcome to the creator network!`,
+        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:28px;border-radius:16px"><h1 style="color:#a78bfa">Twitch Channel Connected!</h1><p>Congratulations, <strong>${safeName}</strong>! You connected <strong>@${user.login}</strong> on StreamCore, where creators discover and support one another.</p><a href="https://peak-pylon.vercel.app" style="color:#c084fc">Enter #general →</a></div>`,
+      });
+      emailStatus = result.status;
+    } catch (error) {
+      console.error("Twitch authorization email failed:", error);
+      emailStatus = "error";
+    }
+
+    return { profile, emailStatus };
   });
 
 export async function fetchRealTwitchChannelData(login: string) {

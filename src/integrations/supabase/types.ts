@@ -31,6 +31,12 @@ export type Database = {
           social_links: Json
           status: string
           twitch_verified: boolean
+          channel_authorized: boolean
+          rules_acknowledged: boolean
+          rules_acknowledged_at: string | null
+          twitch_authorized_at: string | null
+          twitch_user_id: string | null
+          approval_status: string
         }
         Insert: {
           avatar_url?: string
@@ -48,6 +54,12 @@ export type Database = {
           social_links?: Json
           status?: string
           twitch_verified?: boolean
+          channel_authorized?: boolean
+          rules_acknowledged?: boolean
+          rules_acknowledged_at?: string | null
+          twitch_authorized_at?: string | null
+          twitch_user_id?: string | null
+          approval_status?: string
         }
         Update: {
           avatar_url?: string
@@ -65,6 +77,12 @@ export type Database = {
           social_links?: Json
           status?: string
           twitch_verified?: boolean
+          channel_authorized?: boolean
+          rules_acknowledged?: boolean
+          rules_acknowledged_at?: string | null
+          twitch_authorized_at?: string | null
+          twitch_user_id?: string | null
+          approval_status?: string
         }
         Relationships: []
       }

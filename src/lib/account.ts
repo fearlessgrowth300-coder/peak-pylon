@@ -42,6 +42,12 @@ export type ProfileRow = {
   created_at: string;
   last_active_at: string;
   twitch_verified: boolean;
+  channel_authorized: boolean;
+  rules_acknowledged: boolean;
+  rules_acknowledged_at: string | null;
+  twitch_authorized_at: string | null;
+  twitch_user_id: string | null;
+  approval_status: string;
   social_links: SocialLink[];
 };
 
@@ -143,6 +149,12 @@ export function useAccounts() {
         created_at: new Date(m.joined || Date.now()).toISOString(),
         last_active_at: new Date().toISOString(),
         twitch_verified: false,
+        channel_authorized: false,
+        rules_acknowledged: false,
+        rules_acknowledged_at: null,
+        twitch_authorized_at: null,
+        twitch_user_id: null,
+        approval_status: "pending",
         social_links: (m.connections || []) as SocialLink[],
         roles: byUser.get(row.id) ?? (m.role ? [m.role as Role] : ["streamer"]),
       });

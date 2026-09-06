@@ -22,10 +22,10 @@ import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
 import { dispatchReplyNotification, dispatchResendNotification } from "@/lib/resend.functions";
 import { type CommunityInvite, getInviteByCode, createCommunityInvite, claimInviteOnSignup } from "@/lib/invites";
 import { InviteLandingModal } from "@/components/community/InviteLandingModal";
-import { MandatoryOnboardingModal } from "@/components/community/MandatoryOnboardingModal";
 import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
 import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
 import { triggerStreamerReactionsToPost } from "@/lib/streamer-reactions";
+import { acknowledgeCommunityRules } from "@/lib/onboarding.functions";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -128,8 +128,6 @@ function Index() {
   const [activeInvite, setActiveInvite] = useState<CommunityInvite | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteBusy, setInviteBusy] = useState(false);
-  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
-  const [onboardingPromptReady, setOnboardingPromptReady] = useState(false);
 
   // Detect invite link / code from URL: Show Community Preview Screen immediately, with 5s transition to signup
   useEffect(() => {
@@ -165,15 +163,6 @@ function Index() {
     }
   }, [inviteSearch.code, inviteSearch.invite, refresh, session?.user]);
 
-  // Let new members experience the community before requesting their required
-  // rules acknowledgement and streamer profile authorization. The owner/admin
-  // manages the community and must never be blocked by creator onboarding.
-  const onboardingRequired = Boolean(
-    myAccount &&
-    !isAdmin &&
-    (!myAccount.channel_authorized && !myAccount.twitch_verified)
-  );
-
   const navigateToView = useCallback(
     (nextView: View) => {
       if (myAccount && !isAdmin) {
@@ -205,16 +194,6 @@ function Index() {
       setView("me");
     }
   }, [myAccount?.rules_acknowledged, myAccount?.channel_authorized, myAccount?.twitch_verified, isAdmin, view]);
-
-  useEffect(() => {
-    setOnboardingPromptReady(false);
-    if (!onboardingRequired || onboardingDismissed) return;
-
-    const timer = window.setTimeout(() => setOnboardingPromptReady(true), 30_000);
-    return () => window.clearTimeout(timer);
-  }, [onboardingRequired, onboardingDismissed, userId]);
-
-  const needsOnboarding = onboardingRequired && !onboardingDismissed && onboardingPromptReady;
 
   const clientIdRef = useRef<string>(Math.random().toString(36).slice(2, 9));
   const typingChannelRef = useRef<any>(null);
@@ -1004,7 +983,7 @@ function Index() {
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
           <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
-            {view === "home" && <HomeDashboard state={state} liveMembers={liveMembers} members={allMembers} posts={state.posts} onPick={setProfile} onOpen={setView} />}
+            {view === "home" && <HomeDashboard state={state} liveMembers={liveMembers} members={allMembers} posts={state.posts} onPick={setProfile} onOpen={navigateToView} />}
             {view === "general" && (
               <div className="space-y-4 px-4 py-5">
                 <section
@@ -1224,15 +1203,18 @@ function Index() {
               <RulesChannel
                 rules={state.community.rules}
                 onContinue={async () => {
-                  if (myAccount) {
-                    await (supabase as any)
-                      .from("profiles")
-                      .update({ rules_acknowledged: true })
-                      .eq("id", myAccount.id);
-                    await refresh();
+                  if (!myAccount || !session?.access_token) {
+                    setToast("Sign in before accepting the community rules.");
+                    return;
                   }
-                  setView("me");
-                  setToast("Rules acknowledged! Now authorize your Twitch channel to unlock community access.");
+                  try {
+                    await acknowledgeCommunityRules({ data: { accessToken: session.access_token } });
+                    await refresh();
+                    setView("me");
+                    setToast("Rules acknowledged! Now authorize your Twitch channel to unlock community access.");
+                  } catch (error) {
+                    setToast(error instanceof Error ? error.message : "The rules acknowledgment could not be saved.");
+                  }
                 }}
               />
             )}
@@ -1457,10 +1439,6 @@ function Index() {
                 notify={setToast}
                 onSignOut={() => void signOut()}
                 accessToken={session?.access_token}
-                onAuthorizedSuccess={() => {
-                  setView("general");
-                  setToast("🎉 Congratulations! Your Twitch channel is authorized. Welcome to #general!");
-                }}
               />
             )}
 
@@ -1672,23 +1650,6 @@ function Index() {
             setToast("🎉 Welcome to StreamCore!");
           }}
           isAuthenticated={Boolean(session?.user)}
-        />
-      )}
-
-      {/* Mandatory Onboarding Flow: Rules -> Profile Setup -> Channel Authorization */}
-      {needsOnboarding && userId && (
-        <MandatoryOnboardingModal
-          userId={userId}
-          initialName={myAccount?.display_name || ""}
-          initialHandle={myAccount?.handle || ""}
-          communityRules={state.community.rules}
-          allMembers={allMembers}
-          onCompleted={() => {
-            setOnboardingDismissed(true);
-            refresh();
-            setView("general");
-            setToast("🎉 Channel connected! Welcome announcement posted in #general.");
-          }}
         />
       )}
 

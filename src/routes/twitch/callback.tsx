@@ -15,13 +15,21 @@ function TwitchCallback() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { setMessage("Please sign in to Peak Pylon before connecting Twitch."); return; }
       try {
-        const profile = await completeTwitchAuthorization({ data: { code: params.get("code")! } });
-        const { error } = await supabase.from("profiles").update({ ...profile, twitch_verified: true }).eq("id", session.user.id);
-        if (error) throw error;
+        const result = await completeTwitchAuthorization({ data: {
+          code: params.get("code")!,
+          accessToken: session.access_token,
+          expectedLogin: localStorage.getItem("streamcore:twitch-expected-login") || undefined,
+        } });
         localStorage.removeItem("streamcore:twitch-oauth-state");
-        setMessage("Twitch account verified. Returning to your profile…");
-        setTimeout(() => void navigate({ to: "/" }), 800);
-      } catch { setMessage("Twitch verification could not be completed. Please try again."); }
+        localStorage.removeItem("streamcore:twitch-expected-login");
+        localStorage.setItem("streamcore:last-view", "general");
+        setMessage(result.emailStatus === "error"
+          ? "Twitch verified. Opening #general (the celebration email could not be delivered)."
+          : "Twitch verified. Opening #general…");
+        setTimeout(() => void navigate({ to: "/", search: { invite: undefined, code: undefined } }), 800);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Twitch verification could not be completed. Please try again.");
+      }
     };
     void run();
   }, [navigate]);

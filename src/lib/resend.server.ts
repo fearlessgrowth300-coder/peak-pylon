@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-type NotificationKind = "announcement" | "clip" | "live" | "reply";
+type NotificationKind = "announcement" | "clip" | "live" | "reply" | "twitch_connected";
 
 type ResendEvent = {
   kind: NotificationKind;
@@ -11,7 +11,7 @@ type ResendEvent = {
   recipientUserIds?: string[];
 };
 
-const ENABLED_FIELD: Record<NotificationKind, string> = {
+const ENABLED_FIELD: Partial<Record<NotificationKind, string>> = {
   announcement: "notifyNewAnnouncement",
   clip: "notifyNewClips",
   live: "notifyStreamerLive",
@@ -33,7 +33,8 @@ export async function dispatchConfiguredResendEvent(event: ResendEvent) {
     notifyStreamerLive: true,
     ...(configRow?.setting_value ?? {}),
   } as Record<string, unknown>;
-  if (!apiKey || config[ENABLED_FIELD[event.kind]] !== true) {
+  const enabledField = ENABLED_FIELD[event.kind];
+  if (!apiKey || (enabledField && config[enabledField] !== true)) {
     return { sent: 0, status: apiKey ? "disabled" : "not_configured" };
   }
 
@@ -73,7 +74,7 @@ export async function dispatchConfiguredResendEvent(event: ResendEvent) {
     let sent = 0;
     for (let offset = 0; offset < recipients.length; offset += 100) {
       const batch = recipients.slice(offset, offset + 100).map((email) => ({
-        from: String(config.fromEmail),
+        from: String(config["fromEmail"]),
         to: [email],
         subject: event.subject,
         html: event.html,

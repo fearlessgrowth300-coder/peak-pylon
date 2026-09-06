@@ -3,17 +3,38 @@ import { supabase } from "@/integrations/supabase/client";
 import { ROLE_META, isRestricted, topRole, type Account, type SocialLink } from "@/lib/account";
 import { formatDate } from "@/lib/community";
 import { Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
-import { beginTwitchAuthorization, getTwitchChannel } from "@/lib/twitch.functions";
-import { sendTwitchConnectedEmail } from "@/lib/resend.functions";
+import { beginTwitchAuthorization } from "@/lib/twitch.functions";
+import { getCreatorMilestoneStatus, saveCreatorProfile, type CreatorMilestoneStatus } from "@/lib/onboarding.functions";
 
 const LOCKED_MILESTONES = [
-  { platform: "YouTube", milestone: "Unlocks at 50 Community Chat Messages", icon: "▶" },
-  { platform: "Discord", milestone: "Unlocks at Level 2 Streamer Milestone", icon: "💬" },
-  { platform: "X (Twitter)", milestone: "Unlocks at 100 Post Reactions", icon: "✖" },
-  { platform: "Kick", milestone: "Unlocks at 5 Hosted Stream Raids", icon: "🟢" },
-  { platform: "TikTok", milestone: "Unlocks at Top 50 Creator Rankings", icon: "🎵" },
-  { platform: "Instagram", milestone: "Unlocks at Verified Partner Milestone", icon: "📸" },
-];
+  { key: "youtube", platform: "YouTube", milestone: "Unlocks at 50 Community Chat Messages", icon: "▶" },
+  { key: "discord", platform: "Discord", milestone: "Unlocks at Level 2 Streamer Milestone", icon: "💬" },
+  { key: "twitter", platform: "X (Twitter)", milestone: "Unlocks at 100 Post Reactions", icon: "✖" },
+  { key: "kick", platform: "Kick", milestone: "Unlocks at 5 Hosted Stream Raids", icon: "🟢" },
+  { key: "tiktok", platform: "TikTok", milestone: "Unlocks at Top 50 Creator Rankings", icon: "🎵" },
+  { key: "instagram", platform: "Instagram", milestone: "Unlocks at Verified Partner Milestone", icon: "📸" },
+] as const;
+
+function twitchLoginFromInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const withoutUrl = trimmed.replace(/^https?:\/\/(?:www\.)?twitch\.tv\//i, "").replace(/^@/, "");
+  const login = withoutUrl.split(/[/?#]/)[0]?.toLowerCase() ?? "";
+  return /^[a-z0-9_]{3,25}$/.test(login) ? login : "";
+}
+
+function milestoneProgress(key: (typeof LOCKED_MILESTONES)[number]["key"], status: CreatorMilestoneStatus | null) {
+  if (!status) return "Calculating from community data…";
+  const metrics = status.metrics;
+  switch (key) {
+    case "youtube": return `${Math.min(metrics.generalMessages, 50)} / 50 general messages`;
+    case "discord": return `Level ${metrics.streamerLevel} · ${metrics.activityPoints} activity points`;
+    case "twitter": return `${Math.min(metrics.receivedReactions, 100)} / 100 received reactions`;
+    case "kick": return `${Math.min(metrics.hostedRaids, 5)} / 5 confirmed Twitch raids`;
+    case "tiktok": return metrics.rankingPosition ? `Current creator rank: #${metrics.rankingPosition}` : "No ranking snapshot yet";
+    case "instagram": return metrics.verifiedPartner ? "Verified Partner role confirmed" : "Verified Partner role required";
+  }
+}
 
 export function ProfileEditor({
   account,
@@ -21,14 +42,12 @@ export function ProfileEditor({
   notify,
   onSignOut,
   accessToken,
-  onAuthorizedSuccess,
 }: {
   account: Account;
   refresh: () => Promise<void>;
   notify: (m: string) => void;
   onSignOut: () => void;
   accessToken?: string | undefined;
-  onAuthorizedSuccess?: () => void;
 }) {
   const [form, setForm] = useState({
     display_name: account.display_name,
@@ -45,6 +64,8 @@ export function ProfileEditor({
   const [busy, setBusy] = useState(false);
   const [authorizingTwitch, setAuthorizingTwitch] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [milestones, setMilestones] = useState<CreatorMilestoneStatus | null>(null);
+  const [milestonesLoading, setMilestonesLoading] = useState(false);
 
   useEffect(() => {
     setForm({
@@ -65,97 +86,74 @@ export function ProfileEditor({
   const isAdmin = role === "admin";
   const isAuthorized = Boolean(account.channel_authorized || account.twitch_verified);
 
+  useEffect(() => {
+    if (isAdmin || !accessToken) return;
+    let active = true;
+    setMilestonesLoading(true);
+    getCreatorMilestoneStatus({ data: { accessToken } })
+      .then((result) => { if (active) setMilestones(result); })
+      .catch((error) => { if (active) notify(error instanceof Error ? error.message : "Could not calculate milestones"); })
+      .finally(() => { if (active) setMilestonesLoading(false); });
+    return () => { active = false; };
+  }, [accessToken, account.id, isAdmin, notify]);
+
   async function handleAuthorizeTwitch() {
-    let cleanUrl = form.channel_url.trim();
-    if (!cleanUrl) {
-      const fallbackName = form.handle?.replace(/^@/, "") || form.display_name.replace(/\s+/g, "").toLowerCase();
-      cleanUrl = `https://twitch.tv/${fallbackName}`;
-    }
-    if (!cleanUrl.startsWith("http")) {
-      cleanUrl = `https://twitch.tv/${cleanUrl.replace(/^@/, "")}`;
-    }
-
-    setAuthorizingTwitch(true);
-    try {
-      // Fetch channel details to confirm existence
-      let metadata: any = null;
-      try {
-        metadata = await getTwitchChannel({ data: { channelUrl: cleanUrl } });
-      } catch {
-        // Fallback if twitch Helix rate limits
-        const channelName = cleanUrl.split("/").filter(Boolean).pop() || "creator";
-        metadata = {
-          name: form.display_name || channelName,
-          handle: `@${channelName}`,
-          platform: "Twitch",
-          status: "online",
-        };
-      }
-
-      const patch: any = {
-        channel_url: cleanUrl,
-        channel_authorized: true,
-        twitch_verified: true,
-        platform: "Twitch",
-        status: metadata?.status || "online",
-        display_name: metadata?.name || form.display_name,
-        handle: metadata?.handle || form.handle,
-        bio: metadata?.bio || form.bio,
-        avatar_url: metadata?.avatar || form.avatar_url,
-        banner_url: metadata?.banner || form.banner_url,
-      };
-
-      const { error } = await (supabase as any)
-        .from("profiles")
-        .update(patch)
-        .eq("id", account.id);
-
-      if (error) throw error;
-
-      await refresh();
-
-      // Send congratulatory email to user's mailbox
-      if (accessToken) {
-        try {
-          await sendTwitchConnectedEmail({
-            data: {
-              accessToken,
-              channelName: patch.display_name || patch.handle || "Creator",
-              channelUrl: cleanUrl,
-            },
-          });
-        } catch (emailErr) {
-          console.error("Could not send Twitch welcome email:", emailErr);
-        }
-      }
-
-      notify("🎉 Twitch channel authorized! Welcome to StreamCore.");
-      onAuthorizedSuccess?.();
-    } catch (err: any) {
-      notify(err?.message || "Failed to authorize Twitch channel. Please try again.");
-    } finally {
-      setAuthorizingTwitch(false);
-    }
+    await connectTwitchOAuth(true);
   }
 
-  async function connectTwitchOAuth() {
+  async function connectTwitchOAuth(requireMatchingLogin = false) {
+    const expectedLogin = twitchLoginFromInput(form.channel_url);
+    if (requireMatchingLogin && !expectedLogin) {
+      notify("Enter a valid Twitch username or twitch.tv channel URL first.");
+      return;
+    }
+    setAuthorizingTwitch(true);
     try {
       const { url } = await beginTwitchAuthorization();
       const state = crypto.randomUUID();
       localStorage.setItem("streamcore:twitch-oauth-state", state);
+      if (expectedLogin) localStorage.setItem("streamcore:twitch-expected-login", expectedLogin);
+      else localStorage.removeItem("streamcore:twitch-expected-login");
       window.location.assign(`${url}&state=${encodeURIComponent(state)}`);
-    } catch {
-      notify("Redirecting to Twitch authorization...");
+    } catch (error) {
+      setAuthorizingTwitch(false);
+      notify(error instanceof Error ? error.message : "Twitch authorization could not start.");
     }
+  }
+
+  function setSocialUrl(platform: string, url: string) {
+    const others = form.social_links.filter((link) => link.platform !== platform);
+    const next = url.trim() ? [...others, { platform, label: platform, url }] : others;
+    setForm({ ...form, social_links: next });
   }
 
   async function save(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase.from("profiles").update(form).eq("id", account.id);
-    if (!error) await refresh();
-    setBusy(false);
-    notify(error ? error.message : "Profile saved");
+    try {
+      if (isAdmin) {
+        const { error } = await supabase.from("profiles").update(form).eq("id", account.id);
+        if (error) throw error;
+      } else {
+        if (!accessToken) throw new Error("Your session has expired. Please sign in again.");
+        await saveCreatorProfile({ data: {
+          accessToken,
+          profile: {
+            display_name: form.display_name,
+            bio: form.bio,
+            avatar_url: form.avatar_url,
+            banner_url: form.banner_url,
+            social_links: form.social_links,
+          },
+        } });
+      }
+      await refresh();
+      notify("Profile saved");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Profile could not be saved");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -218,6 +216,7 @@ export function ProfileEditor({
 
               <button
                 type="button"
+                disabled={authorizingTwitch}
                 onClick={() => void connectTwitchOAuth()}
                 className="rounded-xl border border-purple-500/40 bg-purple-500/10 px-4 py-3 text-xs font-bold text-purple-300 hover:bg-purple-500/20 transition"
                 title="Authorize with Twitch OAuth login"
@@ -327,30 +326,37 @@ export function ProfileEditor({
             )}
           </div>
 
-          {/* Locked Pending Milestones for New Members */}
+          {/* Real milestone results for new members */}
           {!isAdmin && (
             <div className="space-y-2 pt-2 border-t border-border/40">
               <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
-                ⏳ Pending Community Milestone Slots
+                {milestonesLoading ? "⏳ Calculating Community Milestones" : "Community Milestone Connections"}
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
-                {LOCKED_MILESTONES.map((item) => (
-                  <div
-                    key={item.platform}
-                    onClick={() => notify(`🔒 ${item.platform} unlocks when you complete: ${item.milestone}`)}
-                    className="flex items-center justify-between rounded-lg border border-border/40 bg-accent/20 px-3 py-2 text-xs cursor-pointer hover:bg-accent/40 transition opacity-80"
-                    title="Unlock this connection by participating in the community"
-                  >
-                    <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                      <span>{item.icon}</span>
-                      <span>{item.platform}</span>
-                    </span>
-                    <span className="text-[10px] text-amber-400/90 font-medium flex items-center gap-1">
-                      <span>🔒</span>
-                      <span>{item.milestone.replace("Unlocks at ", "")}</span>
-                    </span>
-                  </div>
-                ))}
+                {LOCKED_MILESTONES.map((item) => {
+                  const unlocked = Boolean(milestones?.unlocks[item.key]);
+                  const existing = form.social_links.find((link) => link.platform === item.platform)?.url ?? "";
+                  return (
+                    <div key={item.platform} className={`rounded-lg border px-3 py-2 text-xs ${unlocked ? "border-emerald-500/35 bg-emerald-500/10" : "border-border/40 bg-accent/20 opacity-85"}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-foreground">{item.icon} {item.platform}</span>
+                        <span className={`text-[10px] font-bold ${unlocked ? "text-emerald-400" : "text-amber-400"}`}>
+                          {unlocked ? "✓ Unlocked" : "🔒 Locked"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[10px] text-muted-foreground">{milestoneProgress(item.key, milestones)}</p>
+                      {unlocked && (
+                        <input
+                          type="url"
+                          className={`${inputClass} mt-2 h-8 text-xs`}
+                          placeholder={`${item.platform} profile URL`}
+                          value={existing}
+                          onChange={(event) => setSocialUrl(item.platform, event.target.value)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -465,13 +471,15 @@ export function ProfileEditor({
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              For new members, only Twitch is available to connect. Other platform slots unlock automatically as you hit achievements in the community:
+              These values are calculated from your stored community posts, received reactions, confirmed Twitch raids, latest ranking snapshot, and assigned roles. Level 2 requires 50 activity points: one per general message, one per two reactions, and ten per confirmed raid.
             </p>
             <div className="space-y-2">
               {LOCKED_MILESTONES.map((m) => (
                 <div key={m.platform} className="flex items-center justify-between rounded-lg bg-accent/40 p-2.5 text-xs">
                   <span className="font-semibold text-foreground">{m.icon} {m.platform}</span>
-                  <span className="text-[11px] text-amber-400 font-medium">🔒 {m.milestone}</span>
+                  <span className={`text-[11px] font-medium ${milestones?.unlocks[m.key] ? "text-emerald-400" : "text-amber-400"}`}>
+                    {milestones?.unlocks[m.key] ? "✓ Unlocked" : `🔒 ${milestoneProgress(m.key, milestones)}`}
+                  </span>
                 </div>
               ))}
             </div>
