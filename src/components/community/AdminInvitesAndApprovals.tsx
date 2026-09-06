@@ -76,7 +76,7 @@ export function AdminInvitesAndApprovals({
     setApprovingId(null);
 
     if (res.success) {
-      onToast(`✓ Approved channel for ${creator.display_name}! Congratulations email sent.`);
+      onToast(`✓ Approved ${creator.display_name}. Their StreamCore welcome announcement was posted.`);
       void loadData();
     } else {
       onToast(res.error || "Could not approve channel");

@@ -177,7 +177,7 @@ function Index() {
             return;
           }
         } else if (!myAccount.channel_authorized && !myAccount.twitch_verified) {
-          if (nextView !== "me") {
+          if (nextView !== "me" && nextView !== "live-now") {
             setView("me");
             setToast("⚠️ You must connect and authorize your Twitch channel before entering the community.");
             return;
@@ -194,7 +194,7 @@ function Index() {
     if (!myAccount || isAdmin) return;
     if (!myAccount.rules_acknowledged && view !== "rules") {
       setView("rules");
-    } else if (myAccount.rules_acknowledged && !myAccount.channel_authorized && !myAccount.twitch_verified && view !== "me") {
+    } else if (myAccount.rules_acknowledged && !myAccount.channel_authorized && !myAccount.twitch_verified && view !== "me" && view !== "live-now") {
       setView("me");
     }
   }, [myAccount?.rules_acknowledged, myAccount?.channel_authorized, myAccount?.twitch_verified, isAdmin, view]);

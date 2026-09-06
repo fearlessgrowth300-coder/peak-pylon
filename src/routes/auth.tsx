@@ -5,6 +5,9 @@ import { lovable } from "@/integrations/lovable/index";
 import { buttonClass, ghostButtonClass, inputClass, Field } from "@/components/community/Bits";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    reset: search.reset === true || search.reset === "true",
+  }),
   head: () => ({
     meta: [
       { title: "Join StreamCore — Creator Community Accounts" },
@@ -27,6 +30,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const { reset: isPasswordRecovery } = Route.useSearch();
   const [mode, setMode] = useState<"signin" | "signup">("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,12 +40,41 @@ function AuthPage() {
   const [awaitingVerification, setAwaitingVerification] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: "/" });
+      if (data.session && !isPasswordRecovery) void navigate({ to: "/" });
     });
-  }, [navigate]);
+  }, [isPasswordRecovery, navigate]);
+
+  async function updatePassword(e: FormEvent) {
+    e.preventDefault();
+    setMsg("");
+    if (newPassword.length < 8) {
+      setMsg("Use at least 8 characters for your new password.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMsg("The passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setBusy(false);
+    if (error) {
+      setMsg(error.message.includes("session")
+        ? "This password-reset link has expired. Request a new link from My Profile."
+        : error.message);
+      return;
+    }
+
+    localStorage.setItem("streamcore:last-view", "me");
+    setMsg("Password updated successfully. Opening your profile…");
+    window.setTimeout(() => window.location.assign("/"), 900);
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -115,21 +148,52 @@ function AuthPage() {
       <div className="w-full max-w-md rounded-2xl bg-popover p-6">
         <p className="text-[11px] font-bold uppercase tracking-wide text-primary">StreamCore</p>
         <h1 className="mt-1 text-2xl font-extrabold">
-          {mode === "signup" ? "Create your creator account" : "Welcome back"}
+          {isPasswordRecovery ? "Choose a new password" : mode === "signup" ? "Create your creator account" : "Welcome back"}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Real accounts join the community as streamers with their own profile and permissions.
+          {isPasswordRecovery
+            ? "Enter a secure new password for your StreamCore account."
+            : "Real accounts join the community as streamers with their own profile and permissions."}
         </p>
 
-        <button onClick={google} className={`${ghostButtonClass} mt-5 w-full`}>
-          Continue with Google
-        </button>
+        {isPasswordRecovery ? (
+          <form onSubmit={updatePassword} className="mt-5 space-y-3">
+            <Field label="New password">
+              <input
+                required
+                type="password"
+                minLength={8}
+                autoComplete="new-password"
+                className={inputClass}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </Field>
+            <Field label="Confirm new password">
+              <input
+                required
+                type="password"
+                minLength={8}
+                autoComplete="new-password"
+                className={inputClass}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </Field>
+            <button disabled={busy} type="submit" className={`${buttonClass} w-full`}>
+              {busy ? "Updating password…" : "Update password"}
+            </button>
+          </form>
+        ) : <>
+          <button onClick={google} className={`${ghostButtonClass} mt-5 w-full`}>
+            Continue with Google
+          </button>
 
-        <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
-        </div>
+          <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+          </div>
 
-        {awaitingVerification ? (
+          {awaitingVerification ? (
           <form onSubmit={verifyCode} className="mt-5 space-y-3">
             <Field label="Email verification code">
               <input
@@ -149,7 +213,7 @@ function AuthPage() {
             </button>
             <button type="button" onClick={() => setAwaitingVerification(false)} className="w-full text-xs text-muted-foreground hover:underline">Use a different email</button>
           </form>
-        ) : <form onSubmit={submit} className="space-y-3">
+          ) : <form onSubmit={submit} className="space-y-3">
           {mode === "signup" && (
             <>
               <Field label="Display name">
@@ -192,16 +256,19 @@ function AuthPage() {
           <button disabled={busy} type="submit" className={`${buttonClass} w-full`}>
             {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
           </button>
-        </form>}
+          </form>}
+        </>}
 
         {msg && <p className="mt-3 text-sm text-primary">{msg}</p>}
 
-        <button
-          onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
-          className="mt-4 w-full text-sm text-muted-foreground hover:text-foreground"
-        >
-          {mode === "signup" ? "Already have an account? Sign in" : "New here? Create an account"}
-        </button>
+        {!isPasswordRecovery && (
+          <button
+            onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+            className="mt-4 w-full text-sm text-muted-foreground hover:text-foreground"
+          >
+            {mode === "signup" ? "Already have an account? Sign in" : "New here? Create an account"}
+          </button>
+        )}
         <Link to="/" className="mt-3 block text-center text-xs text-muted-foreground hover:underline">
           Back to community
         </Link>
