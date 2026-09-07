@@ -228,7 +228,12 @@ const STICKERS_POOL = [
   "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
 ];
 
-export async function generateCommunityAiMessageDirectly(db: any, config: AiAutopilotConfig, actorUserId?: string) {
+export async function generateCommunityAiMessageDirectly(
+  db: any,
+  config: AiAutopilotConfig,
+  actorUserId?: string,
+  preferredAuthorId?: string,
+) {
   const { writeIntegrationSetting } = await import("@/lib/integrations.server");
   const keys = await loadGeminiPool(db);
   if (!keys.length) {
@@ -258,9 +263,10 @@ export async function generateCommunityAiMessageDirectly(db: any, config: AiAuto
   const cleanPosts = (recentPosts ?? []).filter((p: any) => !/[\u4e00-\u9fa5]/.test(p.data?.text || ""));
   const latestPost = cleanPosts[0];
 
-  // Pick author different from latest post author
+  // Pick author matching preferredAuthorId, or pick author different from latest post author
   const candidates = pool.filter((m: any) => m.id !== latestPost?.data?.authorId);
-  const chosen = (candidates.length ? candidates : pool)[Math.floor(Math.random() * (candidates.length || pool.length))];
+  const matchedAuthor = preferredAuthorId ? pool.find((m: any) => m.id === preferredAuthorId) : null;
+  const chosen = matchedAuthor || (candidates.length ? candidates : pool)[Math.floor(Math.random() * (candidates.length || pool.length))];
   const chosenAuthorId = chosen.id;
   const creatorName = chosen.data?.name || "Creator";
   const creatorHandle = chosen.data?.handle || `@${creatorName.toLowerCase().replace(/\s+/g, "")}`;
@@ -496,7 +502,13 @@ export const generateCommunityAiMessage = createServerFn({ method: "POST" })
   });
 
 export const tickCommunityAiAutopilot = createServerFn({ method: "POST" })
-  .handler(async () => {
+  .validator((d: unknown) => {
+    if (d && typeof d === "object" && "authorId" in d && typeof (d as any).authorId === "string") {
+      return { authorId: (d as any).authorId as string };
+    }
+    return {};
+  })
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const db = supabaseAdmin as any;
     const config = await loadAutopilotConfig(db);
@@ -511,7 +523,7 @@ export const tickCommunityAiAutopilot = createServerFn({ method: "POST" })
     }
 
     try {
-      const directResult = await generateCommunityAiMessageDirectly(db, config);
+      const directResult = await generateCommunityAiMessageDirectly(db, config, undefined, data?.authorId);
       return { ran: true, result: directResult };
     } catch (err: any) {
       return { ran: false, error: err.message };
@@ -530,7 +542,39 @@ export const checkCommunityAiAutopilotDue = createServerFn({ method: "POST" })
     const now = Date.now();
 
     const isDue = now - lastRunMs >= intervalMs - 5000;
-    return { due: isDue, channel: config.channel || "general" };
+    if (!isDue) return { due: false, reason: "not_due" };
+
+    // Select the author right now so typing indicator and message poster are 100% matched!
+    const { data: members } = await db.from("community_listed_members").select("id, data").limit(100);
+    const eligible = (members ?? []).filter((m: any) => {
+      const role = m.data?.role;
+      const managed = m.data?.managedByAdmin;
+      return managed === true || role === "admin" || role === "partner" || role === "streamer";
+    });
+    const pool = eligible.length ? eligible : (members ?? []);
+    if (!pool.length) return { due: false, reason: "no_creators" };
+
+    const { data: recentPosts } = await db
+      .from("community_posts")
+      .select("data")
+      .eq("data->>channel", config.channel || "general")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const latestAuthorId = recentPosts?.data?.authorId;
+    const candidates = pool.filter((m: any) => m.id !== latestAuthorId);
+    const chosen = (candidates.length ? candidates : pool)[Math.floor(Math.random() * (candidates.length || pool.length))];
+
+    return {
+      due: true,
+      channel: config.channel || "general",
+      author: chosen ? {
+        id: chosen.id,
+        name: chosen.data?.name || "Creator",
+        handle: chosen.data?.handle || `@${(chosen.data?.name || "creator").toLowerCase().replace(/\s+/g, "")}`,
+      } : null,
+    };
   });
 
 export const purgeSpamCommunityPosts = createServerFn({ method: "POST" })

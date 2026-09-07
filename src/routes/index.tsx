@@ -267,36 +267,39 @@ function Index() {
   // Keep 24/7 AI Community Activity Engine ticking with realistic typing indicator
   useEffect(() => {
     let isMounted = true;
+    let isTicking = false;
     const tick = async () => {
+      if (isTicking) return;
+      isTicking = true;
       try {
         const check = await checkCommunityAiAutopilotDue();
         if (!isMounted) return;
-        if (check?.due) {
-          // Find an active eligible streamer to simulate typing
-          const eligible = (allMembersRef.current || []).filter((m) => m && m.name);
-          const streamer = eligible[Math.floor(Math.random() * (eligible.length || 1))];
-          const streamerName = streamer?.name || "Creator";
+        if (check?.due && check?.author) {
+          const streamerName = check.author.name || "Creator";
+          const streamerId = check.author.id;
 
           setTypingName(streamerName);
           typingChannelRef.current?.send({
             type: "broadcast",
             event: "typing",
-            payload: { senderId: "autopilot-" + Math.random().toString(36).slice(2), name: streamerName, typing: true },
+            payload: { senderId: "autopilot-" + streamerId, name: streamerName, typing: true },
           });
 
           await new Promise((resolve) => setTimeout(resolve, 2800));
           if (!isMounted) return;
 
-          await tickCommunityAiAutopilot();
+          await tickCommunityAiAutopilot({ data: { authorId: streamerId } });
           setTypingName(null);
           typingChannelRef.current?.send({
             type: "broadcast",
             event: "typing",
-            payload: { senderId: "autopilot", name: streamerName, typing: false },
+            payload: { senderId: "autopilot-" + streamerId, name: streamerName, typing: false },
           });
         }
       } catch {
         void tickCommunityAiAutopilot().catch(() => {});
+      } finally {
+        isTicking = false;
       }
     };
     // Check shortly after load and then every 30 seconds
