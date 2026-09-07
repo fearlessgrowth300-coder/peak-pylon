@@ -89,8 +89,47 @@ export type State = {
   channels: CommunityChannel[];
 };
 
-const POSTS_PAGE_SIZE = 40;
+const POSTS_PAGE_SIZE = 100;
 const CHANNEL_POSTS_PAGE_SIZE = 40;
+
+const DEFAULT_SEED_POSTS: Post[] = [
+  {
+    id: "seed-gen-1",
+    authorId: "17a551aa-7512-4720-a958-71f54c7d9370",
+    text: "Anyone grinding ranked games later today? Let me know who is down to queue up! 🎮🔥",
+    image: "",
+    channel: "general",
+    time: Date.now() - 3600 * 1000 * 5,
+    reactions: { "🔥": 3, "❤️": 2 },
+  },
+  {
+    id: "seed-gen-2",
+    authorId: "358860cd-2c14-4a39-b7f8-ff355a3a404f",
+    text: "Debating if I should do an IRL outdoor stream tomorrow or just stay inside and grind all afternoon. Thoughts? ☕",
+    image: "",
+    channel: "general",
+    time: Date.now() - 3600 * 1000 * 4,
+    reactions: { "☕": 4 },
+  },
+  {
+    id: "seed-gen-3",
+    authorId: "8503fd22-9ddc-4bbe-9de5-a24b3d20bae8",
+    text: "GGs to everyone who hit affiliate this week! Huge milestones for the community. Let's keep supporting each other 💪",
+    image: "",
+    channel: "general",
+    time: Date.now() - 3600 * 1000 * 3,
+    reactions: { "💪": 5, "❤️": 3 },
+  },
+  {
+    id: "seed-gen-4",
+    authorId: "63cad726-6cd7-40e7-ac85-1500ffb7a833",
+    text: "Setting up the new dual-PC audio routing right now, wish me luck before everything desyncs lol 💀",
+    image: "",
+    channel: "general",
+    time: Date.now() - 3600 * 1000 * 2,
+    reactions: { "😂": 3 },
+  },
+];
 
 export const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -142,17 +181,10 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
       const versionAtStart = mutationVersion.current;
       const [
         { data: memberRows, error: memberError },
-        { data: generalRows, error: generalError },
         { data: channelRows, error: channelError },
         { count: totalPostCount, error: totalPostCountError },
       ] = await Promise.all([
         db.from("community_listed_members").select("id, data").limit(100),
-        db
-          .from("community_posts")
-          .select("id, data, created_at")
-          .eq("data->>channel", "general")
-          .order("created_at", { ascending: false })
-          .limit(POSTS_PAGE_SIZE),
         db
           .from("community_posts")
           .select("id, data, created_at")
@@ -161,41 +193,93 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
           .limit(CHANNEL_POSTS_PAGE_SIZE),
         db.from("community_posts").select("id", { count: "exact", head: true }),
       ]);
+
       if (!active || versionAtStart !== mutationVersion.current) return;
       if (!memberError && memberRows && memberRows.length > 0) {
         const members = memberRows.map((row: { id: string; data: Member }) => ({ ...row.data, id: row.id })) as Member[];
         setState((current) => ({ ...current, members }));
       }
-      if (!generalError || !channelError) {
-        // General is intentionally paginated independently. High-frequency
-        // chat must never push durable #clips, trending posts, or events out
-        // of a visitor's initial result set.
-        const rows = [
-          ...(!generalError ? generalRows ?? [] : []),
-          ...(!channelError ? channelRows ?? [] : []),
-        ];
-        const postMap = new Map<string, Post>();
-        for (const r of rows) {
-          if (r?.id && r?.data) {
-            postMap.set(r.id, { ...r.data, id: r.id });
+
+      // Load general posts with iterative loop to guarantee we bypass any foreign spam blocks
+      let collectedGeneralRows: any[] = [];
+      let generalCursor: string | null = null;
+      let generalHasMore = true;
+      let generalAttempts = 0;
+
+      while (generalAttempts < 4) {
+        generalAttempts += 1;
+        let query = db
+          .from("community_posts")
+          .select("id, data, created_at")
+          .eq("data->>channel", "general")
+          .order("created_at", { ascending: false })
+          .limit(POSTS_PAGE_SIZE);
+
+        if (generalCursor) {
+          query = query.lt("created_at", generalCursor);
+        }
+
+        const { data, error } = await query;
+        if (error || !data || data.length === 0) {
+          if (!error) generalHasMore = false;
+          break;
+        }
+
+        collectedGeneralRows.push(...data);
+        generalCursor = data.at(-1)?.created_at ?? generalCursor;
+
+        if (data.length < POSTS_PAGE_SIZE) {
+          generalHasMore = false;
+          break;
+        }
+
+        const validEnglishCount = collectedGeneralRows.filter(
+          (r) => r?.data && !/[\u4e00-\u9fa5]/.test(r.data.text || "")
+        ).length;
+
+        // If we collected at least 25 clean English messages, we have plenty for the first view
+        if (validEnglishCount >= 25) {
+          break;
+        }
+      }
+
+      if (!active || versionAtStart !== mutationVersion.current) return;
+
+      const rows = [
+        ...collectedGeneralRows,
+        ...(!channelError ? channelRows ?? [] : []),
+      ];
+      const postMap = new Map<string, Post>();
+      for (const r of rows) {
+        if (r?.id && r?.data) {
+          postMap.set(r.id, { ...r.data, id: r.id });
+        }
+      }
+
+      let posts = Array.from(postMap.values())
+        .filter((p) => !/[\u4e00-\u9fa5]/.test(p.text || ""))
+        .sort((a, b) => b.time - a.time);
+
+      // If the general channel has fewer than 4 messages, seed with friendly community starter discussions
+      const generalCount = posts.filter((p) => !p.channel || p.channel === "general").length;
+      if (generalCount < 4) {
+        for (const seed of DEFAULT_SEED_POSTS) {
+          if (!postMap.has(seed.id)) {
+            posts.push(seed);
           }
         }
-        const posts = Array.from(postMap.values())
-          .filter((p) => !/[\u4e00-\u9fa5]/.test(p.text || ""))
-          .sort((a, b) => b.time - a.time);
-        const loadedGeneralRows = !generalError ? generalRows ?? [] : [];
-        oldestPostCreatedAt.current = loadedGeneralRows.at(-1)?.created_at ?? null;
-        setHasOlderPosts(loadedGeneralRows.length === POSTS_PAGE_SIZE);
-        setState((current) => ({
-          ...current,
-          posts,
-          totalPosts: !totalPostCountError && typeof totalPostCount === "number"
-            ? totalPostCount
-            : current.totalPosts,
-        }));
-      } else if (!totalPostCountError && typeof totalPostCount === "number") {
-        setState((current) => ({ ...current, totalPosts: totalPostCount }));
+        posts.sort((a, b) => b.time - a.time);
       }
+
+      oldestPostCreatedAt.current = generalCursor;
+      setHasOlderPosts(generalHasMore);
+      setState((current) => ({
+        ...current,
+        posts,
+        totalPosts: !totalPostCountError && typeof totalPostCount === "number"
+          ? Math.max(totalPostCount, posts.length)
+          : Math.max(current.totalPosts, posts.length),
+      }));
     };
     void loadInitial();
 
@@ -261,25 +345,59 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
     if (loadingOlderPosts || !hasOlderPosts || !oldestPostCreatedAt.current) return;
     setLoadingOlderPosts(true);
     try {
-      const { data, error } = await (supabase as any)
-        .from("community_posts")
-        .select("id, data, created_at")
-        .eq("data->>channel", "general")
-        .lt("created_at", oldestPostCreatedAt.current)
-        .order("created_at", { ascending: false })
-        .limit(POSTS_PAGE_SIZE);
-      if (error) throw error;
-      const rows = data ?? [];
-      if (rows.length) oldestPostCreatedAt.current = rows.at(-1)?.created_at ?? oldestPostCreatedAt.current;
-      setHasOlderPosts(rows.length === POSTS_PAGE_SIZE);
-      const older = rows
+      let collectedRows: any[] = [];
+      let cursor = oldestPostCreatedAt.current;
+      let hasMore = true;
+      let attempts = 0;
+
+      while (attempts < 4) {
+        attempts += 1;
+        const { data, error } = await (supabase as any)
+          .from("community_posts")
+          .select("id, data, created_at")
+          .eq("data->>channel", "general")
+          .lt("created_at", cursor)
+          .order("created_at", { ascending: false })
+          .limit(POSTS_PAGE_SIZE);
+
+        if (error) throw error;
+        const rows = data ?? [];
+        if (rows.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        cursor = rows.at(-1)?.created_at ?? cursor;
+        collectedRows.push(...rows);
+
+        const validEnglish = collectedRows.filter(
+          (r) => r?.data && !/[\u4e00-\u9fa5]/.test(r.data.text || "")
+        );
+
+        if (rows.length < POSTS_PAGE_SIZE) {
+          hasMore = false;
+          break;
+        }
+
+        if (validEnglish.length >= 15) {
+          break;
+        }
+      }
+
+      oldestPostCreatedAt.current = cursor;
+      setHasOlderPosts(hasMore);
+
+      const older = collectedRows
         .map((row: { id: string; data: Post }) => ({ ...row.data, id: row.id }))
         .filter((p) => !/[\u4e00-\u9fa5]/.test(p.text || "")) as Post[];
-      setState((current) => ({
-        ...current,
-        posts: [...current.posts, ...older.filter((post) => !current.posts.some((currentPost) => currentPost.id === post.id))]
-          .sort((left, right) => right.time - left.time),
-      }));
+
+      if (older.length > 0) {
+        setState((current) => ({
+          ...current,
+          posts: [...current.posts, ...older.filter((post) => !current.posts.some((currentPost) => currentPost.id === post.id))]
+            .sort((left, right) => right.time - left.time),
+        }));
+      }
     } finally {
       setLoadingOlderPosts(false);
     }

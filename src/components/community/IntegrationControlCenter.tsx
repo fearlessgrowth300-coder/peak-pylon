@@ -5,6 +5,7 @@ import {
   GEMINI_MODEL_OPTIONS,
   generateCommunityAiMessage,
   getGeminiIntegrationStatus,
+  purgeSpamCommunityPosts,
   saveGeminiIntegration,
   setAiAutopilotConfig,
   testGeminiIntegration,
@@ -155,6 +156,18 @@ export function IntegrationControlCenter({
     }
   }
 
+  async function cleanSpam() {
+    setAutopilotBusy(true);
+    try {
+      const res = await purgeSpamCommunityPosts({ data: { accessToken } });
+      notify(`Cleaned ${res.purgedCount} foreign messages from chat history`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Failed to clean spam messages");
+    } finally {
+      setAutopilotBusy(false);
+    }
+  }
+
   async function saveResend() {
     setResendBusy(true);
     setResendMessage("Saving Resend settings…");
@@ -241,12 +254,13 @@ export function IntegrationControlCenter({
             {autopilot.active ? "🟢 AUTOPILOT RUNNING" : "🔴 AUTOPILOT STOPPED"}
           </span>
         </div>
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <button type="button" disabled={autopilotBusy || !geminiConfigured} onClick={() => void saveAutopilot(!autopilot.active)} className={`rounded-xl px-5 py-4 text-base font-black disabled:opacity-50 ${autopilot.active ? "bg-destructive text-destructive-foreground" : "bg-emerald-600 text-white hover:bg-emerald-500"}`}>
             {autopilotBusy ? "Updating…" : autopilot.active ? "■ Stop 24/7 AI Chat Autopilot" : "▶ Start 24/7 AI Chat Autopilot"}
           </button>
           <button type="button" disabled={autopilotBusy || !geminiConfigured} onClick={() => void saveAutopilot(autopilot.active)} className="rounded-xl bg-accent px-5 py-4 text-sm font-bold hover:bg-accent/75 disabled:opacity-50">💾 Save schedule</button>
           <button type="button" disabled={autopilotBusy || !geminiConfigured} onClick={() => void sendAiTestMessage()} className="rounded-xl bg-accent px-5 py-4 text-sm font-bold hover:bg-accent/75 disabled:opacity-50">⚡ Send 1 test message</button>
+          <button type="button" disabled={autopilotBusy} onClick={() => void cleanSpam()} className="rounded-xl bg-accent px-5 py-4 text-sm font-bold hover:bg-accent/75 disabled:opacity-50">🧹 Clean foreign spam</button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={autopilot.stickers} onChange={(event) => setAutopilot((current) => ({ ...current, stickers: event.target.checked }))} /> Send animated streamer stickers in chat</label>

@@ -25,8 +25,8 @@ import { type CommunityInvite, getInviteByCode, createCommunityInvite, claimInvi
 import { InviteLandingModal } from "@/components/community/InviteLandingModal";
 import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
 import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
-import { triggerStreamerReactionsToPost } from "@/lib/streamer-reactions";
 import { acknowledgeCommunityRules } from "@/lib/onboarding.functions";
+import { tickCommunityAiAutopilot } from "@/lib/gemini.functions";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -255,6 +255,32 @@ function Index() {
     const timer = window.setInterval(heartbeat, 5 * 60_000);
     return () => window.clearInterval(timer);
   }, [refresh, userId]);
+
+  // Keep 24/7 AI Community Activity Engine ticking when visitors/admins are active
+  useEffect(() => {
+    const tick = () => {
+      void tickCommunityAiAutopilot().catch(() => {});
+    };
+    // Check shortly after load and then every 45 seconds
+    const initialTimer = window.setTimeout(tick, 3500);
+    const intervalTimer = window.setInterval(tick, 45_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(intervalTimer);
+    };
+  }, []);
+
+  // Ensure #general is never a blank screen with just a button
+  useEffect(() => {
+    if (view === "general" && hasOlderPosts && !loadingOlderPosts) {
+      const generalCount = state.posts.filter(
+        (p) => (!p.channel || p.channel === "general") && !/[\u4e00-\u9fa5]/.test(p.text || "")
+      ).length;
+      if (generalCount < 8) {
+        void loadOlderPosts();
+      }
+    }
+  }, [view, hasOlderPosts, loadingOlderPosts, state.posts.length, loadOlderPosts]);
 
   const channels = useMemo(() => {
     const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
