@@ -158,13 +158,16 @@ export function IntegrationControlCenter({
         onPostCreated({
           id: result.postId,
           authorId: (result as any).authorId,
+          authorName: (result as any).authorName,
+          authorHandle: (result as any).authorHandle,
+          authorAvatar: (result as any).authorAvatar,
           text: (result as any).text,
           channel: (result as any).channel || "general",
           time: Date.now(),
           aiGenerated: true,
         });
       }
-      notify("StreamCore AI posted one real test message in chat");
+      notify("AI posted a fresh streamer message in chat");
     } catch (error) {
       notify(error instanceof Error ? error.message : "The AI test message failed");
     } finally {

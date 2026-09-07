@@ -45,6 +45,9 @@ export type PostComment = {
 export type Post = {
   id: string;
   authorId: string;
+  authorName?: string | undefined;
+  authorHandle?: string | undefined;
+  authorAvatar?: string | undefined;
   text: string;
   image: string;
   video?: string | undefined;
@@ -61,6 +64,9 @@ export type Post = {
 
 export type PostInput = {
   authorId: string;
+  authorName?: string | undefined;
+  authorHandle?: string | undefined;
+  authorAvatar?: string | undefined;
   text: string;
   image?: string | undefined;
   video?: string | undefined;
@@ -95,7 +101,10 @@ const CHANNEL_POSTS_PAGE_SIZE = 40;
 const DEFAULT_SEED_POSTS: Post[] = [
   {
     id: "seed-gen-1",
-    authorId: "17a551aa-7512-4720-a958-71f54c7d9370",
+    authorId: "alphacast",
+    authorName: "AlphaCast",
+    authorHandle: "@alphacast",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts/svg?seed=alphacast",
     text: "Anyone grinding ranked games later today? Let me know who is down to queue up! 🎮🔥",
     image: "",
     channel: "general",
@@ -104,7 +113,10 @@ const DEFAULT_SEED_POSTS: Post[] = [
   },
   {
     id: "seed-gen-2",
-    authorId: "358860cd-2c14-4a39-b7f8-ff355a3a404f",
+    authorId: "sorrisodozorlak",
+    authorName: "SorrisoDoZorlak",
+    authorHandle: "@sorrisodozorlak",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts/svg?seed=sorrisodozorlak",
     text: "Debating if I should do an IRL outdoor stream tomorrow or just stay inside and grind all afternoon. Thoughts? ☕",
     image: "",
     channel: "general",
@@ -113,7 +125,10 @@ const DEFAULT_SEED_POSTS: Post[] = [
   },
   {
     id: "seed-gen-3",
-    authorId: "8503fd22-9ddc-4bbe-9de5-a24b3d20bae8",
+    authorId: "ddg",
+    authorName: "DDG",
+    authorHandle: "@ddg",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts/svg?seed=ddg",
     text: "GGs to everyone who hit affiliate this week! Huge milestones for the community. Let's keep supporting each other 💪",
     image: "",
     channel: "general",
@@ -122,7 +137,10 @@ const DEFAULT_SEED_POSTS: Post[] = [
   },
   {
     id: "seed-gen-4",
-    authorId: "63cad726-6cd7-40e7-ac85-1500ffb7a833",
+    authorId: "valorant_emea",
+    authorName: "VALORANT_EMEA",
+    authorHandle: "@valorant_emea",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts/svg?seed=valorant_emea",
     text: "Setting up the new dual-PC audio routing right now, wish me luck before everything desyncs lol 💀",
     image: "",
     channel: "general",
@@ -263,9 +281,24 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
       // If the general channel has fewer than 4 messages, seed with friendly community starter discussions
       const generalCount = posts.filter((p) => !p.channel || p.channel === "general").length;
       if (generalCount < 4) {
-        for (const seed of DEFAULT_SEED_POSTS) {
+        const availableCreators = (memberRows ?? [])
+          .map((r: any) => ({ ...r.data, id: r.id }))
+          .filter((m: any) => m && m.name);
+
+        for (let i = 0; i < DEFAULT_SEED_POSTS.length; i++) {
+          const seed = DEFAULT_SEED_POSTS[i]!;
           if (!postMap.has(seed.id)) {
-            posts.push(seed);
+            const assigned = availableCreators[i % (availableCreators.length || 1)];
+            const hydrated = assigned
+              ? {
+                  ...seed,
+                  authorId: assigned.id,
+                  authorName: assigned.name,
+                  authorHandle: assigned.handle,
+                  authorAvatar: assigned.avatar,
+                }
+              : seed;
+            posts.push(hydrated);
           }
         }
         posts.sort((a, b) => b.time - a.time);

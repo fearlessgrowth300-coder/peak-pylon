@@ -26,7 +26,7 @@ import { InviteLandingModal } from "@/components/community/InviteLandingModal";
 import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
 import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
 import { acknowledgeCommunityRules } from "@/lib/onboarding.functions";
-import { tickCommunityAiAutopilot } from "@/lib/gemini.functions";
+import { tickCommunityAiAutopilot, checkCommunityAiAutopilotDue } from "@/lib/gemini.functions";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -227,11 +227,20 @@ function Index() {
     };
   }, [userId]);
 
+  const [selfTyping, setSelfTyping] = useState(false);
+  const selfTypingTimer = useRef<number | null>(null);
+
   function broadcastTyping(typing: boolean) {
     const author = postingAuthors.find((member) => member.id === selectedChatAuthor);
     const authorName = author?.name || myAccount?.display_name || "Community member";
     const senderId = userId || clientIdRef.current;
     const channel = typingChannelRef.current;
+
+    setSelfTyping(typing);
+    if (selfTypingTimer.current) window.clearTimeout(selfTypingTimer.current);
+    if (typing) {
+      selfTypingTimer.current = window.setTimeout(() => setSelfTyping(false), 3000);
+    }
 
     if (channel) {
       void channel.send({
@@ -255,15 +264,46 @@ function Index() {
     return () => window.clearInterval(timer);
   }, [refresh, userId]);
 
-  // Keep 24/7 AI Community Activity Engine ticking when visitors/admins are active
+  // Keep 24/7 AI Community Activity Engine ticking with realistic typing indicator
   useEffect(() => {
-    const tick = () => {
-      void tickCommunityAiAutopilot().catch(() => {});
+    let isMounted = true;
+    const tick = async () => {
+      try {
+        const check = await checkCommunityAiAutopilotDue();
+        if (!isMounted) return;
+        if (check?.due) {
+          // Find an active eligible streamer to simulate typing
+          const eligible = (allMembersRef.current || []).filter((m) => m && m.name);
+          const streamer = eligible[Math.floor(Math.random() * (eligible.length || 1))];
+          const streamerName = streamer?.name || "Creator";
+
+          setTypingName(streamerName);
+          typingChannelRef.current?.send({
+            type: "broadcast",
+            event: "typing",
+            payload: { senderId: "autopilot-" + Math.random().toString(36).slice(2), name: streamerName, typing: true },
+          });
+
+          await new Promise((resolve) => setTimeout(resolve, 2800));
+          if (!isMounted) return;
+
+          await tickCommunityAiAutopilot();
+          setTypingName(null);
+          typingChannelRef.current?.send({
+            type: "broadcast",
+            event: "typing",
+            payload: { senderId: "autopilot", name: streamerName, typing: false },
+          });
+        }
+      } catch {
+        void tickCommunityAiAutopilot().catch(() => {});
+      }
     };
-    // Check shortly after load and then every 45 seconds
-    const initialTimer = window.setTimeout(tick, 3500);
-    const intervalTimer = window.setInterval(tick, 45_000);
+    // Check shortly after load and then every 30 seconds
+    const initialTimer = window.setTimeout(tick, 2500);
+    const intervalTimer = window.setInterval(tick, 30_000);
     return () => {
+      isMounted = false;
       window.clearTimeout(initialTimer);
       window.clearInterval(intervalTimer);
     };
@@ -1127,16 +1167,54 @@ function Index() {
                       {loadingOlderPosts ? "Loading messages…" : "Load earlier messages"}
                     </button>
                   )}
-                  {[...state.posts.filter((post) => (!post.channel || post.channel === "general") && !/[\u4e00-\u9fa5]/.test(post.text || ""))]
-                    .sort((a, b) => a.time - b.time)
-                    .map((p) => {
-                      const m = memberById.get(p.authorId);
+                  {(() => {
+                    const rawPosts = state.posts
+                      .filter((post) => (!post.channel || post.channel === "general") && !/[\u4e00-\u9fa5]/.test(post.text || ""))
+                      .sort((a, b) => a.time - b.time);
+
+                    const seenCanned = new Set<string>();
+                    const displayPosts: Post[] = [];
+
+                    for (const post of rawPosts) {
+                      const textTrimmed = (post.text || "").trim().toLowerCase();
+                      if (textTrimmed === "man i really" || textTrimmed === "man i") continue;
+                      if (
+                        textTrimmed.includes("anyone grinding ranked games") ||
+                        textTrimmed.includes("debating if i should do an irl") ||
+                        textTrimmed.includes("down for some casual duo") ||
+                        textTrimmed.includes("ggs to everyone who hit affiliate")
+                      ) {
+                        if (seenCanned.has(textTrimmed)) continue;
+                        seenCanned.add(textTrimmed);
+                      }
+                      displayPosts.push(post);
+                    }
+
+                    return displayPosts.map((p) => {
+                      const m = memberById.get(p.authorId) || allMembers.find((x) => x.id === p.authorId || (p.authorName && x.name.toLowerCase() === p.authorName.toLowerCase()));
+                      const authorName = m?.name || p.authorName || (allMembers[0]?.name ?? "Streamer");
+                      const authorAvatar = m?.avatar || p.authorAvatar || (allMembers[0]?.avatar ?? "");
+                      const authorHandle = m?.handle || p.authorHandle || `@${authorName.toLowerCase().replace(/\s+/g, "")}`;
+                      const effectiveAuthor: Member = m ?? {
+                        id: p.authorId,
+                        name: authorName,
+                        handle: authorHandle,
+                        platform: "Twitch",
+                        status: "online",
+                        link: "#",
+                        bio: "Creator & Streamer in the community",
+                        avatar: authorAvatar,
+                        banner: "",
+                      };
+
                       const parent = p.replyToId
                         ? state.posts.find((x) => x.id === p.replyToId)
                         : undefined;
                       const parentAuthor = parent
-                        ? memberById.get(parent.authorId)
+                        ? (memberById.get(parent.authorId) || allMembers.find((x) => x.id === parent.authorId || (parent.authorName && x.name.toLowerCase() === parent.authorName.toLowerCase())))
                         : undefined;
+                      const parentAuthorName = parentAuthor?.name || parent?.authorName || "Streamer";
+
                       return (
                         <article
                           key={p.id}
@@ -1148,18 +1226,16 @@ function Index() {
                               <span>↰</span>
                               <span className="truncate">
                                 <strong className="text-primary">
-                                  {parentAuthor?.name ?? "Community"}
+                                  {parentAuthorName}
                                 </strong>{" "}
                                 {parent.text ? parent.text.replace(/https?:\/\/[^\s]+(?:\.gif|\.png|\.webp|\.svg|giphy\.com|twemoji)[^\s]*/gi, "").trim() || (parent.sticker ? "sticker" : "attachment") : parent.sticker ? "sticker" : "attachment"}
                               </span>
                             </div>
                           )}
                           <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
-                            <button onClick={() => m && setProfile(m)}>
+                            <button onClick={() => setProfile(effectiveAuthor)}>
                               <Avatar
-                                member={
-                                  m ?? { name: "Community", avatar: "", status: "offline" }
-                                }
+                                member={effectiveAuthor}
                                 size={40}
                                 showStatus={false}
                               />
@@ -1167,18 +1243,18 @@ function Index() {
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <button
-                                  onClick={() => m && setProfile(m)}
+                                  onClick={() => setProfile(effectiveAuthor)}
                                   className="font-semibold hover:underline"
                                 >
-                                  {m?.name ?? "Community"}
+                                  {authorName}
                                 </button>
-                                {m?.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
+                                {effectiveAuthor.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
                                 <span className="text-xs text-muted-foreground">
                                   {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>
                                 <button
                                   onClick={() =>
-                                    setReplyTo({ id: p.id, name: m?.name ?? "Community" })
+                                    setReplyTo({ id: p.id, name: authorName })
                                   }
                                   className="text-xs font-semibold text-muted-foreground hover:text-foreground"
                                 >
@@ -1212,14 +1288,14 @@ function Index() {
                                   p.text?.toLowerCase().includes("going live") ||
                                   p.text?.toLowerCase().includes("twitch.tv")
                                 );
-                                const streamChannel = twitchMatch?.[1] || (m?.status === "live" && isLiveAnnouncement ? m?.handle?.replace(/^@/, "") : null);
+                                const streamChannel = twitchMatch?.[1] || (effectiveAuthor?.status === "live" && isLiveAnnouncement ? effectiveAuthor?.handle?.replace(/^@/, "") : null);
                                 if (streamChannel && !p.image && !p.sticker) {
                                   const liveThumb = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${streamChannel.toLowerCase()}-640x360.jpg`;
                                   return (
                                     <div className="mt-2.5 max-w-md overflow-hidden rounded-2xl border border-primary/40 bg-gradient-to-b from-popover to-background shadow-lg">
                                       <div className="relative aspect-video w-full overflow-hidden bg-accent/40 flex items-center justify-center">
                                         <img
-                                          src={m?.banner || liveThumb}
+                                          src={effectiveAuthor?.banner || liveThumb}
                                           alt={`${streamChannel} stream preview`}
                                           onError={(e) => {
                                             (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=640&q=80";
@@ -1235,17 +1311,17 @@ function Index() {
                                           Twitch Live
                                         </div>
                                         <div className="absolute bottom-2.5 left-2.5 flex items-center gap-2">
-                                          <Avatar member={m ?? { name: streamChannel, avatar: "", status: "live" }} size={32} showStatus={false} />
+                                          <Avatar member={effectiveAuthor} size={32} showStatus={false} />
                                           <div className="min-w-0">
-                                            <p className="text-xs font-bold text-white drop-shadow truncate">{m?.name || streamChannel}</p>
-                                            <p className="text-[10px] text-purple-200 drop-shadow truncate">{m?.gameName || "Live Stream"}</p>
+                                            <p className="text-xs font-bold text-white drop-shadow truncate">{effectiveAuthor?.name || streamChannel}</p>
+                                            <p className="text-[10px] text-purple-200 drop-shadow truncate">{effectiveAuthor?.gameName || "Live Stream"}</p>
                                           </div>
                                         </div>
                                       </div>
                                       <div className="flex items-center justify-between p-3 bg-popover">
                                         <div className="min-w-0 pr-2">
-                                          <p className="truncate text-xs font-bold text-foreground">{m?.streamTitle || `${m?.name || streamChannel} is LIVE on Twitch`}</p>
-                                          <p className="truncate text-[11px] text-muted-foreground">{m?.gameName ? `Playing ${m.gameName}` : "Join the live stream & chat"}</p>
+                                          <p className="truncate text-xs font-bold text-foreground">{effectiveAuthor?.streamTitle || `${effectiveAuthor?.name || streamChannel} is LIVE on Twitch`}</p>
+                                          <p className="truncate text-[11px] text-muted-foreground">{effectiveAuthor?.gameName ? `Playing ${effectiveAuthor.gameName}` : "Join the live stream & chat"}</p>
                                         </div>
                                         <a
                                           href={`https://www.twitch.tv/${streamChannel}`}
@@ -1278,12 +1354,13 @@ function Index() {
                                   className="mt-2 max-h-80 w-full rounded-lg"
                                 />
                               )}
-                              <MessageActions post={p} member={m} isAdmin={isAdmin} currentUserId={myAccount?.id} onReply={() => setReplyTo({ id: p.id, name: m?.name ?? "Community" })} onReact={(id, emoji) => toggleReaction(id, emoji, myAccount?.id || "user")} onDelete={removePost} onRemoveMember={async () => { if (m?.real) await removeFromCommunity(m.id); else if (m) await removeMember(m.id); }} />
+                              <MessageActions post={p} member={effectiveAuthor} isAdmin={isAdmin} currentUserId={myAccount?.id} onReply={() => setReplyTo({ id: p.id, name: authorName })} onReact={(id, emoji) => toggleReaction(id, emoji, myAccount?.id || "user")} onDelete={removePost} onRemoveMember={async () => { if (effectiveAuthor?.real) await removeFromCommunity(effectiveAuthor.id); else if (effectiveAuthor) await removeMember(effectiveAuthor.id); }} />
                             </div>
                           </div>
                         </article>
                       );
-                    })}
+                    });
+                  })()}
                 </div>
               </div>
             )}
@@ -1577,7 +1654,7 @@ function Index() {
               </div>
             )}
           </div>
-          {typingName && (view === "general" || view.startsWith("channel:")) && (
+          {(typingName || selfTyping) && (view === "general" || view.startsWith("channel:")) && (
             <div className="flex items-center gap-2 px-4 py-1.5 text-xs text-muted-foreground bg-background/95 border-t border-border/40 backdrop-blur-md transition-all">
               <span className="flex gap-1 items-center">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
@@ -1585,7 +1662,7 @@ function Index() {
                 <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" />
               </span>
               <span>
-                <strong className="text-foreground">{typingName}</strong> is typing…
+                <strong className="text-foreground">{typingName || (postingAuthors.find((m) => m.id === selectedChatAuthor)?.name || myAccount?.display_name || "You")}</strong> is typing…
               </span>
             </div>
           )}
@@ -3622,7 +3699,21 @@ function CustomChannel({
 
       <div className="space-y-4">
         {posts.map((post) => {
-          const member = members.get(post.authorId);
+          const member = members.get(post.authorId) || allMemberList?.find((x) => x.id === post.authorId || (post.authorName && x.name.toLowerCase() === post.authorName.toLowerCase()));
+          const authorName = member?.name || post.authorName || (allMemberList?.[0]?.name ?? "Community Creator");
+          const authorAvatar = member?.avatar || post.authorAvatar || (allMemberList?.[0]?.avatar ?? "");
+          const effectiveMember: Member = member ?? {
+            id: post.authorId,
+            name: authorName,
+            handle: post.authorHandle || `@${authorName.toLowerCase().replace(/\s+/g, "")}`,
+            platform: "Twitch",
+            status: "online",
+            link: "#",
+            bio: "Creator in the community",
+            avatar: authorAvatar,
+            banner: "",
+          };
+
           const segments = (post.text || "").split(/(https?:\/\/[^\s]+)/g);
           const likesList = post.likes ?? [];
           const userKey = currentUserId || "guest-user";
@@ -3638,7 +3729,7 @@ function CustomChannel({
             >
               <div className="flex items-start gap-3">
                 <Avatar
-                  member={member ?? { name: "Community", avatar: "", status: "offline" }}
+                  member={effectiveMember}
                   size={42}
                   showStatus={true}
                 />
@@ -3646,15 +3737,15 @@ function CustomChannel({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-foreground">
-                        {member?.name ?? "Community Creator"}
+                        {authorName}
                       </p>
-                      {(post.authorId === "streamcore_bot" || member?.id === "streamcore_bot" || /streamcore\s*_?bot/i.test(`${member?.name || ""} ${member?.handle || ""}`)) && (
+                      {(post.authorId === "streamcore_bot" || effectiveMember.id === "streamcore_bot" || /streamcore\s*_?bot/i.test(`${effectiveMember.name} ${effectiveMember.handle}`)) && (
                         <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-black text-indigo-400 border border-indigo-500/30 tracking-wider">
                           BOT
                         </span>
                       )}
                       <span className="text-xs text-muted-foreground">
-                        {member?.handle || ""}
+                        {effectiveMember.handle || ""}
                       </span>
                       <span className="text-xs text-muted-foreground">·</span>
                       <span className="text-xs text-muted-foreground">
@@ -3665,7 +3756,7 @@ function CustomChannel({
                     <div className="flex items-center gap-1.5">
                       <MessageActions
                         post={post}
-                        member={member}
+                        member={effectiveMember}
                         isAdmin={isAdmin}
                         currentUserId={currentUserId}
                         onReact={onReact}

@@ -2,11 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 export const GEMINI_MODEL_OPTIONS = [
-  { value: "gemini-3.6-flash", label: "Gemini 3.6 Flash (Recommended)" },
-  { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Fast & Reliable)" },
-  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite (High Volume)" },
-  { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash (High Capacity)" },
-  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview (Deep Reasoning)" },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (Recommended)" },
+  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (Fast & Responsive)" },
+  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Stable)" },
+  { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash (Classic)" },
+  { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro (Deep Reasoning)" },
+  { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Preview)" },
+  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite (Preview)" },
 ] as const;
 
 export const AI_AUTOPILOT_INTERVAL_OPTIONS = [
@@ -34,7 +36,7 @@ export type AiAutopilotConfig = {
   lastError?: string | null;
 };
 
-const DEFAULT_MODEL: GeminiModel = "gemini-3.5-flash-lite";
+const DEFAULT_MODEL: GeminiModel = "gemini-2.5-flash";
 const GEMINI_POOL_SECRET = "gemini_api_keys";
 const LEGACY_GEMINI_SECRET = "gemini_api_key";
 const AUTOPILOT_SETTING = "ai_autopilot";
@@ -111,33 +113,47 @@ async function callGemini(
   model: GeminiModel,
   prompt: string,
   startIndex = 0,
-  maxOutputTokens = 120,
+  maxOutputTokens = 600,
   temperature = 0.85,
 ) {
   if (!apiKeys.length) throw new Error("Add at least one Gemini API key first.");
   const errors: string[] = [];
-  for (let offset = 0; offset < apiKeys.length; offset += 1) {
-    const index = (startIndex + offset) % apiKeys.length;
-    const apiKey = apiKeys[index]!;
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature, maxOutputTokens },
-        }),
-      },
-    );
-    if (response.ok) {
-      const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-      const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
-      return { index, text };
+
+  // Model fallback candidate list in case a specific preview model is unavailable
+  const candidateModels = Array.from(
+    new Set([model, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-2.0-flash"])
+  );
+
+  for (const targetModel of candidateModels) {
+    for (let offset = 0; offset < apiKeys.length; offset += 1) {
+      const index = (startIndex + offset) % apiKeys.length;
+      const apiKey = apiKeys[index]!;
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature, maxOutputTokens },
+            }),
+          },
+        );
+        if (response.ok) {
+          const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+          const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
+          if (text) {
+            return { index, text };
+          }
+        }
+        errors.push(`${targetModel} key ${index + 1}: HTTP ${response.status}`);
+      } catch (err: any) {
+        errors.push(`${targetModel} key ${index + 1}: ${err.message}`);
+      }
     }
-    errors.push(`key ${index + 1}: HTTP ${response.status}`);
   }
-  throw new Error(`Gemini rejected every saved key (${errors.join(", ")}).`);
+  throw new Error(`Gemini rejected every saved key (${errors.slice(0, 4).join(", ")}).`);
 }
 
 /** Server-only helper for other protected features. Keys never leave the server. */
@@ -240,47 +256,79 @@ export async function generateCommunityAiMessageDirectly(db: any, config: AiAuto
   const chosenAuthorId = chosen.id;
   const creatorName = chosen.data?.name || "Creator";
   const creatorHandle = chosen.data?.handle || `@${creatorName.toLowerCase().replace(/\s+/g, "")}`;
+  const creatorAvatar = chosen.data?.avatar || "";
   const creatorGame = chosen.data?.gameName || "Gaming";
   const creatorIsLive = chosen.data?.status === "live";
 
   const shouldReply = latestPost?.data?.text && Math.random() < 0.75;
   const replyTargetId = shouldReply ? latestPost.id : null;
   const latestAuthor = pool.find((m: any) => m.id === latestPost?.data?.authorId);
-  const latestAuthorName = latestAuthor?.data?.name || "Streamer";
+  const latestAuthorName = latestAuthor?.data?.name || latestPost?.data?.authorName || "Streamer";
 
   const chatContext = cleanPosts
-    .slice(0, 5)
+    .slice(0, 6)
     .reverse()
-    .map((p: any) => `${p.data?.authorId || "User"}: "${p.data?.text || ""}"`)
+    .map((p: any) => `${p.data?.authorName || p.data?.authorId || "Member"}: "${p.data?.text || ""}"`)
     .join("\n");
 
-  const prompt = `You are ${creatorName} (${creatorHandle}), an authentic gamer and streamer chatting in a Discord community.
+  const recentTexts = cleanPosts.slice(0, 8).map((p: any) => p.data?.text || "").filter(Boolean);
 
-YOUR PROFILE:
+  const DIVERSE_TOPICS = [
+    "celebrating an insane 1v3 clutch or overtime win in ranked",
+    "laughing at a teammate who accidentally threw the easiest round",
+    "asking chat whether they prefer high DPI or low arm-aiming sensitivity",
+    "mentioning a hilarious OBS audio bug or mic desync during warmups",
+    "debating the newest balance patch and whether the top weapon got overnerfed",
+    "asking what everyone is snacking on or drinking during late night sessions",
+    "talking about grinding aim trainers before jumping into competitive queues",
+    "hyping up a raid train or shouting out fellow creators streaming right now",
+    "debating mechanical keyboard switches (clicky vs linear switches)",
+    "celebrating hitting a milestone like affiliate, 100 followers, or sub goal",
+    "asking if anyone is down for custom private matches or community 5v5s",
+    "talking about cable management or new monitor 240Hz refresh rate smoothness",
+    "debating controller aim assist versus mouse & keyboard tracking",
+    "discussing cozy endurance stream ideas or charity stream marathons",
+    "asking what games everyone has on their weekend backlog",
+  ];
+  const chosenTopicAngle = DIVERSE_TOPICS[Math.floor(Math.random() * DIVERSE_TOPICS.length)]!;
+
+  const prompt = `You are ${creatorName} (${creatorHandle}), a real popular streamer chatting casually in a Discord community channel.
+
+YOUR STREAMER PROFILE:
 - Name: ${creatorName}
 - Main Game: ${creatorGame}
-- Status: ${creatorIsLive ? "Streaming live" : "Offline"}
+- Status: ${creatorIsLive ? "Currently live on stream" : "Offline / Chilling in chat"}
 
-RECENT CHAT HISTORY:
-${chatContext || "Quiet chat."}
+RECENT CHANNEL MESSAGES:
+${chatContext || "Quiet chat room."}
 
-${shouldReply ? `TASK: ${latestAuthorName} just posted: "${latestPost.data.text}". Write a direct reply to ${latestAuthorName} (agree, banter, tease, or give your take).` : `TASK: Share a fresh, casual streamer thought or question (gaming grind, stream plans, energy drinks, setup, or clutch matches).`}
+${shouldReply
+  ? `TASK: Directly reply to ${latestAuthorName}'s message ("${latestPost?.data?.text || ""}"). Agree, banter, tease, or offer a unique perspective.`
+  : `TASK: Share a fresh, original thought about: ${chosenTopicAngle}.`}
 
-CRITICAL LANGUAGE & CONTENT RULES:
-1. ALWAYS WRITE IN 100% NATURAL ENGLISH. NEVER USE NON-ENGLISH CHARACTERS UNDER ANY CIRCUMSTANCES.
-2. NEVER use template phrases like "With all the action", "Moving over to", or "Shifting gears to".
-3. NEVER say "StreamCore AI", "As an AI", or bot terms.
-4. NEVER start with "Hey everyone!".
-5. Keep it punchy (10 to 22 words max). Sound like a real streamer typing in Discord with natural gamer phrasing (fr, bro, gg, clutch, trolling, hop on, no way).`;
+STRICT ANTI-REPETITION RULES:
+1. NEVER REPEAT OR COPY any words, phrases, or topics from recent messages.
+2. BANNED CLICHES: Do NOT say "Anyone grinding ranked games", "Debating if I should do an IRL stream", "GGs to everyone who hit affiliate", or "Down for some casual duo".
+3. Write ONE natural, lively English sentence (12 to 26 words).
+4. Use authentic gamer slang naturally (e.g. clutch, fr, threw, cracked, diff, hop on, GG, lobby, ping, lock in).
+5. Always end with proper punctuation or an appropriate emoji (🎮, 🔥, 💀, ☕, 😂, 👑, 👀, 🚀). Never truncate or cut off mid-sentence.`;
 
-  const { text: rawText, index: usedKeyIndex } = await callGemini(
-    keys,
-    config.model,
-    prompt,
-    config.keyCursor ?? 0,
-    120,
-    0.85
-  );
+  let rawText = "";
+  let usedKeyIndex = 0;
+  try {
+    const result = await callGemini(
+      keys,
+      config.model,
+      prompt,
+      config.keyCursor ?? 0,
+      600,
+      0.9
+    );
+    rawText = result.text;
+    usedKeyIndex = result.index;
+  } catch (err) {
+    console.warn("Gemini call warning, using dynamic generative bank:", err);
+  }
 
   let cleanText = rawText
     .replace(/https?:\/\/[^\s]+/gi, "")
@@ -288,19 +336,43 @@ CRITICAL LANGUAGE & CONTENT RULES:
     .replace(/As an AI[^:.]*[:.]\s*/gi, "")
     .replace(/^Hey everyone!?\s*/gi, "")
     .replace(/[\u4e00-\u9fa5]/g, "")
+    .replace(/["“”]/g, "")
     .trim();
 
-  // Strip non-ASCII or short stubs and guarantee a rich gamer community discussion
-  if (!cleanText || cleanText.length < 12) {
-    const DEFAULT_CASUAL_POSTS = [
-      "Anyone grinding ranked games later today? Let me know who is down to queue up!",
-      "Debating if I should do an IRL outdoor stream tomorrow or stay inside and grind all afternoon.",
-      "Just upgraded my mic and audio setup, let me know how it sounds on stream tonight!",
-      "GGs to everyone who hit affiliate this week! Huge milestones for the community.",
-      "Down for some casual duo or squad games tonight if anyone wants to hop in voice.",
-      "That last match was absolute chaos lol, gotta love late night ranked lobbies.",
-    ];
-    cleanText = DEFAULT_CASUAL_POSTS[Math.floor(Math.random() * DEFAULT_CASUAL_POSTS.length)]!;
+  // Dynamic diversified gamer bank covering 8 distinct streamer archetypes
+  const RICH_GAMER_BANK = [
+    "That last overtime round had my heart rate through the roof, pure adrenaline clutch! 🔥",
+    "New mousepad just arrived and the glide feels illegal, tracking has never been smoother.",
+    "If our fifth doesn't stop ego-peeking mid with no utility I am losing my mind lol 💀",
+    "Gotta love when OBS quietly mutes your desktop audio for 40 minutes without warning 😂",
+    "Debating if the new patch balance changes actually fixed weapon meta or just made it worse.",
+    "Cold cold brew in hand and ready to lock in for the evening climb, let's get these Ws ☕",
+    "Whoever clipped that ridiculous physics glitch earlier today please post it in #clips ASAP!",
+    "Switching from 144Hz to 240Hz genuinely feels like getting new eyeballs, the difference is insane.",
+    "Late night lobbies hit completely different when everyone is half asleep and still tryharding.",
+    "Huge congrats to everyone pushing milestones this week, the growth here has been unreal! 🚀",
+    "Need one more for a late night 5-stack if anyone is still awake and wants to run games.",
+    "My desk cable management is 90% zip ties and 10% pure hope right now, do not look behind my PC lol.",
+    "That opponent was either the most cracked prodigy on Earth or has a magical gaming chair 💀",
+    "Thinking of hosting a community custom game tournament this Saturday with custom roles.",
+    "Warmup aim routine paid off today, first match in and hitting every single click.",
+    "Energy drink tier list needs an update because this peach flavor is undeniably top tier 🍑",
+    "Always appreciate the raid energy from earlier, community support has been nothing short of legendary 👑",
+    "Can we talk about how good the latest map lighting rework looks? Massive visual upgrade.",
+  ];
+
+  // Filter out any fallback that resembles recent messages in the channel
+  const eligibleFallbacks = RICH_GAMER_BANK.filter((fallback) => {
+    return !recentTexts.some((recent) => recent.toLowerCase().includes(fallback.slice(0, 20).toLowerCase()));
+  });
+  const fallbackPool = eligibleFallbacks.length ? eligibleFallbacks : RICH_GAMER_BANK;
+
+  // Validate cleanText: must be >= 18 chars, at least 4 words, and not repeated
+  const isTooShort = !cleanText || cleanText.length < 18 || cleanText.split(/\s+/).length < 4;
+  const isDuplicate = recentTexts.some((t) => t.toLowerCase() === cleanText.toLowerCase() || (cleanText.length > 20 && t.includes(cleanText.slice(0, 25))));
+
+  if (isTooShort || isDuplicate) {
+    cleanText = fallbackPool[Math.floor(Math.random() * fallbackPool.length)]!;
   }
 
   let stickerUrl = "";
@@ -314,6 +386,9 @@ CRITICAL LANGUAGE & CONTENT RULES:
   const newPostRecord = {
     id: postId,
     authorId: chosenAuthorId,
+    authorName: creatorName,
+    authorHandle: creatorHandle,
+    authorAvatar: creatorAvatar,
     channel: config.channel || "general",
     text: cleanText,
     sticker: stickerUrl,
@@ -347,6 +422,9 @@ CRITICAL LANGUAGE & CONTENT RULES:
     status: "Running",
     postId,
     authorId: chosenAuthorId,
+    authorName: creatorName,
+    authorHandle: creatorHandle,
+    authorAvatar: creatorAvatar,
     text: cleanText,
     channel: config.channel || "general",
     model: config.model,
@@ -432,6 +510,21 @@ export const tickCommunityAiAutopilot = createServerFn({ method: "POST" })
     }
   });
 
+export const checkCommunityAiAutopilotDue = createServerFn({ method: "POST" })
+  .handler(async () => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const db = supabaseAdmin as any;
+    const config = await loadAutopilotConfig(db);
+    if (!config.active) return { due: false, reason: "inactive" };
+
+    const intervalMs = (config.intervalMinutes || 10) * 60 * 1000;
+    const lastRunMs = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
+    const now = Date.now();
+
+    const isDue = now - lastRunMs >= intervalMs - 5000;
+    return { due: isDue, channel: config.channel || "general" };
+  });
+
 export const purgeSpamCommunityPosts = createServerFn({ method: "POST" })
   .validator(adminTokenInput)
   .handler(async ({ data }) => {
@@ -440,14 +533,31 @@ export const purgeSpamCommunityPosts = createServerFn({ method: "POST" })
 
     const { data: posts, error: fetchErr } = await db
       .from("community_posts")
-      .select("id, data")
+      .select("id, data, created_at")
+      .order("created_at", { ascending: false })
       .limit(300);
 
     if (fetchErr) throw new Error(fetchErr.message);
 
-    const spamIds = (posts ?? [])
-      .filter((p: any) => /[\u4e00-\u9fa5]/.test(p.data?.text || ""))
-      .map((p: any) => p.id);
+    const seenTexts = new Set<string>();
+    const spamIds: string[] = [];
+
+    for (const p of posts ?? []) {
+      const text = (p.data?.text || "").trim();
+      const isChineseSpam = /[\u4e00-\u9fa5]/.test(text);
+      const isStub = text.toLowerCase() === "man i really" || text.toLowerCase() === "man i";
+      const isCannedRepetition = seenTexts.has(text.toLowerCase()) && (
+        text.includes("Anyone grinding ranked games") ||
+        text.includes("Down for some casual duo") ||
+        text.includes("Debating if I should do an IRL")
+      );
+
+      if (isChineseSpam || isStub || isCannedRepetition) {
+        spamIds.push(p.id);
+      } else if (text) {
+        seenTexts.add(text.toLowerCase());
+      }
+    }
 
     if (spamIds.length > 0) {
       for (let i = 0; i < spamIds.length; i += 50) {
