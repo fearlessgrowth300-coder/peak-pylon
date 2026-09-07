@@ -2,13 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 export const GEMINI_MODEL_OPTIONS = [
-  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (Recommended)" },
-  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (Fast & Responsive)" },
-  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Stable)" },
-  { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash (Classic)" },
-  { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro (Deep Reasoning)" },
-  { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Preview)" },
-  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite (Preview)" },
+  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite (Fastest & Recommended)" },
+  { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Balanced & Smart)" },
+  { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash (High Capacity Agentic)" },
+  { value: "gemini-3.1-pro", label: "Gemini 3.1 Pro (Deep Reasoning)" },
 ] as const;
 
 export const AI_AUTOPILOT_INTERVAL_OPTIONS = [
@@ -36,7 +33,7 @@ export type AiAutopilotConfig = {
   lastError?: string | null;
 };
 
-const DEFAULT_MODEL: GeminiModel = "gemini-2.5-flash";
+const DEFAULT_MODEL: GeminiModel = "gemini-3.5-flash-lite";
 const GEMINI_POOL_SECRET = "gemini_api_keys";
 const LEGACY_GEMINI_SECRET = "gemini_api_key";
 const AUTOPILOT_SETTING = "ai_autopilot";
@@ -119,27 +116,36 @@ async function callGemini(
   if (!apiKeys.length) throw new Error("Add at least one Gemini API key first.");
   const errors: string[] = [];
 
-  // Model fallback candidate list in case a specific preview model is unavailable
+  // Model candidate list using active Gemini 3 series
   const candidateModels = Array.from(
-    new Set([model, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-2.0-flash"])
+    new Set([
+      model,
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-3.8-flash",
+      "gemini-3.1-pro",
+    ])
   );
 
   for (const targetModel of candidateModels) {
     for (let offset = 0; offset < apiKeys.length; offset += 1) {
       const index = (startIndex + offset) % apiKeys.length;
-      const apiKey = apiKeys[index]!;
+      const rawKey = apiKeys[index]!;
+      const apiKey = rawKey.trim().replace(/^["']|["']$/g, "");
       try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature, maxOutputTokens },
-            }),
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
           },
-        );
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature, maxOutputTokens },
+          }),
+        });
+
         if (response.ok) {
           const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
           const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
@@ -147,13 +153,15 @@ async function callGemini(
             return { index, text };
           }
         }
-        errors.push(`${targetModel} key ${index + 1}: HTTP ${response.status}`);
+        const errorData = await response.json().catch(() => null);
+        const errMsg = errorData?.error?.message || `HTTP ${response.status}`;
+        errors.push(`${targetModel} key ${index + 1}: ${errMsg}`);
       } catch (err: any) {
         errors.push(`${targetModel} key ${index + 1}: ${err.message}`);
       }
     }
   }
-  throw new Error(`Gemini rejected every saved key (${errors.slice(0, 4).join(", ")}).`);
+  throw new Error(`Gemini rejected every saved key (${errors.slice(0, 3).join(" | ")}).`);
 }
 
 /** Server-only helper for other protected features. Keys never leave the server. */
