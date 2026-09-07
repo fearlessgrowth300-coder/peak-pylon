@@ -350,10 +350,21 @@ export const setAiAutopilotConfig = createServerFn({ method: "POST" })
       channel: data.channel,
       stickers: data.stickers,
       liveContext: data.liveContext,
-      lastStatus: data.active ? "Scheduled" : "Stopped",
+      lastStatus: data.active ? "Running" : "Stopped",
       lastError: null,
     };
     await writeIntegrationSetting(db, AUTOPILOT_SETTING, next, user.id);
+
+    // If newly enabled, immediately post 1 message so the chat becomes active instantly!
+    let latestConfig = next;
+    if (data.active) {
+      try {
+        await generateCommunityAiMessageDirectly(db, next, user.id);
+        latestConfig = await loadAutopilotConfig(db);
+      } catch (postErr) {
+        console.warn("Autopilot immediate post failed:", postErr);
+      }
+    }
 
     try {
       await db.rpc("configure_streamcore_ai_autopilot_schedule", {
@@ -364,7 +375,7 @@ export const setAiAutopilotConfig = createServerFn({ method: "POST" })
       console.warn("pg_cron schedule configuration skipped or unsupported:", scheduleError);
     }
 
-    return next;
+    return latestConfig;
   });
 
 export const generateCommunityAiMessage = createServerFn({ method: "POST" })
@@ -373,17 +384,8 @@ export const generateCommunityAiMessage = createServerFn({ method: "POST" })
     const { requireAdmin } = await import("@/lib/integrations.server");
     const { db, user } = await requireAdmin(data.accessToken);
 
-    // Try RPC first if permitted
-    try {
-      const { data: result, error } = await db.rpc("run_streamcore_ai_autopilot", { force_run: true });
-      if (!error && result?.created) {
-        return result as { created: true; status: string; postId: string; model: string };
-      }
-    } catch {
-      // Fall through to direct generation
-    }
-
     const config = await loadAutopilotConfig(db);
+    // Directly generate 100% natural English chat without relying on legacy DB RPC
     return await generateCommunityAiMessageDirectly(db, config, user.id);
   });
 
@@ -400,13 +402,6 @@ export const tickCommunityAiAutopilot = createServerFn({ method: "POST" })
 
     if (now - lastRunMs < intervalMs - 5000) {
       return { ran: false, reason: "throttled", nextInMs: intervalMs - (now - lastRunMs) };
-    }
-
-    try {
-      const { data: result, error } = await db.rpc("run_streamcore_ai_autopilot", { force_run: false });
-      if (!error && result?.created) return { ran: true, result };
-    } catch {
-      // Fall through
     }
 
     try {

@@ -135,7 +135,8 @@ export function IntegrationControlCenter({
         },
       });
       setAutopilot(result);
-      notify(active ? "AI autopilot schedule saved and running" : "AI autopilot settings saved (stopped)");
+      await refreshStatuses();
+      notify(active ? "AI autopilot active and posted successfully in chat" : "AI autopilot settings saved (stopped)");
     } catch (error) {
       notify(error instanceof Error ? error.message : "AI autopilot could not be updated");
     } finally {
@@ -160,6 +161,7 @@ export function IntegrationControlCenter({
     setAutopilotBusy(true);
     try {
       const res = await purgeSpamCommunityPosts({ data: { accessToken } });
+      await refreshStatuses();
       notify(`Cleaned ${res.purgedCount} foreign messages from chat history`);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Failed to clean spam messages");
