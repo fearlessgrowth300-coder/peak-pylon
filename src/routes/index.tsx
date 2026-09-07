@@ -19,6 +19,7 @@ import { TopCategoriesWidget } from "@/components/community/TopCategoriesWidget"
 import { accountToMember, removeFromCommunity, useAccounts, useSession, ROLE_META, topRole } from "@/lib/account";
 import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
+import { refreshKickStatuses } from "@/lib/kick.functions";
 import { dispatchReplyNotification, dispatchResendNotification } from "@/lib/resend.functions";
 import { type CommunityInvite, getInviteByCode, createCommunityInvite, claimInviteOnSignup } from "@/lib/invites";
 import { InviteLandingModal } from "@/components/community/InviteLandingModal";
@@ -480,7 +481,8 @@ function Index() {
       allMembers
         .filter(
           (member) =>
-            (member.platform?.toLowerCase() === "twitch" || member.link?.includes("twitch.tv")) &&
+            (member.platform?.toLowerCase() === "twitch" || member.link?.includes("twitch.tv") ||
+             member.platform?.toLowerCase() === "kick" || member.link?.includes("kick.com")) &&
             Boolean(member.link?.trim()),
         )
         .map((member) => `${member.id}:${member.link.trim().toLowerCase()}`)
@@ -611,28 +613,45 @@ function Index() {
       const twitchMembers = currentAll.filter(
         (member) => (member.platform?.toLowerCase() === "twitch" || member.link?.includes("twitch.tv")) && Boolean(member.link?.trim())
       );
-      if (!twitchMembers.length) return;
+      const kickMembers = currentAll.filter(
+        (member) => (member.platform?.toLowerCase() === "kick" || member.link?.includes("kick.com")) && Boolean(member.link?.trim())
+      );
+      if (!twitchMembers.length && !kickMembers.length) return;
       try {
         const batches: typeof twitchMembers[] = [];
         for (let index = 0; index < twitchMembers.length; index += 100) {
           batches.push(twitchMembers.slice(index, index + 100));
         }
-        const updates = (
-          await Promise.all(
-            batches.map((batch) =>
-              refreshTwitchStatuses({
+        const [twitchUpdates, kickUpdates] = await Promise.all([
+          twitchMembers.length
+            ? Promise.all(
+                batches.map((batch) =>
+                  refreshTwitchStatuses({
+                    data: {
+                      channels: batch.map((member) => ({
+                        id: member.id,
+                        channelUrl: member.link,
+                        followers: member.followers,
+                      })),
+                    },
+                  }),
+                ),
+              ).then((res) => res.flat())
+            : Promise.resolve([]),
+          kickMembers.length
+            ? refreshKickStatuses({
                 data: {
-                  channels: batch.map((member) => ({
+                  channels: kickMembers.map((member) => ({
                     id: member.id,
                     channelUrl: member.link,
                     followers: member.followers,
                   })),
                 },
-              }),
-            ),
-          )
-        ).flat();
+              })
+            : Promise.resolve([]),
+        ]);
         if (!active) return;
+        const updates = [...twitchUpdates, ...kickUpdates];
         applyMemberSnapshots(
           updates.map((update) => ({
             id: update.id,
