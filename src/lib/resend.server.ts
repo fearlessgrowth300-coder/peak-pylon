@@ -91,7 +91,14 @@ export async function dispatchConfiguredResendEvent(event: ResendEvent) {
         body: JSON.stringify(batch),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.message || `Resend HTTP ${response.status}`);
+      if (!response.ok) {
+        console.warn(`Resend email batch rejected (${response.status}):`, payload?.message || "Rate limit or quota reached");
+        await db.from("integration_settings").update({
+          setting_value: { status: "quota_exceeded", error: payload?.message || `HTTP ${response.status}`, attempted: recipients.length },
+          updated_at: new Date().toISOString(),
+        }).eq("setting_name", markerName);
+        return { sent, status: "quota_exceeded" };
+      }
       sent += batch.length;
     }
 

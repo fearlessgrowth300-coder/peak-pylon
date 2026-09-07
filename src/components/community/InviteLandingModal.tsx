@@ -79,10 +79,28 @@ export function InviteLandingModal({
       });
 
       setBusy(false);
-      if (error) return setMsg(error.message);
+      if (error) {
+        if (
+          error.message.toLowerCase().includes("confirmation email") ||
+          error.message.toLowerCase().includes("email provider") ||
+          error.message.toLowerCase().includes("smtp")
+        ) {
+          return setMsg("⚠️ Email verification is currently at daily capacity. Please click 'Continue with Google' below to join instantly!");
+        }
+        return setMsg(error.message);
+      }
 
       if (invite && data.user) {
         await claimInviteOnSignup(invite.code, data.user.id, displayName || email.split("@")[0], formattedHandle);
+      }
+
+      // If Supabase has "Confirm email" disabled, a valid session is returned immediately
+      if (data.session) {
+        setVerifiedSuccess(true);
+        setTimeout(() => {
+          onSuccess();
+        }, 1200);
+        return;
       }
 
       setAwaitingVerification(true);
