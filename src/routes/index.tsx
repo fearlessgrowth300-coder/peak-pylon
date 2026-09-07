@@ -21,7 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { getTwitchClips, refreshTwitchStatuses } from "@/lib/twitch.functions";
 import { refreshKickStatuses } from "@/lib/kick.functions";
 import { dispatchReplyNotification, dispatchResendNotification } from "@/lib/resend.functions";
-import { type CommunityInvite, getInviteByCode, createCommunityInvite, claimInviteOnSignup } from "@/lib/invites";
+import { type CommunityInvite, getInviteByCode, createCommunityInvite, claimInviteOnSignup, postCreatorWelcomeAnnouncement } from "@/lib/invites";
 import { InviteLandingModal } from "@/components/community/InviteLandingModal";
 import { PendingApprovalGateBanner } from "@/components/community/PendingApprovalGateBanner";
 import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
@@ -326,6 +326,39 @@ function Index() {
       }
     }
   }, [view, hasOlderPosts, loadingOlderPosts, state.posts.length, loadOlderPosts, refreshPosts]);
+
+  // Automatically broadcast official StreamCore Bot welcome announcement in #general for all approved creators
+  useEffect(() => {
+    if (!accounts.length) return;
+    const approvedAccounts = accounts.filter(
+      (a) =>
+        (a.approval_status === "approved" ||
+          a.channel_authorized ||
+          a.roles?.some((r) => r === "streamer" || r === "member" || r === "verified" || r === "partner")) &&
+        !a.roles?.includes("admin"),
+    );
+
+    for (const a of approvedAccounts) {
+      const welcomePostId = `welcome-${a.id}`;
+      const alreadyWelcomed = state.posts.some(
+        (p) =>
+          p.id === welcomePostId ||
+          (a.handle && p.text?.toLowerCase().includes(a.handle.toLowerCase()) && (p.authorId === "streamcore_bot" || p.text?.includes("Official Welcome"))) ||
+          (a.display_name && p.text?.toLowerCase().includes(a.display_name.toLowerCase()) && (p.authorId === "streamcore_bot" || p.text?.includes("Official Welcome"))),
+      );
+
+      if (!alreadyWelcomed) {
+        void postCreatorWelcomeAnnouncement({
+          id: a.id,
+          name: a.display_name,
+          handle: a.handle,
+          channelUrl: a.channel_url,
+          platform: a.platform,
+          avatarUrl: a.avatar_url,
+        });
+      }
+    }
+  }, [accounts, state.posts]);
 
   const channels = useMemo(() => {
     const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [
@@ -1263,6 +1296,9 @@ function Index() {
                                   {authorName}
                                 </button>
                                 {effectiveAuthor.role === "admin" && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">👑 ADMIN</span>}
+                                {(p.authorId === "streamcore_bot" || authorName === "STREAMCORE BOT") && (
+                                  <span className="rounded bg-[#9146FF]/20 px-1.5 py-0.5 text-[10px] font-extrabold text-[#9146FF]">🤖 BOT</span>
+                                )}
                                 <span className="text-xs text-muted-foreground">
                                   {new Date(p.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                 </span>

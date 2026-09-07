@@ -170,12 +170,123 @@ export async function fetchPendingApprovals(): Promise<PendingCreatorApproval[]>
   }
 }
 
+// Post official welcoming announcement from StreamCore Bot into #general
+export async function postCreatorWelcomeAnnouncement(creator: {
+  id: string;
+  name: string;
+  handle?: string | null;
+  channelUrl?: string | null;
+  platform?: string | null;
+  avatarUrl?: string | null;
+}) {
+  try {
+    const displayName = creator.name || "Creator";
+    const rawHandle = creator.handle || `@${displayName.toLowerCase().replace(/\s+/g, "")}`;
+    const handle = rawHandle.startsWith("@") ? rawHandle : `@${rawHandle}`;
+    const platform = creator.platform || "Twitch";
+    const channelLink = creator.channelUrl?.trim() || "";
+    const linkText = channelLink ? `\n\n📺 Stream Channel: ${channelLink}` : "";
+
+    const welcomeText = `🎉 Official Welcome: Please welcome ${handle} (${displayName}) to the StreamCore creator community! 🚀\nTheir ${platform} channel has been officially verified and approved by the admin team. Drop them a follow, say hello in chat, and let's show them some community love and raid support! 🔥${linkText}`;
+
+    const welcomePostId = `welcome-${creator.id}`;
+
+    // Check if welcome post was already published
+    const { data: existing } = await supabase
+      .from("community_posts")
+      .select("id")
+      .eq("id", welcomePostId)
+      .maybeSingle();
+
+    if (existing?.id) {
+      return null;
+    }
+
+    const welcomePost = {
+      id: welcomePostId,
+      authorId: "streamcore_bot",
+      authorName: "STREAMCORE BOT",
+      authorHandle: "@streamcore",
+      authorAvatar: "https://api.dicebear.com/7.x/bottts/svg?seed=streamcore_bot",
+      channel: "general",
+      text: welcomeText,
+      time: Date.now(),
+      reactions: { "🎉": 4, "❤️": 3, "🔥": 3, "🚀": 2 },
+      likes: ["streamcore_bot"],
+      comments: [],
+    };
+
+    const { error } = await supabase.from("community_posts").upsert({
+      id: welcomePostId,
+      data: welcomePost,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.warn("Could not post welcome announcement:", error);
+      return null;
+    }
+
+    // Schedule an automated friendly community streamer reply to celebrate the new creator
+    setTimeout(async () => {
+      try {
+        const welcomeReplies = [
+          `Welcome to the squad ${handle}! Excited to check out your stream 🔥`,
+          `Welcome aboard ${handle}! Dropping you a follow right now, let's get it 🚀`,
+          `Huge welcome ${handle}! So glad to have you in the creator network 👑`,
+          `Welcome to the community ${handle}! Let's definitely run some raids soon 🔥`,
+        ];
+        const { data: listed } = await supabase.from("community_listed_members").select("id, data").limit(20);
+        const candidates = (listed ?? []).filter((m: any) => m.data?.name && m.id !== creator.id);
+        const replier = candidates[Math.floor(Math.random() * (candidates.length || 1))];
+        if (replier) {
+          const replyId = `welcome-reply-${creator.id}-${Date.now()}`;
+          const replyText = welcomeReplies[Math.floor(Math.random() * welcomeReplies.length)]!;
+          const replyRecord = {
+            id: replyId,
+            authorId: replier.id,
+            authorName: replier.data?.name || "Creator",
+            authorHandle: replier.data?.handle || `@${(replier.data?.name || "creator").toLowerCase().replace(/\s+/g, "")}`,
+            authorAvatar: replier.data?.avatar || "",
+            channel: "general",
+            text: replyText,
+            replyToId: welcomePostId,
+            time: Date.now(),
+            reactions: { "❤️": 2, "🔥": 1 },
+            likes: [],
+            comments: [],
+          };
+          await supabase.from("community_posts").upsert({
+            id: replyId,
+            data: replyRecord,
+            created_at: new Date().toISOString(),
+          });
+        }
+      } catch (err) {
+        console.warn("Welcome reply error:", err);
+      }
+    }, 3500);
+
+    return welcomePost;
+  } catch (err) {
+    console.warn("Welcome announcement error:", err);
+    return null;
+  }
+}
+
 // Approve creator channel using PV Token & send celebration email
 export async function approveCreatorChannelWithPvToken(
   creatorId: string,
   pvToken: string,
   adminId: string,
-  creatorEmail?: string
+  creatorEmail?: string,
+  creatorDetails?: {
+    name?: string;
+    handle?: string | null;
+    channelUrl?: string | null;
+    platform?: string | null;
+    avatarUrl?: string | null;
+  }
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const cleanToken = pvToken.trim().toUpperCase();
@@ -198,6 +309,29 @@ export async function approveCreatorChannelWithPvToken(
     if (!result?.success) {
       return { success: false, error: result?.error || "The channel could not be approved." };
     }
+
+    // Fetch creator profile if needed to guarantee accurate name/handle/channel
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("display_name, handle, channel_url, platform, avatar_url")
+      .eq("id", creatorId)
+      .maybeSingle();
+
+    const name = creatorDetails?.name || profile?.display_name || "Creator";
+    const handle = creatorDetails?.handle || profile?.handle;
+    const channelUrl = creatorDetails?.channelUrl || profile?.channel_url;
+    const platform = creatorDetails?.platform || profile?.platform || "Twitch";
+    const avatarUrl = creatorDetails?.avatarUrl || profile?.avatar_url;
+
+    // Immediately post official welcome announcement to #general by StreamCore Bot
+    await postCreatorWelcomeAnnouncement({
+      id: creatorId,
+      name,
+      handle,
+      channelUrl,
+      platform,
+      avatarUrl,
+    });
 
     // Send congratulatory email to creator if email is available
     if (creatorEmail) {

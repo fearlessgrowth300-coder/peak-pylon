@@ -72,7 +72,13 @@ export function AdminInvitesAndApprovals({
     }
 
     setApprovingId(creator.id);
-    const res = await approveCreatorChannelWithPvToken(creator.id, token, adminId);
+    const res = await approveCreatorChannelWithPvToken(creator.id, token, adminId, undefined, {
+      name: creator.display_name,
+      handle: creator.handle,
+      channelUrl: creator.channel_url,
+      platform: creator.platform,
+      avatarUrl: creator.avatar_url,
+    });
     setApprovingId(null);
 
     if (res.success) {
