@@ -79,8 +79,7 @@ function isSavedView(value: string | null): value is View {
 function Index() {
   const inviteSearch = Route.useSearch();
   const [view, setView] = useState<View>("home");
-  const enablePostRealtime = view === "general" || view === "trending" || view === "announcements" || view.startsWith("channel:");
-  const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts } = useCommunity({ enablePostRealtime });
+  const { state, addMember, updateMember, removeMember, addPost, updatePost, removePost, setStats, setCommunity, addChannel, removeChannel, toggleReaction, applyMemberSnapshots, loadOlderPosts, hasOlderPosts, loadingOlderPosts, refreshPosts } = useCommunity({ enablePostRealtime: true });
   const navigate = useNavigate();
   const { session, loading: sessionLoading } = useSession();
   const { accounts, loading: accountsLoading, refresh } = useAccounts();
@@ -272,15 +271,18 @@ function Index() {
 
   // Ensure #general is never a blank screen with just a button
   useEffect(() => {
-    if (view === "general" && hasOlderPosts && !loadingOlderPosts) {
-      const generalCount = state.posts.filter(
-        (p) => (!p.channel || p.channel === "general") && !/[\u4e00-\u9fa5]/.test(p.text || "")
-      ).length;
-      if (generalCount < 8) {
-        void loadOlderPosts();
+    if (view === "general") {
+      void refreshPosts();
+      if (hasOlderPosts && !loadingOlderPosts) {
+        const generalCount = state.posts.filter(
+          (p) => (!p.channel || p.channel === "general") && !/[\u4e00-\u9fa5]/.test(p.text || "")
+        ).length;
+        if (generalCount < 8) {
+          void loadOlderPosts();
+        }
       }
     }
-  }, [view, hasOlderPosts, loadingOlderPosts, state.posts.length, loadOlderPosts]);
+  }, [view, hasOlderPosts, loadingOlderPosts, state.posts.length, loadOlderPosts, refreshPosts]);
 
   const channels = useMemo(() => {
     const groups: { group: string; items: { id: View; label: string; icon: string }[] }[] = [

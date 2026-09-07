@@ -758,7 +758,7 @@ export function AdminView({
         )}
       </div>
 
-      <IntegrationControlCenter accessToken={accessToken} channels={state.channels} notify={notify} />
+      <IntegrationControlCenter accessToken={accessToken} channels={state.channels} notify={notify} onPostCreated={addPost} />
 
       {activeClipModalMember && generateClips && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">

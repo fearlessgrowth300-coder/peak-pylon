@@ -646,6 +646,32 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
     [],
   );
 
+  const refreshPosts = useCallback(async () => {
+    const db = supabase as any;
+    const { data: latestRows, error } = await db
+      .from("community_posts")
+      .select("id, data, created_at")
+      .order("created_at", { ascending: false })
+      .limit(60);
+
+    if (error || !latestRows) return;
+
+    const incoming = latestRows
+      .filter((r: any) => r?.id && r?.data && !/[\u4e00-\u9fa5]/.test(r.data.text || ""))
+      .map((r: any) => ({ ...r.data, id: r.id } as Post));
+
+    setState((current) => {
+      const existingIds = new Set(current.posts.map((p) => p.id));
+      const newPosts = incoming.filter((p: Post) => !existingIds.has(p.id));
+      if (newPosts.length === 0) return current;
+      return {
+        ...current,
+        posts: [...newPosts, ...current.posts].sort((a, b) => b.time - a.time),
+        totalPosts: Math.max(current.totalPosts, current.posts.length + newPosts.length),
+      };
+    });
+  }, []);
+
   return {
     state,
     hydrated,
@@ -664,6 +690,7 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
     loadOlderPosts,
     hasOlderPosts,
     loadingOlderPosts,
+    refreshPosts,
   };
 }
 

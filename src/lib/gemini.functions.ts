@@ -10,6 +10,9 @@ export const GEMINI_MODEL_OPTIONS = [
 ] as const;
 
 export const AI_AUTOPILOT_INTERVAL_OPTIONS = [
+  { value: 1, label: "Every 1 minute (Fast testing)" },
+  { value: 2, label: "Every 2 minutes" },
+  { value: 5, label: "Every 5 minutes" },
   { value: 10, label: "Every 10 minutes (recommended)" },
   { value: 15, label: "Every 15 minutes" },
   { value: 30, label: "Every 30 minutes" },
@@ -103,7 +106,14 @@ async function loadAutopilotConfig(db: any): Promise<AiAutopilotConfig> {
   };
 }
 
-async function callGemini(apiKeys: string[], model: GeminiModel, prompt: string, startIndex = 0, maxOutputTokens = 12) {
+async function callGemini(
+  apiKeys: string[],
+  model: GeminiModel,
+  prompt: string,
+  startIndex = 0,
+  maxOutputTokens = 120,
+  temperature = 0.85,
+) {
   if (!apiKeys.length) throw new Error("Add at least one Gemini API key first.");
   const errors: string[] = [];
   for (let offset = 0; offset < apiKeys.length; offset += 1) {
@@ -116,7 +126,7 @@ async function callGemini(apiKeys: string[], model: GeminiModel, prompt: string,
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens },
+          generationConfig: { temperature, maxOutputTokens },
         }),
       },
     );
@@ -268,7 +278,8 @@ CRITICAL LANGUAGE & CONTENT RULES:
     config.model,
     prompt,
     config.keyCursor ?? 0,
-    80
+    120,
+    0.85
   );
 
   let cleanText = rawText
@@ -276,11 +287,20 @@ CRITICAL LANGUAGE & CONTENT RULES:
     .replace(/\[?StreamCore AI[^\]]*\]?[:\s\-]*/gi, "")
     .replace(/As an AI[^:.]*[:.]\s*/gi, "")
     .replace(/^Hey everyone!?\s*/gi, "")
+    .replace(/[\u4e00-\u9fa5]/g, "")
     .trim();
 
-  // Strip any non-ASCII characters that might be foreign scripts
-  if (/[\u4e00-\u9fa5]/.test(cleanText) || !cleanText) {
-    cleanText = "Anyone grinding ranked games later today? Let me know who is down to queue.";
+  // Strip non-ASCII or short stubs and guarantee a rich gamer community discussion
+  if (!cleanText || cleanText.length < 12) {
+    const DEFAULT_CASUAL_POSTS = [
+      "Anyone grinding ranked games later today? Let me know who is down to queue up!",
+      "Debating if I should do an IRL outdoor stream tomorrow or stay inside and grind all afternoon.",
+      "Just upgraded my mic and audio setup, let me know how it sounds on stream tonight!",
+      "GGs to everyone who hit affiliate this week! Huge milestones for the community.",
+      "Down for some casual duo or squad games tonight if anyone wants to hop in voice.",
+      "That last match was absolute chaos lol, gotta love late night ranked lobbies.",
+    ];
+    cleanText = DEFAULT_CASUAL_POSTS[Math.floor(Math.random() * DEFAULT_CASUAL_POSTS.length)]!;
   }
 
   let stickerUrl = "";

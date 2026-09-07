@@ -44,10 +44,12 @@ export function IntegrationControlCenter({
   accessToken,
   channels,
   notify,
+  onPostCreated,
 }: {
   accessToken: string;
   channels: CommunityChannel[];
   notify: (message: string) => void;
+  onPostCreated?: (post?: any) => void;
 }) {
   const [geminiKeysText, setGeminiKeysText] = useState("");
   const [geminiKeyCount, setGeminiKeyCount] = useState(0);
@@ -136,6 +138,9 @@ export function IntegrationControlCenter({
       });
       setAutopilot(result);
       await refreshStatuses();
+      if (onPostCreated && active) {
+        onPostCreated();
+      }
       notify(active ? "AI autopilot active and posted successfully in chat" : "AI autopilot settings saved (stopped)");
     } catch (error) {
       notify(error instanceof Error ? error.message : "AI autopilot could not be updated");
@@ -147,8 +152,18 @@ export function IntegrationControlCenter({
   async function sendAiTestMessage() {
     setAutopilotBusy(true);
     try {
-      await generateCommunityAiMessage({ data: { accessToken } });
+      const result = await generateCommunityAiMessage({ data: { accessToken } });
       await refreshStatuses();
+      if (onPostCreated && result) {
+        onPostCreated({
+          id: result.postId,
+          authorId: (result as any).authorId,
+          text: (result as any).text,
+          channel: (result as any).channel || "general",
+          time: Date.now(),
+          aiGenerated: true,
+        });
+      }
       notify("StreamCore AI posted one real test message in chat");
     } catch (error) {
       notify(error instanceof Error ? error.message : "The AI test message failed");
