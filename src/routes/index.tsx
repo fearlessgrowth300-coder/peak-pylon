@@ -1111,7 +1111,18 @@ function Index() {
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
           <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
-            {view === "home" && <HomeDashboard state={state} liveMembers={liveMembers} members={allMembers} posts={state.posts} onPick={setProfile} onOpen={navigateToView} />}
+            {view === "home" && (
+              <HomeDashboard
+                state={state}
+                liveMembers={liveMembers}
+                members={allMembers}
+                posts={state.posts}
+                onPick={setProfile}
+                onOpen={navigateToView}
+                isAdmin={isAdmin}
+                onDeletePost={removePost}
+              />
+            )}
             {view === "general" && (
               <div className="space-y-4 px-4 py-5">
                 <section
@@ -1408,19 +1419,25 @@ function Index() {
                 isAdmin={isAdmin}
                 currentUserId={myAccount?.id}
                 onCreate={async (post) => {
-                  const authorId = myAccount?.id ?? adminMembers[0]?.id;
-                  if (authorId) {
-                    const created = await addPost({ ...post, authorId, channel: "trending" });
-                    if (session?.access_token) {
-                      await dispatchResendNotification({ data: {
-                        accessToken: session.access_token,
-                        kind: "announcement",
-                        dedupeKey: `trending:${authorId}:${post.time ?? Date.now()}`,
-                        subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore update"}`,
-                        text: post.text.slice(0, 4000),
-                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore update</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app/?view=trending${created?.id ? `&post=${encodeURIComponent(created.id)}` : ""}" style="color:#fbbf24">Read on StreamCore →</a></div>`,
-                      } });
-                    }
+                  const author = myAccount ? accountToMember(myAccount) : adminMembers[0];
+                  const authorId = author?.id || myAccount?.id || allMembers[0]?.id || "admin";
+                  const created = await addPost({
+                    ...post,
+                    authorId,
+                    authorName: author?.name || myAccount?.display_name || "Community Admin",
+                    authorHandle: author?.handle || myAccount?.handle || "@admin",
+                    authorAvatar: author?.avatar || myAccount?.avatar_url || "",
+                    channel: "trending",
+                  });
+                  if (session?.access_token) {
+                    await dispatchResendNotification({ data: {
+                      accessToken: session.access_token,
+                      kind: "announcement",
+                      dedupeKey: `trending:${authorId}:${post.time ?? Date.now()}`,
+                      subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore update"}`,
+                      text: post.text.slice(0, 4000),
+                      html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore update</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app/?view=trending${created?.id ? `&post=${encodeURIComponent(created.id)}` : ""}" style="color:#fbbf24">Read on StreamCore →</a></div>`,
+                    } });
                   }
                 }}
                 onUpdate={updatePost}
@@ -1443,19 +1460,25 @@ function Index() {
                 isAdmin={isAdmin}
                 currentUserId={myAccount?.id}
                 onCreate={async (post) => {
-                  const authorId = myAccount?.id ?? adminMembers[0]?.id;
-                  if (authorId) {
-                    const created = await addPost({ ...post, authorId, channel: "announcements" });
-                    if (session?.access_token) {
-                      await dispatchResendNotification({ data: {
-                        accessToken: session.access_token,
-                        kind: "announcement",
-                        dedupeKey: `announcement:${authorId}:${post.time ?? Date.now()}`,
-                        subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore announcement"}`,
-                        text: post.text.slice(0, 4000),
-                        html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore announcement</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app/?view=announcements${created?.id ? `&post=${encodeURIComponent(created.id)}` : ""}" style="color:#fbbf24">Read on StreamCore →</a></div>`,
-                      } });
-                    }
+                  const author = myAccount ? accountToMember(myAccount) : adminMembers[0];
+                  const authorId = author?.id || myAccount?.id || allMembers[0]?.id || "admin";
+                  const created = await addPost({
+                    ...post,
+                    authorId,
+                    authorName: author?.name || myAccount?.display_name || "Community Admin",
+                    authorHandle: author?.handle || myAccount?.handle || "@admin",
+                    authorAvatar: author?.avatar || myAccount?.avatar_url || "",
+                    channel: "announcements",
+                  });
+                  if (session?.access_token) {
+                    await dispatchResendNotification({ data: {
+                      accessToken: session.access_token,
+                      kind: "announcement",
+                      dedupeKey: `announcement:${authorId}:${post.time ?? Date.now()}`,
+                      subject: `📢 ${post.text.split("\n")[0]?.slice(0, 140) || "New StreamCore announcement"}`,
+                      text: post.text.slice(0, 4000),
+                      html: `<div style="font-family:sans-serif;background:#0d0e12;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#f59e0b">Official StreamCore announcement</h2><p style="white-space:pre-wrap">${post.text.replace(/[<>&\"']/g, "")}</p><a href="https://peak-pylon.vercel.app/?view=announcements${created?.id ? `&post=${encodeURIComponent(created.id)}` : ""}" style="color:#fbbf24">Read on StreamCore →</a></div>`,
+                    } });
                   }
                 }}
                 onUpdate={updatePost}
@@ -1870,10 +1893,34 @@ function Index() {
   );
 }
 
-function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: { state: ReturnType<typeof useCommunity>["state"]; liveMembers: Member[]; members: Member[]; posts: Post[]; onPick: (member: Member) => void; onOpen: (view: View) => void }) {
-  const trending = posts.filter((post) => post.channel === "trending").sort((a, b) => b.time - a.time).slice(0, 3);
-  const announcements = posts.filter((post) => post.channel === "announcements").sort((a, b) => b.time - a.time).slice(0, 3);
-  const clips = posts.filter((post) => post.channel === "clips").sort((a, b) => b.time - a.time).slice(0, 4);
+function HomeDashboard({
+  state,
+  liveMembers,
+  members,
+  posts,
+  onPick,
+  onOpen,
+  isAdmin,
+  onDeletePost,
+}: {
+  state: ReturnType<typeof useCommunity>["state"];
+  liveMembers: Member[];
+  members: Member[];
+  posts: Post[];
+  onPick: (member: Member) => void;
+  onOpen: (view: View) => void;
+  isAdmin?: boolean;
+  onDeletePost?: (id: string) => Promise<void> | void;
+}) {
+  const trending = posts
+    .filter((post) => post.channel === "trending" || post.channel === "announcements")
+    .sort((a, b) => (b.time || 0) - (a.time || 0))
+    .slice(0, 4);
+  const announcements = posts
+    .filter((post) => post.channel === "announcements" || post.channel === "trending")
+    .sort((a, b) => (b.time || 0) - (a.time || 0))
+    .slice(0, 4);
+  const clips = posts.filter((post) => post.channel === "clips").sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, 4);
   const creatorActivity = members
     .map((member) => ({
       member,
@@ -1921,8 +1968,86 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_.85fr]">
         <section className="rounded-2xl border border-border bg-popover p-4">
-          <div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING</p><h2 className="text-xl font-extrabold">Admin trending posts</h2></div><button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary">Open feed →</button></div>
-          <div className="space-y-2">{trending.map((post) => { const author=members.find((member)=>member.id===post.authorId); const reactions=Object.values(post.reactions??{}).reduce((sum,count)=>sum+count,0)+(post.likes?.length??0); return <article key={post.id} className="rounded-xl bg-background p-3"><div className="flex gap-3"><Avatar member={author??{name:"StreamCore",avatar:"",status:"offline"}} size={36} showStatus={false}/><div className="min-w-0"><p className="text-sm font-bold">{post.text.split("\n")[0] || "Trending post"}</p><p className="mt-1 text-xs text-muted-foreground">{author?.name??"StreamCore"} · {timeAgo(post.time)} · {reactions} reactions</p></div></div></article>; })}{!trending.length&&<p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">No real trending posts yet.</p>}</div>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black tracking-widest text-orange-400">🔥 TRENDING</p>
+              <h2 className="text-xl font-extrabold">Admin trending posts</h2>
+            </div>
+            <button onClick={() => onOpen("trending")} className="text-sm font-bold text-primary hover:underline">
+              Open feed →
+            </button>
+          </div>
+          <div className="space-y-2">
+            {trending.map((post) => {
+              const author = members.find(
+                (member) =>
+                  member.id === post.authorId ||
+                  (post.authorName && member.name?.toLowerCase() === post.authorName.toLowerCase()),
+              );
+              const authorName = author?.name || post.authorName || "StreamCore Admin";
+              const authorAvatar = author?.avatar || post.authorAvatar || "";
+              const authorMember: Member = author ?? {
+                id: post.authorId || "admin",
+                name: authorName,
+                avatar: authorAvatar,
+                status: "online",
+                handle: post.authorHandle || "@admin",
+                platform: "Twitch",
+                link: "#",
+                bio: "",
+                banner: "",
+              };
+              const reactions =
+                Object.values(post.reactions ?? {}).reduce((sum, count) => sum + count, 0) +
+                (post.likes?.length ?? 0);
+              return (
+                <article
+                  key={post.id}
+                  onClick={() => onOpen(post.channel === "announcements" ? "announcements" : "trending")}
+                  role="button"
+                  tabIndex={0}
+                  className="group cursor-pointer rounded-xl bg-background p-3 transition-colors hover:bg-accent/60"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 gap-3">
+                      <Avatar member={authorMember} size={36} showStatus={false} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-bold text-foreground group-hover:text-primary transition-colors">
+                            {post.text.split("\n")[0] || "Trending post"}
+                          </p>
+                          <span className="shrink-0 rounded bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary">
+                            {post.channel === "announcements" ? "Announcement" : "Trending"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {authorName} · {timeAgo(post.time)} · {reactions} reactions
+                        </p>
+                      </div>
+                    </div>
+                    {isAdmin && onDeletePost && (
+                      <button
+                        type="button"
+                        title="Delete post"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (window.confirm("Are you sure you want to delete this post?")) {
+                            await onDeletePost(post.id);
+                          }
+                        }}
+                        className="opacity-0 group-hover:opacity-100 shrink-0 rounded p-1.5 text-xs text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        🗑
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+            {!trending.length && (
+              <p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">No real trending posts yet.</p>
+            )}
+          </div>
         </section>
         <section className="rounded-2xl border border-border bg-popover p-4">
           <p className="text-xs font-black tracking-widest text-primary">CREATOR ACTIVITY</p><h2 className="mt-1 text-xl font-extrabold">Current network leaders</h2><p className="mt-1 text-xs text-muted-foreground">Sorted only by live state, synced followers and real post counts.</p>
@@ -1937,7 +2062,61 @@ function HomeDashboard({ state, liveMembers, members, posts, onPick, onOpen }: {
 
       <section className="grid gap-5 lg:grid-cols-2">
         <TopCategoriesWidget members={members} posts={posts}/>
-        <div className="rounded-2xl border border-border bg-popover p-5"><p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p><h2 className="mt-1 text-xl font-extrabold">Published by StreamCore</h2><div className="mt-4 space-y-2">{announcements.map((post)=><button key={post.id} onClick={()=>onOpen("announcements")} className="flex w-full items-center gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold hover:bg-accent"><span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary">✦</span><span className="min-w-0 flex-1 truncate">{post.text.split("\n")[0]||"Announcement"}<small className="mt-1 block text-xs font-normal text-muted-foreground">{timeAgo(post.time)}</small></span><span>→</span></button>)}{!announcements.length&&<p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">No announcements have been published.</p>}</div></div>
+        <div className="rounded-2xl border border-border bg-popover p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black tracking-widest text-live">📣 ANNOUNCEMENTS</p>
+              <h2 className="mt-1 text-xl font-extrabold">Published by StreamCore</h2>
+            </div>
+            <button onClick={() => onOpen("announcements")} className="text-sm font-bold text-primary hover:underline">
+              View all →
+            </button>
+          </div>
+          <div className="mt-4 space-y-2">
+            {announcements.map((post) => (
+              <div
+                key={post.id}
+                onClick={() => onOpen("announcements")}
+                role="button"
+                tabIndex={0}
+                className="group flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl bg-background p-3 text-left text-sm font-semibold transition-colors hover:bg-accent"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/20 text-primary">✦</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="block truncate text-foreground group-hover:text-primary transition-colors">
+                      {post.text.split("\n")[0] || "Announcement"}
+                    </span>
+                    <small className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                      {timeAgo(post.time)} · {post.authorName || "Admin"}
+                    </small>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isAdmin && onDeletePost && (
+                    <button
+                      type="button"
+                      title="Delete announcement"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (window.confirm("Are you sure you want to delete this announcement?")) {
+                          await onDeletePost(post.id);
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 rounded p-1 text-xs text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      🗑
+                    </button>
+                  )}
+                  <span className="text-muted-foreground group-hover:translate-x-0.5 transition-transform">→</span>
+                </div>
+              </div>
+            ))}
+            {!announcements.length && (
+              <p className="rounded-xl bg-background p-5 text-sm text-muted-foreground">No announcements have been published.</p>
+            )}
+          </div>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between">

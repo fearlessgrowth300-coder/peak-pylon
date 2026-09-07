@@ -584,7 +584,8 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
     };
     mutationVersion.current += 1;
     const { id: _id, ...data } = post;
-    const { error } = await (supabase as any).from("community_posts").upsert({ id, data });
+    const createdAt = new Date(post.time || Date.now()).toISOString();
+    const { error } = await (supabase as any).from("community_posts").upsert({ id, data, created_at: createdAt });
     if (error) {
       mutationVersion.current += 1;
       throw error;
