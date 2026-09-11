@@ -1,6 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { timeAgo, uploadCommunityMedia, useCommunity, uid, type Member, type Post, type PostInput } from "@/lib/community";
+import { timeAgo, uploadCommunityMedia, useCommunity, type Member, type Post, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor, ErrorBoundary } from "@/components/community/Bits";
 import { ProfileModal } from "@/components/community/ProfileModal";
@@ -27,6 +27,27 @@ import { PendingApprovalGateBanner } from "@/components/community/PendingApprova
 import { isStickerSaved, saveCustomSticker } from "@/lib/stickers";
 import { acknowledgeCommunityRules } from "@/lib/onboarding.functions";
 import { tickCommunityAiAutopilot, checkCommunityAiAutopilotDue } from "@/lib/gemini.functions";
+import {
+  BarChart3,
+  Bell,
+  CalendarDays,
+  Flame,
+  Globe2,
+  Handshake,
+  Hash,
+  Home,
+  Mail,
+  Megaphone,
+  Plug,
+  Radio,
+  Rocket,
+  Settings,
+  Shield,
+  Star,
+  Trophy,
+  UserRound,
+  Users,
+} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -37,17 +58,17 @@ export const Route = createFileRoute("/")({
   }),
   head: () => ({
     meta: [
-      { title: "StreamCore — Discord-style Streamer Community" },
+      { title: "StreamCore | Creator Community" },
       {
         name: "description",
         content:
-          "StreamCore is a Discord-style streamer community: creator directory, live status, profile cards and a community feed managed by the owner.",
+          "Discover creator profiles, current live streams, community posts, and clips on StreamCore.",
       },
-      { property: "og:title", content: "StreamCore — Streamer Community" },
+      { property: "og:title", content: "StreamCore | Creator Community" },
       {
         property: "og:description",
         content:
-          "Browse thousands of creator profiles, see who's live, and follow community announcements.",
+          "Browse connected creator profiles, current live streams, community posts, and clips.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -67,6 +88,34 @@ const STANDARD_VIEWS = new Set<string>([
 ]);
 const ADMIN_VIEWS = new Set<string>(["admin", "community-analytics", "moderation", "integrations"]);
 const ACCOUNT_VIEWS = new Set<string>(["analytics", "notifications", "messages", "me"]);
+
+const NAV_ICONS = {
+  home: Home,
+  trending: Flame,
+  "live-now": Radio,
+  creators: Users,
+  rankings: Trophy,
+  announcements: Megaphone,
+  featured: Star,
+  rising: Rocket,
+  partners: Handshake,
+  events: CalendarDays,
+  rules: Hash,
+  general: Hash,
+  me: UserRound,
+  analytics: BarChart3,
+  notifications: Bell,
+  messages: Mail,
+  admin: Settings,
+  "community-analytics": Globe2,
+  moderation: Shield,
+  integrations: Plug,
+} as const;
+
+function NavigationIcon({ view }: { view: View }) {
+  const Icon = view.startsWith("channel:") ? Hash : NAV_ICONS[view as keyof typeof NAV_ICONS] || Hash;
+  return <Icon aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={1.8} />;
+}
 
 function isSavedView(value: string | null): value is View {
   return Boolean(
@@ -180,7 +229,7 @@ function Index() {
         } else if (!myAccount.channel_authorized && !myAccount.twitch_verified) {
           if (nextView !== "me" && nextView !== "live-now") {
             setView("me");
-            setToast("⚠️ You must connect and authorize your Twitch channel before entering the community.");
+            setToast("Connect and authorize either a Twitch or Kick channel before entering the community.");
             return;
           }
         }
@@ -851,17 +900,6 @@ function Index() {
     const createdPost = await addPost(post);
     if (!createdPost) return;
 
-    setTimeout(() => {
-      void triggerStreamerReactionsToPost(
-          createdPost.id,
-          post.text || "",
-          post.authorId,
-          allMembersRef.current,
-          createdPost.reactions,
-          createdPost.likes
-        );
-    }, 2500);
-
     if (!session?.access_token) return;
     const author = memberById.get(post.authorId);
     try {
@@ -882,7 +920,6 @@ function Index() {
   async function generateManagedMemberClips(
     member: Member,
     amount = 6,
-    engagement?: { likes?: number; comments?: number; shares?: number },
   ) {
     if (!member.link) return;
     try {
@@ -892,46 +929,24 @@ function Index() {
         return;
       }
 
-      const likesCount = engagement?.likes ?? 0;
-      const commentsCount = engagement?.comments ?? 0;
-      const sharesCount = engagement?.shares ?? 0;
-
-      const defaultComments = [
-        "insane clip 🔥",
-        "W stream moment 🙌",
-        "chat was going wild here 😂",
-        "peak gameplay right there",
-        "clip of the day 👑",
-        "nah that reaction was priceless 💀",
-      ];
-
       for (const clip of clips) {
         const existing = state.posts.find((p) => (p.text && p.text.includes(clip.url)) || p.image === clip.thumbnail_url);
-        
-        const clipComments = Array.from({ length: commentsCount }, (_, i) => ({
-          id: uid(),
-          authorId: (allMembers && allMembers[(i + 1) % allMembers.length]?.id) || state.members[(i + 1) % (state.members.length || 1)]?.id || "member",
-          text: defaultComments[i % defaultComments.length],
-          time: Date.now() - (i + 1) * 60_000,
-        }));
 
         if (existing) {
           await updatePost(existing.id, {
-            reactions: likesCount > 0 ? { "❤️": likesCount, "🔥": Math.max(1, Math.floor(likesCount / 2)) } : {},
-            likes: Array.from({ length: likesCount }, (_, i) => `user-${i + 1}`),
-            shares: sharesCount,
-            comments: clipComments,
+            text: `${clip.title}\n${clip.url}\n${clip.view_count.toLocaleString()} Twitch views`,
+            image: clip.thumbnail_url,
           });
         } else {
           await addPost({
             authorId: member.id,
             channel: "clips",
-            text: `${clip.title}\n${clip.url}\n👁 ${clip.view_count.toLocaleString()} views`,
+            text: `${clip.title}\n${clip.url}\n${clip.view_count.toLocaleString()} Twitch views`,
             image: clip.thumbnail_url,
-            reactions: likesCount > 0 ? { "❤️": likesCount, "🔥": Math.max(1, Math.floor(likesCount / 2)) } : {},
-            likes: Array.from({ length: likesCount }, (_, i) => `user-${i + 1}`),
-            shares: sharesCount,
-            comments: clipComments,
+            reactions: {},
+            likes: [],
+            shares: 0,
+            comments: [],
           });
         }
       }
@@ -947,7 +962,7 @@ function Index() {
           },
         });
       }
-      setToast(`Generated ${clips.length} clips for ${member.name} with ${likesCount} likes, ${commentsCount} comments & ${sharesCount} shares.`);
+      setToast(`Imported ${clips.length} real Twitch clip${clips.length === 1 ? "" : "s"} for ${member.name}.`);
     } catch (error) {
       console.error("Clip generation error", error);
       setToast(`Could not generate clips: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -1077,7 +1092,7 @@ function Index() {
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   }`}
                 >
-                  <span className="text-lg text-muted-foreground">{c.icon}</span>
+                  <span className="text-muted-foreground"><NavigationIcon view={c.id} /></span>
                   <span className="truncate">{c.label}</span>
                 </button>
               ))}
@@ -1789,10 +1804,10 @@ function Index() {
               {inviteBusy ? "Creating invite..." : "+ Invite members 🔗"}
             </button>}
 
-            <MemberGroup title={`Admin — ${adminMembers.length}`} list={adminMembers} onPick={setProfile} admin />
-            <MemberGroup title={`Online — ${online.length}`} list={online} onPick={setProfile} />
+            <MemberGroup title={`Admin: ${adminMembers.length}`} list={adminMembers} onPick={setProfile} admin />
+            <MemberGroup title={`Online: ${online.length}`} list={online} onPick={setProfile} />
             <MemberGroup
-              title={`Offline — ${offline.length}`}
+              title={`Offline: ${offline.length}`}
               list={offline}
               onPick={setProfile}
               dim
@@ -1976,12 +1991,11 @@ function HomeDashboard({
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-5 lg:px-7">
-      <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-[radial-gradient(circle_at_top_right,_oklch(0.577_0.209_273.9_/_0.42),_transparent_44%),linear-gradient(135deg,_oklch(0.25_0.018_270),_oklch(0.17_0.015_270))] p-6 lg:p-9">
-        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/25 blur-3xl" />
+      <section className="relative overflow-hidden rounded-xl border border-border bg-card p-6 lg:p-9">
         <div className="relative max-w-3xl">
           <p className="text-xs font-black tracking-[0.25em] text-primary">STREAMCORE</p>
-          <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">One network.<br />Real creators.</h1>
-          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">The established StreamCore experience, powered by current Twitch streams, real community posts and creator clips.</p>
+          <h1 className="mt-3 text-4xl font-black leading-[.95] sm:text-6xl">Discover verified live-stream creators.</h1>
+          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">Browse connected creator profiles, current Twitch streams, community posts, and imported clips.</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button onClick={() => onOpen("creators")} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-elevated">Explore creators</button>
             <button onClick={() => onOpen("live-now")} className="rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm font-bold backdrop-blur hover:bg-accent">Watch live now</button>
@@ -2158,7 +2172,7 @@ function HomeDashboard({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_90%_50%,_oklch(0.577_0.209_273.9_/_0.18),_transparent_35%),_oklch(0.14_0.025_255)] p-6 sm:flex sm:items-center sm:justify-between">
+      <section className="rounded-xl border border-border bg-card p-6 sm:flex sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-extrabold">The StreamCore design, connected to live data</h2>
           <p className="mt-1 text-sm text-muted-foreground">Browse {members.length.toLocaleString()} connected creators without demo totals or duplicate category art.</p>
@@ -2167,10 +2181,10 @@ function HomeDashboard({
       </section>
 
       <footer className="grid gap-6 border-t border-border pt-6 text-xs text-muted-foreground sm:grid-cols-4">
-        <div><p className="font-black tracking-widest text-foreground">◈ STREAMCORE</p><p className="mt-2">A creator community for live discovery, conversations and collaboration.</p></div>
+        <div><p className="font-black tracking-widest text-foreground">STREAMCORE</p><p className="mt-2">A creator community for live discovery, conversations, and collaboration.</p></div>
         <div><p className="font-bold text-foreground">COMMUNITY</p><p className="mt-2">Guidelines</p><p>Rules</p><p>Support</p></div>
         <div><p className="font-bold text-foreground">CREATORS</p><p className="mt-2">Directory</p><p>Live now</p><p>Clips</p></div>
-        <div><p className="font-bold text-foreground">DATA</p><p className="mt-2">Twitch Helix</p><p>Supabase Realtime</p><p>Secure AI host</p></div>
+        <div><p className="font-bold text-foreground">LEGAL</p><p className="mt-2"><Link to="/privacy" className="hover:text-foreground">Privacy Policy</Link></p><p><Link to="/terms" className="hover:text-foreground">Terms and Conditions</Link></p></div>
       </footer>
     </div>
   );

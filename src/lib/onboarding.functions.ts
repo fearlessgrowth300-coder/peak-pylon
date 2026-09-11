@@ -15,7 +15,7 @@ const profileInput = authenticatedInput.extend({
       verified: z.boolean().optional(),
       provider: z.string().max(40).optional(),
       providerIdentityId: z.string().max(200).optional(),
-    })).max(6),
+    })).max(8),
   }),
 });
 

@@ -85,7 +85,7 @@ export const completeTwitchAuthorization = createServerFn({ method: "POST" })
     const db = supabaseAdmin as any;
     const { data: currentProfile, error: profileReadError } = await db
       .from("profiles")
-      .select("rules_acknowledged")
+      .select("rules_acknowledged, social_links")
       .eq("id", authData.user.id)
       .maybeSingle();
     if (profileReadError) throw profileReadError;
@@ -111,6 +111,19 @@ export const completeTwitchAuthorization = createServerFn({ method: "POST" })
     const ownStreamResponse = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(user.id)}`, { headers });
     const streams = ownStreamResponse.ok ? (await ownStreamResponse.json()) as { data?: Array<{ thumbnail_url?: string }> } : { data: [] };
     const thumbnail = streams.data?.[0]?.thumbnail_url?.replace("{width}", "1280").replace("{height}", "720") ?? "";
+    const twitchUrl = `https://www.twitch.tv/${user.login}`;
+    const currentLinks = Array.isArray(currentProfile.social_links) ? currentProfile.social_links : [];
+    const socialLinks = [
+      ...currentLinks.filter((link: { platform?: string }) => link.platform !== "Twitch"),
+      {
+        platform: "Twitch",
+        label: `@${user.login}`,
+        url: twitchUrl,
+        verified: true,
+        provider: "twitch",
+        providerIdentityId: user.id,
+      },
+    ];
     const profile = {
       display_name: user.display_name,
       handle: `@${user.login}`,
@@ -118,12 +131,13 @@ export const completeTwitchAuthorization = createServerFn({ method: "POST" })
       avatar_url: user.profile_image_url || "",
       banner_url: thumbnail || user.offline_image_url || "",
       platform: "Twitch",
-      channel_url: `https://www.twitch.tv/${user.login}`,
+      channel_url: twitchUrl,
       status: thumbnail ? "live" : "offline",
       channel_authorized: true,
       twitch_verified: true,
       twitch_user_id: user.id,
       twitch_authorized_at: new Date().toISOString(),
+      social_links: socialLinks,
     };
 
     const { error: profileError } = await db.from("profiles").update(profile).eq("id", authData.user.id);

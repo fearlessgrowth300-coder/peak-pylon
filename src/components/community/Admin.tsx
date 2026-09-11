@@ -47,7 +47,7 @@ export function AdminView({
   crm?: ReactNode;
   addChannel: (channel: Omit<CommunityChannel, "id" | "createdAt">) => void;
   removeChannel: (id: string) => void;
-  generateClips?: (member: Member, amount: number, engagement?: { likes?: number; comments?: number; shares?: number }) => Promise<void>;
+  generateClips?: (member: Member, amount: number) => Promise<void>;
   accessToken: string;
 }) {
   const [form, setForm] = useState({
@@ -67,9 +67,6 @@ export function AdminView({
   const [clipAmounts, setClipAmounts] = useState<Record<string, number>>({});
   const [activeClipModalMember, setActiveClipModalMember] = useState<Member | null>(null);
   const [modalClipAmount, setModalClipAmount] = useState(4);
-  const [modalLikesAmount, setModalLikesAmount] = useState(12);
-  const [modalCommentsAmount, setModalCommentsAmount] = useState(3);
-  const [modalSharesAmount, setModalSharesAmount] = useState(4);
   const [generatingClipsLoading, setGeneratingClipsLoading] = useState(false);
   const [connectionPlatform, setConnectionPlatform] = useState("Instagram");
   const [connectionLabel, setConnectionLabel] = useState("");
@@ -765,9 +762,9 @@ export function AdminView({
           <div className="w-full max-w-md rounded-2xl border border-border bg-popover p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="text-lg font-black text-foreground">🎬 Import real Twitch clips</h3>
+                <h3 className="text-lg font-black text-foreground">Import Twitch clips</h3>
                 <p className="text-xs text-muted-foreground">
-                  Select how many public clips to import for <strong className="text-primary">{activeClipModalMember.name}</strong>, plus initial likes, comments, and shares.
+                  Select how many public clips to import for <strong className="text-primary">{activeClipModalMember.name}</strong>. Engagement begins at zero and records only real member activity.
                 </p>
               </div>
               <button onClick={() => setActiveClipModalMember(null)} className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground">✕</button>
@@ -782,38 +779,6 @@ export function AdminView({
                 className={inputClass}
               />
             </Field>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Likes per clip">
-                <input
-                  type="number"
-                  min={0}
-                  max={500}
-                  value={modalLikesAmount}
-                  onChange={(event) => setModalLikesAmount(Math.max(0, Number(event.target.value) || 0))}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Comments">
-                <input
-                  type="number"
-                  min={0}
-                  max={50}
-                  value={modalCommentsAmount}
-                  onChange={(event) => setModalCommentsAmount(Math.max(0, Number(event.target.value) || 0))}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Shares">
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={modalSharesAmount}
-                  onChange={(event) => setModalSharesAmount(Math.max(0, Number(event.target.value) || 0))}
-                  className={inputClass}
-                />
-              </Field>
-            </div>
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={() => setActiveClipModalMember(null)} className={ghostButtonClass + " flex-1"}>Cancel</button>
               <button
@@ -823,11 +788,7 @@ export function AdminView({
                   if (!activeClipModalMember) return;
                   try {
                     setGeneratingClipsLoading(true);
-                    await generateClips(activeClipModalMember, modalClipAmount, {
-                      likes: modalLikesAmount,
-                      comments: modalCommentsAmount,
-                      shares: modalSharesAmount,
-                    });
+                    await generateClips(activeClipModalMember, modalClipAmount);
                     setActiveClipModalMember(null);
                   } finally {
                     setGeneratingClipsLoading(false);

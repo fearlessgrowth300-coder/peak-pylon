@@ -185,9 +185,9 @@ export async function postCreatorWelcomeAnnouncement(creator: {
     const handle = rawHandle.startsWith("@") ? rawHandle : `@${rawHandle}`;
     const platform = creator.platform || "Twitch";
     const channelLink = creator.channelUrl?.trim() || "";
-    const linkText = channelLink ? `\n\n📺 Stream Channel: ${channelLink}` : "";
+    const linkText = channelLink ? `\n\nChannel: ${channelLink}` : "";
 
-    const welcomeText = `🎉 Official Welcome: Please welcome ${handle} (${displayName}) to the StreamCore creator community! 🚀\nTheir ${platform} channel has been officially verified and approved by the admin team. Drop them a follow, say hello in chat, and let's show them some community love and raid support! 🔥${linkText}`;
+    const welcomeText = `Welcome ${handle} (${displayName}) to StreamCore. Their ${platform} channel has been verified by the admin team.${linkText}`;
 
     const welcomePostId = `welcome-${creator.id}`;
 
@@ -207,12 +207,12 @@ export async function postCreatorWelcomeAnnouncement(creator: {
       authorId: "streamcore_bot",
       authorName: "STREAMCORE BOT",
       authorHandle: "@streamcore",
-      authorAvatar: "https://api.dicebear.com/7.x/bottts/svg?seed=streamcore_bot",
+      authorAvatar: "",
       channel: "general",
       text: welcomeText,
       time: Date.now(),
-      reactions: { "🎉": 4, "❤️": 3, "🔥": 3, "🚀": 2 },
-      likes: ["streamcore_bot"],
+      reactions: {},
+      likes: [],
       comments: [],
     };
 
@@ -226,46 +226,6 @@ export async function postCreatorWelcomeAnnouncement(creator: {
       console.warn("Could not post welcome announcement:", error);
       return null;
     }
-
-    // Schedule an automated friendly community streamer reply to celebrate the new creator
-    setTimeout(async () => {
-      try {
-        const welcomeReplies = [
-          `Welcome to the squad ${handle}! Excited to check out your stream 🔥`,
-          `Welcome aboard ${handle}! Dropping you a follow right now, let's get it 🚀`,
-          `Huge welcome ${handle}! So glad to have you in the creator network 👑`,
-          `Welcome to the community ${handle}! Let's definitely run some raids soon 🔥`,
-        ];
-        const { data: listed } = await supabase.from("community_listed_members").select("id, data").limit(20);
-        const candidates = (listed ?? []).filter((m: any) => m.data?.name && m.id !== creator.id);
-        const replier = candidates[Math.floor(Math.random() * (candidates.length || 1))];
-        if (replier) {
-          const replyId = `welcome-reply-${creator.id}-${Date.now()}`;
-          const replyText = welcomeReplies[Math.floor(Math.random() * welcomeReplies.length)]!;
-          const replyRecord = {
-            id: replyId,
-            authorId: replier.id,
-            authorName: replier.data?.name || "Creator",
-            authorHandle: replier.data?.handle || `@${(replier.data?.name || "creator").toLowerCase().replace(/\s+/g, "")}`,
-            authorAvatar: replier.data?.avatar || "",
-            channel: "general",
-            text: replyText,
-            replyToId: welcomePostId,
-            time: Date.now(),
-            reactions: { "❤️": 2, "🔥": 1 },
-            likes: [],
-            comments: [],
-          };
-          await supabase.from("community_posts").upsert({
-            id: replyId,
-            data: replyRecord,
-            created_at: new Date().toISOString(),
-          });
-        }
-      } catch (err) {
-        console.warn("Welcome reply error:", err);
-      }
-    }, 3500);
 
     return welcomePost;
   } catch (err) {

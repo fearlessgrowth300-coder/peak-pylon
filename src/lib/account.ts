@@ -54,6 +54,9 @@ export type ProfileRow = {
   rules_acknowledged_at: string | null;
   twitch_authorized_at: string | null;
   twitch_user_id: string | null;
+  kick_verified: boolean;
+  kick_authorized_at: string | null;
+  kick_user_id: string | null;
   approval_status: string;
   social_links: SocialLink[];
 };
@@ -161,6 +164,9 @@ export function useAccounts() {
         rules_acknowledged_at: null,
         twitch_authorized_at: null,
         twitch_user_id: null,
+        kick_verified: false,
+        kick_authorized_at: null,
+        kick_user_id: null,
         approval_status: "pending",
         social_links: (m.connections || []) as SocialLink[],
         roles: byUser.get(row.id) ?? (m.role ? [m.role as Role] : ["streamer"]),

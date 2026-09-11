@@ -11,6 +11,13 @@ const refreshKickInput = z.object({
     })
   ).max(100),
 });
+const beginKickInput = z.object({ codeChallenge: z.string().min(43).max(128) });
+const completeKickInput = z.object({
+  code: z.string().min(1),
+  codeVerifier: z.string().min(43).max(128),
+  accessToken: z.string().min(20),
+  expectedSlug: z.string().max(25).optional(),
+});
 
 export type KickSocial = {
   platform: string;
@@ -33,14 +40,17 @@ export type KickChannelData = {
   socials?: KickSocial[];
 };
 
-export const DEFAULT_KICK_CLIENT_ID = "01M1X8K591PXPRCREY7HS3F6S2";
-export const DEFAULT_KICK_CLIENT_SECRET = "fdc44f9b127ec547fe499b2b2ce9f4a7e45f3207eff3fc81a8ace4c90e1b81d2";
-
 let cachedKickToken: { token: string; expiresAt: number } | null = null;
 
+function kickRedirectUri() {
+  return process.env["KICK_REDIRECT_URI"] || "https://peak-pylon.vercel.app/kick/callback";
+}
+
 export async function getKickAppToken(): Promise<string | null> {
-  const clientId = process.env["KICK_CLIENT_ID"] || DEFAULT_KICK_CLIENT_ID;
-  const clientSecret = process.env["KICK_CLIENT_SECRET"] || DEFAULT_KICK_CLIENT_SECRET;
+  const clientId = process.env["KICK_CLIENT_ID"];
+  const clientSecret = process.env["KICK_CLIENT_SECRET"];
+
+  if (!clientId || !clientSecret) return null;
 
   if (cachedKickToken && cachedKickToken.expiresAt > Date.now() + 60_000) {
     return cachedKickToken.token;
@@ -75,6 +85,115 @@ export async function getKickAppToken(): Promise<string | null> {
     return null;
   }
 }
+
+export const beginKickAuthorization = createServerFn({ method: "POST" })
+  .validator(beginKickInput)
+  .handler(async ({ data }) => {
+    const clientId = process.env["KICK_CLIENT_ID"];
+    if (!clientId) throw new Error("Kick OAuth is not configured yet. Add KICK_CLIENT_ID to the deployment environment.");
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: kickRedirectUri(),
+      scope: "user:read channel:read",
+      code_challenge: data.codeChallenge,
+      code_challenge_method: "S256",
+    });
+    return { url: `https://id.kick.com/oauth/authorize?${params}` };
+  });
+
+export const completeKickAuthorization = createServerFn({ method: "POST" })
+  .validator(completeKickInput)
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(data.accessToken);
+    if (authError || !authData.user) throw new Error("Your StreamCore session has expired. Please sign in again.");
+
+    const db = supabaseAdmin as any;
+    const { data: currentProfile, error: profileReadError } = await db
+      .from("profiles")
+      .select("rules_acknowledged, twitch_verified, platform, channel_url, social_links")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (profileReadError) throw profileReadError;
+    if (!currentProfile?.rules_acknowledged) throw new Error("Accept the StreamCore community rules before connecting Kick.");
+
+    const clientId = process.env["KICK_CLIENT_ID"];
+    const clientSecret = process.env["KICK_CLIENT_SECRET"];
+    if (!clientId || !clientSecret) throw new Error("Kick OAuth credentials are not configured.");
+
+    const tokenResponse = await fetch("https://id.kick.com/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: kickRedirectUri(),
+        code_verifier: data.codeVerifier,
+        code: data.code,
+      }),
+    });
+    if (!tokenResponse.ok) throw new Error("Kick authorization could not be completed.");
+    const token = (await tokenResponse.json()) as { access_token?: string };
+    if (!token.access_token) throw new Error("Kick did not return an access token.");
+
+    const headers = { Authorization: `Bearer ${token.access_token}`, Accept: "application/json" };
+    const [channelResponse, userResponse] = await Promise.all([
+      fetch("https://api.kick.com/public/v1/channels", { headers }),
+      fetch("https://api.kick.com/public/v1/users", { headers }),
+    ]);
+    if (!channelResponse.ok) throw new Error("Kick did not return the authorized channel.");
+    const channelPayload = await channelResponse.json();
+    const channel = channelPayload?.data?.[0];
+    if (!channel?.slug || !channel?.broadcaster_user_id) throw new Error("No Kick creator channel is attached to this account.");
+    const userPayload = userResponse.ok ? await userResponse.json() : { data: [] };
+    const kickUser = userPayload?.data?.[0];
+    const slug = String(channel.slug).toLowerCase();
+    const expectedSlug = (data.expectedSlug || "").trim().replace(/^@/, "").toLowerCase();
+    if (expectedSlug && expectedSlug !== slug) {
+      throw new Error(`You authorized @${slug}, but entered @${expectedSlug}. Sign in to the matching Kick account.`);
+    }
+
+    const stream = channel.stream;
+    const isLive = Boolean(stream?.is_live);
+    const kickUrl = `https://kick.com/${slug}`;
+    const kickLink = {
+      platform: "Kick",
+      label: `@${slug}`,
+      url: kickUrl,
+      verified: true,
+      provider: "kick",
+      providerIdentityId: String(channel.broadcaster_user_id),
+    };
+    const currentLinks = Array.isArray(currentProfile.social_links) ? currentProfile.social_links : [];
+    const socialLinks = [...currentLinks.filter((link: { platform?: string }) => link.platform !== "Kick"), kickLink];
+    const connectedAt = new Date().toISOString();
+    const sharedPatch = {
+      channel_authorized: true,
+      kick_verified: true,
+      kick_user_id: String(channel.broadcaster_user_id),
+      kick_authorized_at: connectedAt,
+      social_links: socialLinks,
+    };
+    const profile = currentProfile.twitch_verified
+      ? sharedPatch
+      : {
+          ...sharedPatch,
+          display_name: String(kickUser?.name || slug),
+          handle: `@${slug}`,
+          bio: String(channel.channel_description || ""),
+          avatar_url: String(kickUser?.profile_picture || ""),
+          banner_url: String(stream?.thumbnail || channel.banner_picture || ""),
+          platform: "Kick",
+          channel_url: kickUrl,
+          status: isLive ? "live" : "offline",
+        };
+
+    const { error: profileError } = await db.from("profiles").update(profile).eq("id", authData.user.id);
+    if (profileError) throw profileError;
+    return { profile, channel: { slug, url: kickUrl }, emailStatus: "not_configured" };
+  });
 
 export function extractKickSlug(channelUrl: string): string {
   try {

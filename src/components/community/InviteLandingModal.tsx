@@ -199,19 +199,18 @@ export function InviteLandingModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
       {!showSignupForm ? (
         /* ========================================================================= */
         /* PHASE 1: BEAUTIFUL COMMUNITY PREVIEW SCREEN                               */
         /* ========================================================================= */
         <div
-          className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-primary/50 bg-gradient-to-b from-popover via-background to-popover p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 duration-300"
+          className="relative w-full max-w-xl overflow-hidden rounded-xl border border-border bg-card p-6 sm:p-8 shadow-elevated"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Inviter top tag */}
           <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-3.5 py-1 text-xs font-black text-primary">
-              <span>✨</span>
+            <div className="inline-flex items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-3.5 py-1 text-xs font-black text-primary">
               <span>INVITATION: {invite?.code || "EXCLUSIVE CREATOR PASS"}</span>
             </div>
             {invite?.inviter_name && (
@@ -227,7 +226,7 @@ export function InviteLandingModal({
               STREAMCORE
             </h1>
             <p className="text-sm font-bold uppercase tracking-widest text-primary">
-              The creator network.
+              Creator community preview
             </p>
           </div>
 
@@ -263,28 +262,28 @@ export function InviteLandingModal({
               onClick={() => onNavigateView?.("trending")}
               className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
             >
-              <span>🔥</span> Trending
+              Trending
             </button>
             <button
               type="button"
               onClick={() => onNavigateView?.("live-now")}
               className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
             >
-              <span className="text-destructive font-black">●</span> Live Now
+              Live Now
             </button>
             <button
               type="button"
               onClick={() => onNavigateView?.("general")}
               className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
             >
-              <span>💬</span> General Chat
+              General Chat
             </button>
             <button
               type="button"
               onClick={() => onNavigateView?.("rankings")}
               className="flex items-center gap-1.5 rounded-xl border border-border bg-accent/40 px-3 py-1.5 text-xs font-bold text-foreground hover:bg-accent hover:border-primary/40 transition"
             >
-              <span>🏆</span> Creator Rankings
+              Creator Rankings
             </button>
           </div>
 
@@ -292,13 +291,13 @@ export function InviteLandingModal({
           {previewCreators.length > 0 && (
             <div className="mt-5 rounded-2xl border border-border/60 bg-background/50 p-3">
               <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 text-center">
-                🔴 Active Verified Streamers in Community:
+                Verified streamers live now
               </p>
               <div className="flex items-center justify-center gap-2.5 overflow-x-auto py-1">
                 {previewCreators.map((creator) => (
                   <div
                     key={creator.id}
-                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-popover px-2.5 py-1"
+                    className="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-popover px-2.5 py-1"
                   >
                     <span className="relative rounded-full ring-2 ring-destructive ring-offset-1 ring-offset-popover">
                       <Avatar member={creator} size={22} showStatus={false} />
@@ -318,9 +317,9 @@ export function InviteLandingModal({
             <button
               type="button"
               onClick={() => isAuthenticated ? onClose() : setShowSignupForm(true)}
-              className={`${buttonClass} w-full py-4 text-base font-black tracking-wide shadow-xl shadow-primary/30 hover:scale-[1.02] transition-transform`}
+              className={`${buttonClass} w-full py-4 text-base font-black tracking-wide`}
             >
-              {isAuthenticated ? "[ Enter StreamCore → ]" : "[ Join StreamCore Free → ]"}
+              {isAuthenticated ? "Enter StreamCore" : "Join StreamCore free"}
             </button>
 
             <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
@@ -340,13 +339,12 @@ export function InviteLandingModal({
         /* PHASE 2: SIGNUP / SIGNIN FORM (OPENS INSTANTLY OR AFTER 5 SECONDS)        */
         /* ========================================================================= */
         <div
-          className="relative w-full max-w-md overflow-hidden rounded-2xl border border-primary/50 bg-popover p-6 sm:p-7 shadow-2xl animate-in zoom-in-95 duration-200"
+          className="relative w-full max-w-md overflow-hidden rounded-xl border border-border bg-popover p-6 sm:p-7 shadow-elevated"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header Invite Badge */}
           <div className="mb-4 text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-3.5 py-1 text-xs font-black text-primary">
-              <span>🔗</span>
+            <div className="inline-flex items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-3.5 py-1 text-xs font-black text-primary">
               <span>INVITATION CODE: {invite?.code || "EXCLUSIVE PASS"}</span>
             </div>
 
@@ -365,13 +363,13 @@ export function InviteLandingModal({
           )}
 
           {verifiedSuccess ? (
-            <div className="py-8 text-center space-y-3 animate-in zoom-in-95">
+            <div className="py-8 text-center space-y-3">
               <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-500/20 text-3xl text-emerald-400 border border-emerald-500/40">
                 ✓
               </div>
               <h3 className="text-xl font-black text-foreground">Email Verified!</h3>
               <p className="text-xs text-muted-foreground">
-                Your email has been confirmed. Preparing your creator setup…
+                Your email has been confirmed. Preparing your creator setup.
               </p>
             </div>
           ) : awaitingVerification ? (
@@ -413,7 +411,7 @@ export function InviteLandingModal({
                   onClick={() => void resendVerificationCode()}
                   className="font-bold text-primary hover:underline disabled:opacity-50 disabled:hover:no-underline"
                 >
-                  {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "🔄 Resend code"}
+                  {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend code"}
                 </button>
                 <button
                   type="button"

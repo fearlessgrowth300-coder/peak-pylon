@@ -11,7 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as JoinCodeRouteImport } from './routes/join.$code'
+import { Route as KickCallbackRouteImport } from './routes/kick/callback'
 import { Route as TwitchCallbackRouteImport } from './routes/twitch/callback'
 
 const IndexRoute = IndexRouteImport.update({
@@ -24,9 +27,24 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const JoinCodeRoute = JoinCodeRouteImport.update({
   id: '/join/$code',
   path: '/join/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KickCallbackRoute = KickCallbackRouteImport.update({
+  id: '/kick/callback',
+  path: '/kick/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TwitchCallbackRoute = TwitchCallbackRouteImport.update({
@@ -38,34 +56,68 @@ const TwitchCallbackRoute = TwitchCallbackRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/join/$code': typeof JoinCodeRoute
+  '/kick/callback': typeof KickCallbackRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/join/$code': typeof JoinCodeRoute
+  '/kick/callback': typeof KickCallbackRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/join/$code': typeof JoinCodeRoute
+  '/kick/callback': typeof KickCallbackRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/join/$code' | '/twitch/callback'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/privacy'
+    | '/terms'
+    | '/join/$code'
+    | '/kick/callback'
+    | '/twitch/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/join/$code' | '/twitch/callback'
-  id: '__root__' | '/' | '/auth' | '/join/$code' | '/twitch/callback'
+  to:
+    | '/'
+    | '/auth'
+    | '/privacy'
+    | '/terms'
+    | '/join/$code'
+    | '/kick/callback'
+    | '/twitch/callback'
+  id:
+    | '__root__'
+    | '/'
+    | '/auth'
+    | '/privacy'
+    | '/terms'
+    | '/join/$code'
+    | '/kick/callback'
+    | '/twitch/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
+  PrivacyRoute: typeof PrivacyRoute
+  TermsRoute: typeof TermsRoute
   JoinCodeRoute: typeof JoinCodeRoute
+  KickCallbackRoute: typeof KickCallbackRoute
   TwitchCallbackRoute: typeof TwitchCallbackRoute
 }
 
@@ -85,11 +137,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/join/$code': {
       id: '/join/$code'
       path: '/join/$code'
       fullPath: '/join/$code'
       preLoaderRoute: typeof JoinCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kick/callback': {
+      id: '/kick/callback'
+      path: '/kick/callback'
+      fullPath: '/kick/callback'
+      preLoaderRoute: typeof KickCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/twitch/callback': {
@@ -105,7 +178,10 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
+  PrivacyRoute: PrivacyRoute,
+  TermsRoute: TermsRoute,
   JoinCodeRoute: JoinCodeRoute,
+  KickCallbackRoute: KickCallbackRoute,
   TwitchCallbackRoute: TwitchCallbackRoute,
 }
 export const routeTree = rootRouteImport

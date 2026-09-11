@@ -4,6 +4,7 @@ import { ROLE_META, isRestricted, topRole, type Account, type SocialLink } from 
 import { formatDate } from "@/lib/community";
 import { Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { beginTwitchAuthorization } from "@/lib/twitch.functions";
+import { beginKickAuthorization, extractKickSlug } from "@/lib/kick.functions";
 import { getCreatorMilestoneStatus, saveCreatorProfile, type CreatorMilestoneStatus } from "@/lib/onboarding.functions";
 import { BrandIcon } from "./BrandIcon";
 
@@ -11,7 +12,6 @@ const LOCKED_MILESTONES = [
   { key: "youtube", platform: "YouTube", milestone: "Unlocks at 50 Community Chat Messages" },
   { key: "discord", platform: "Discord", milestone: "Unlocks at Level 2 Streamer Milestone" },
   { key: "twitter", platform: "X", milestone: "Unlocks at 100 Post Reactions" },
-  { key: "kick", platform: "Kick", milestone: "Unlocks at 5 Hosted Stream Raids" },
   { key: "tiktok", platform: "TikTok", milestone: "Unlocks at Top 50 Creator Rankings" },
   { key: "instagram", platform: "Instagram", milestone: "Unlocks at Verified Partner Milestone" },
 ] as const;
@@ -31,7 +31,6 @@ function milestoneProgress(key: (typeof LOCKED_MILESTONES)[number]["key"], statu
     case "youtube": return `${Math.min(metrics.generalMessages, 50)} / 50 general messages`;
     case "discord": return `Level ${metrics.streamerLevel} · ${metrics.activityPoints} activity points`;
     case "twitter": return `${Math.min(metrics.receivedReactions, 100)} / 100 received reactions`;
-    case "kick": return `${Math.min(metrics.hostedRaids, 5)} / 5 confirmed Twitch raids`;
     case "tiktok": return metrics.rankingPosition ? `Current creator rank: #${metrics.rankingPosition}` : "No ranking snapshot yet";
     case "instagram": return metrics.verifiedPartner ? "Verified Partner role confirmed" : "Verified Partner role required";
   }
@@ -64,6 +63,8 @@ export function ProfileEditor({
   });
   const [busy, setBusy] = useState(false);
   const [authorizingTwitch, setAuthorizingTwitch] = useState(false);
+  const [authorizingKick, setAuthorizingKick] = useState(false);
+  const [kickChannel, setKickChannel] = useState("");
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [milestones, setMilestones] = useState<CreatorMilestoneStatus | null>(null);
   const [milestonesLoading, setMilestonesLoading] = useState(false);
@@ -110,7 +111,10 @@ export function ProfileEditor({
 
   const role = topRole(account.roles);
   const isAdmin = role === "admin";
-  const isAuthorized = Boolean(account.channel_authorized || account.twitch_verified);
+  const isTwitchAuthorized = Boolean(account.twitch_verified);
+  const verifiedKickLink = form.social_links.find((link) => link.platform === "Kick" && link.verified);
+  const isKickAuthorized = Boolean(account.kick_verified || verifiedKickLink);
+  const isAuthorized = Boolean(account.channel_authorized || isTwitchAuthorized || isKickAuthorized);
 
   useEffect(() => {
     if (isAdmin || !accessToken) return;
@@ -144,6 +148,42 @@ export function ProfileEditor({
     } catch (error) {
       setAuthorizingTwitch(false);
       notify(error instanceof Error ? error.message : "Twitch authorization could not start.");
+    }
+  }
+
+  async function connectKickOAuth(requireMatchingLogin = false) {
+    let expectedSlug = "";
+    if (kickChannel.trim()) {
+      try {
+        expectedSlug = extractKickSlug(kickChannel);
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "Enter a valid Kick username or channel URL.");
+        return;
+      }
+    }
+    if (requireMatchingLogin && !expectedSlug) {
+      notify("Enter a valid Kick username or kick.com channel URL first.");
+      return;
+    }
+    setAuthorizingKick(true);
+    try {
+      const randomBytes = crypto.getRandomValues(new Uint8Array(48));
+      const verifier = Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+      const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+      const state = crypto.randomUUID();
+      const { url } = await beginKickAuthorization({ data: { codeChallenge: challenge } });
+      localStorage.setItem("streamcore:kick-oauth-state", state);
+      localStorage.setItem("streamcore:kick-code-verifier", verifier);
+      if (expectedSlug) localStorage.setItem("streamcore:kick-expected-slug", expectedSlug);
+      else localStorage.removeItem("streamcore:kick-expected-slug");
+      window.location.assign(`${url}&state=${encodeURIComponent(state)}`);
+    } catch (error) {
+      setAuthorizingKick(false);
+      notify(error instanceof Error ? error.message : "Kick authorization could not start.");
     }
   }
 
@@ -186,6 +226,7 @@ export function ProfileEditor({
       try {
         const providerByPlatform: Record<string, string> = { YouTube: "google", Discord: "discord", X: "twitter" };
         const expectedProvider = providerByPlatform[pendingPlatform];
+        if (!expectedProvider) throw new Error(`${pendingPlatform} authorization is not configured.`);
         const [{ data: identityData, error: identityError }, { data: sessionData }] = await Promise.all([
           supabase.auth.getUserIdentities(),
           supabase.auth.getSession(),
@@ -288,33 +329,34 @@ export function ProfileEditor({
         </span>
       </header>
 
-      {/* Mandatory Twitch Channel Authorization Card */}
+      {/* A verified Twitch or Kick account unlocks the creator community. */}
       {!isAuthorized && !isAdmin && (
-        <div className="rounded-2xl border-2 border-purple-500/50 bg-gradient-to-br from-purple-950/50 via-purple-900/20 to-background p-6 shadow-xl space-y-4 animate-in fade-in">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-elevated space-y-5">
           <div className="flex items-start gap-4">
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-purple-600/30 border border-purple-500/50 shadow-lg">
-              <BrandIcon platform="Twitch" size={28} />
+            <div className="flex h-12 w-20 shrink-0 items-center justify-center gap-2 rounded-md border border-border bg-background">
+              <BrandIcon platform="Twitch" size={24} />
+              <BrandIcon platform="Kick" size={24} />
             </div>
             <div className="flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-black text-foreground tracking-wide">
-                  Step 2 · Authorize Your Twitch Channel
+                  Step 2: Connect Twitch or Kick
                 </h2>
-                <span className="rounded-full bg-purple-500/20 px-2.5 py-0.5 text-[10px] font-bold text-purple-300">
-                  Required To Access Community
+                <span className="rounded-md border border-border bg-background px-2.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                  One verified channel required
                 </span>
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Connecting your Twitch channel authorizes your creator profile, confirms your identity, and allows fellow community members to discover and support your live streams.
+                Authorize the streaming account you own. You may connect either service or connect both before continuing.
               </p>
             </div>
           </div>
 
-          <div className="rounded-xl border border-purple-500/30 bg-background/80 p-4 space-y-3">
+          <div className="rounded-lg border border-border bg-background p-4 space-y-3">
             <Field label="Your Twitch Channel or Username">
               <input
                 type="text"
-                className={`${inputClass} border-purple-500/40 focus:border-purple-400`}
+                className={inputClass}
                 placeholder="e.g. your_twitch_name or https://twitch.tv/your_twitch_name"
                 value={form.channel_url}
                 onChange={(e) => setForm({ ...form, channel_url: e.target.value })}
@@ -326,39 +368,69 @@ export function ProfileEditor({
                 type="button"
                 disabled={authorizingTwitch}
                 onClick={() => void handleAuthorizeTwitch()}
-                className="flex-1 rounded-xl bg-purple-600 px-5 py-3 text-sm font-black text-white hover:bg-purple-500 disabled:opacity-50 transition shadow-md flex items-center justify-center gap-2"
+                className={`${buttonClass} flex-1 py-3`}
               >
                 <BrandIcon platform="Twitch" size={18} plain />
-                <span>{authorizingTwitch ? "Verifying & Authorizing…" : "Authorize Channel & Continue to #general"}</span>
+                <span>{authorizingTwitch ? "Opening Twitch authorization" : "Authorize Twitch"}</span>
               </button>
 
               <button
                 type="button"
                 disabled={authorizingTwitch}
                 onClick={() => void connectTwitchOAuth()}
-                className="rounded-xl border border-purple-500/40 bg-purple-500/10 px-4 py-3 text-xs font-bold text-purple-300 hover:bg-purple-500/20 transition flex items-center gap-1.5"
+                className={`${ghostButtonClass} py-3 text-xs`}
                 title="Authorize with Twitch OAuth login"
               >
                 <BrandIcon platform="Twitch" size={16} plain />
-                <span>OAuth Login ↗</span>
+                <span>Twitch login</span>
               </button>
             </div>
           </div>
 
-          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-            <span>🔒</span>
-            <span>You must complete Twitch channel authorization before leaving your profile page.</span>
-          </p>
+          <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+            <Field label="Your Kick Channel or Username">
+              <input
+                type="text"
+                className={inputClass}
+                placeholder="your_kick_name or https://kick.com/your_kick_name"
+                value={kickChannel}
+                onChange={(event) => setKickChannel(event.target.value)}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-3 pt-1">
+              <button
+                type="button"
+                disabled={authorizingKick}
+                onClick={() => void connectKickOAuth(true)}
+                className={`${buttonClass} flex-1 py-3`}
+              >
+                <BrandIcon platform="Kick" size={18} plain />
+                <span>{authorizingKick ? "Opening Kick authorization" : "Authorize Kick"}</span>
+              </button>
+              <button
+                type="button"
+                disabled={authorizingKick}
+                onClick={() => void connectKickOAuth()}
+                className={`${ghostButtonClass} py-3 text-xs`}
+                title="Authorize with Kick OAuth login"
+              >
+                <BrandIcon platform="Kick" size={16} plain />
+                <span>Kick login</span>
+              </button>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground">Community access unlocks after either Twitch or Kick confirms the channel belongs to you.</p>
         </div>
       )}
 
       {isAuthorized && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-300 flex items-center justify-between">
           <span className="font-semibold flex items-center gap-2">
-            <BrandIcon platform="Twitch" size={20} />
-            <span>Twitch Channel Connected & Authorized: <strong className="text-white">{account.channel_url || account.display_name}</strong></span>
+            <BrandIcon platform={account.platform || (isKickAuthorized ? "Kick" : "Twitch")} size={20} />
+            <span>Creator channel authorized: <strong className="text-white">{account.channel_url || account.display_name}</strong></span>
           </span>
-          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
+          <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
             Active
           </span>
         </div>
@@ -405,7 +477,7 @@ export function ProfileEditor({
             <div>
               <p className="font-bold text-sm text-foreground">Social Connections</p>
               <p className="text-xs text-muted-foreground">
-                {isAdmin ? "Manage connected platform links." : "Twitch is your primary verified connection. Other platforms unlock with community milestones."}
+                {isAdmin ? "Manage connected platform links." : "Twitch and Kick are available as verified creator channels. Other platforms unlock with community milestones."}
               </p>
             </div>
             {!isAdmin && (
@@ -419,28 +491,51 @@ export function ProfileEditor({
             )}
           </div>
 
-          {/* Primary Twitch Connection */}
-          <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3 flex items-center justify-between">
+          <div className="rounded-lg border border-border bg-card p-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <BrandIcon platform="Twitch" size={24} />
               <div>
                 <p className="text-xs font-bold text-foreground">Twitch</p>
                 <p className="text-[11px] text-muted-foreground">
-                  {isAuthorized ? form.channel_url || "Connected & Authorized" : "Mandatory Creator Connection"}
+                  {isTwitchAuthorized ? (account.platform === "Twitch" ? form.channel_url : "Connected and authorized") : "Available creator connection"}
                 </p>
               </div>
             </div>
-            {isAuthorized ? (
-              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-                ✓ Authorized
+            {isTwitchAuthorized ? (
+              <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+                Authorized
               </span>
             ) : (
               <button
                 type="button"
                 onClick={() => void handleAuthorizeTwitch()}
-                className="rounded-lg bg-purple-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-purple-500"
+                className="rounded-md bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground hover:bg-primary/85"
               >
                 Authorize
+              </button>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <BrandIcon platform="Kick" size={24} />
+              <div>
+                <p className="text-xs font-bold text-foreground">Kick</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {isKickAuthorized ? (verifiedKickLink?.url || (account.platform === "Kick" ? form.channel_url : "Connected and authorized")) : "Available creator connection"}
+                </p>
+              </div>
+            </div>
+            {isKickAuthorized ? (
+              <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">Authorized</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void connectKickOAuth()}
+                disabled={authorizingKick}
+                className="rounded-md bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground hover:bg-primary/85 disabled:opacity-50"
+              >
+                {authorizingKick ? "Opening" : "Authorize"}
               </button>
             )}
           </div>
@@ -598,7 +693,7 @@ export function ProfileEditor({
             <div className="space-y-2">
               {LOCKED_MILESTONES.map((m) => (
                 <div key={m.platform} className="flex items-center justify-between rounded-lg bg-accent/40 p-2.5 text-xs">
-                  <span className="font-semibold text-foreground">{m.icon} {m.platform}</span>
+                  <span className="flex items-center gap-2 font-semibold text-foreground"><BrandIcon platform={m.platform} size={17} />{m.platform}</span>
                   <span className={`text-[11px] font-medium ${milestones?.unlocks[m.key] ? "text-emerald-400" : "text-amber-400"}`}>
                     {milestones?.unlocks[m.key] ? "✓ Unlocked" : `🔒 ${milestoneProgress(m.key, milestones)}`}
                   </span>

@@ -164,7 +164,7 @@ export const defaultCommunity: Community = {
 
 export function defaultState(): State {
   return {
-    stats: { members: "0", online: "0", rank: "—" },
+    stats: { members: "0", online: "0", rank: "Not available" },
     community: { ...defaultCommunity },
     channels: [
       { id: "rules", name: "rules", topic: "Read the community rules before joining the conversation.", type: "announcement", allowChat: false, createdAt: 0 },
@@ -783,9 +783,9 @@ export const EMOJI_LIBRARY = [
 ] as const;
 
 export function formatDate(ts: number | string | undefined | null) {
-  if (!ts) return "—";
+  if (!ts) return "Not available";
   const num = typeof ts === "string" ? new Date(ts).getTime() : typeof ts === "number" ? ts : NaN;
-  if (!num || isNaN(num)) return "—";
+  if (!num || isNaN(num)) return "Not available";
   try {
     return new Date(num).toLocaleDateString(undefined, {
       month: "short",
@@ -793,6 +793,6 @@ export function formatDate(ts: number | string | undefined | null) {
       year: "numeric",
     });
   } catch {
-    return "—";
+    return "Not available";
   }
 }
