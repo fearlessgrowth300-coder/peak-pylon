@@ -13,10 +13,10 @@ const RESEND_SECRET = "resend_api_key";
 const RESEND_SETTING = "resend_notifications";
 const DEFAULT_RESEND_CONFIG: ServerResendConfig = {
   fromEmail: "StreamCore Alerts <noreply@authenticcommunity.fun>",
-  notifyNewAnnouncement: true,
+  notifyNewAnnouncement: false,
   notifyRepliesAndMentions: true,
-  notifyNewClips: true,
-  notifyStreamerLive: true,
+  notifyNewClips: false,
+  notifyStreamerLive: false,
 };
 
 const adminTokenInput = z.object({ accessToken: z.string().min(20) });

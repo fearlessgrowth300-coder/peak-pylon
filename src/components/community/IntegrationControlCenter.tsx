@@ -34,10 +34,10 @@ const DEFAULT_AUTOPILOT: AiAutopilotConfig = {
 
 const DEFAULT_RESEND: ServerResendConfig = {
   fromEmail: "StreamCore Alerts <noreply@authenticcommunity.fun>",
-  notifyNewAnnouncement: true,
+  notifyNewAnnouncement: false,
   notifyRepliesAndMentions: true,
-  notifyNewClips: true,
-  notifyStreamerLive: true,
+  notifyNewClips: false,
+  notifyStreamerLive: false,
 };
 
 export function IntegrationControlCenter({
@@ -311,7 +311,7 @@ export function IntegrationControlCenter({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-foreground">09 · Resend Email Notifications for Real Streamers</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Securely configure real email notifications for signed-up members, announcements, live alerts, replies, and imported clips.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Signup verification has priority. Direct reply and mention emails use a protected daily allowance; high-volume community updates stay inside the app.</p>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-bold ${resendConfigured ? "bg-online/20 text-online" : "bg-accent text-muted-foreground"}`}>
             {resendConfigured ? "✉ Resend active" : "Resend not connected"}
@@ -327,9 +327,9 @@ export function IntegrationControlCenter({
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={resendConfig.notifyRepliesAndMentions} onChange={(event) => setResendConfig((current) => ({ ...current, notifyRepliesAndMentions: event.target.checked }))} /> ✉ Send email on replies and mentions</label>
-          <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={resendConfig.notifyNewAnnouncement} onChange={(event) => setResendConfig((current) => ({ ...current, notifyNewAnnouncement: event.target.checked }))} /> 📢 Send email on official announcements</label>
-          <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={resendConfig.notifyStreamerLive} onChange={(event) => setResendConfig((current) => ({ ...current, notifyStreamerLive: event.target.checked }))} /> 🔴 Send email when a creator goes live</label>
-          <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={resendConfig.notifyNewClips} onChange={(event) => setResendConfig((current) => ({ ...current, notifyNewClips: event.target.checked }))} /> 🎬 Send email when clips are posted</label>
+          <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground"><input type="checkbox" checked={false} disabled /> Official announcements: in-app only</label>
+          <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground"><input type="checkbox" checked={false} disabled /> Creator live alerts: in-app only</label>
+          <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground"><input type="checkbox" checked={false} disabled /> New clips: in-app only</label>
         </div>
         <button type="button" disabled={resendBusy || (!resendConfigured && !resendApiKey.trim())} onClick={() => void saveResend()} className={`${buttonClass} disabled:opacity-50`}>{resendBusy ? "Working…" : "💾 Save Resend settings"}</button>
         <div className="grid gap-2 border-t border-border/50 pt-3 sm:grid-cols-[minmax(0,1fr)_auto]">
