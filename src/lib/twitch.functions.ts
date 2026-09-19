@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import {usingVpsJobs,vpsServerRequest} from './vps-server';
 
 const input = z.object({ channelUrl: z.string().url() });
 const refreshInput = z.object({
@@ -280,6 +281,12 @@ export const getTwitchChannel = createServerFn({ method: "POST" })
 export const refreshTwitchStatuses = createServerFn({ method: "POST" })
   .validator(refreshInput)
   .handler(async ({ data }) => {
+    if(usingVpsJobs()) {
+      const cached=await vpsServerRequest('/v1/live');
+      if(!cached.refreshedAt || Date.parse(cached.refreshedAt)<Date.now()-600000)throw new Error('Live collector has no recent verified snapshot');
+      const ids=new Set(data.channels.map(c=>c.id));
+      return cached.snapshots.filter((s:TwitchStatusSnapshot)=>ids.has(s.id));
+    }
     const valid = data.channels.flatMap((channel) => {
       try { return [{ ...channel, login: twitchLogin(channel.channelUrl).toLowerCase() }]; } catch { return []; }
     });

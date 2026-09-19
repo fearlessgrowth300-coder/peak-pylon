@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { usingVpsJobs, readVpsEngagement } from './vps-server';
 
 const authenticatedInput = z.object({ accessToken: z.string().min(20) });
 const profileInput = authenticatedInput.extend({
@@ -54,15 +55,16 @@ export type CreatorMilestoneStatus = {
 };
 
 async function calculateMilestones(db: any, userId: string): Promise<CreatorMilestoneStatus> {
+    const migratedEngagement=usingVpsJobs()?await readVpsEngagement(userId):null;
     const [{ count: generalMessages }, { data: roleRows }, { data: rankRow }, { count: hostedRaids }] = await Promise.all([
-      db.from("community_posts").select("id", { count: "exact", head: true }).eq("data->>authorId", userId).eq("data->>channel", "general"),
+      migratedEngagement ? Promise.resolve({count:migratedEngagement.generalMessages}) : db.from("community_posts").select("id", { count: "exact", head: true }).eq("data->>authorId", userId).eq("data->>channel", "general"),
       db.from("user_roles").select("role").eq("user_id", userId),
       db.from("creator_metric_snapshots").select("rank, captured_at").eq("creator_id", userId).order("captured_at", { ascending: false }).limit(1).maybeSingle(),
       db.from("creator_raid_events").select("id", { count: "exact", head: true }).eq("creator_id", userId),
     ]);
 
-    let receivedReactions = 0;
-    for (let offset = 0; offset < 5000; offset += 500) {
+    let receivedReactions = migratedEngagement?.receivedReactions ?? 0;
+    for (let offset = 0; !migratedEngagement && offset < 5000; offset += 500) {
       const { data: rows, error } = await db
         .from("community_posts")
         .select("data")

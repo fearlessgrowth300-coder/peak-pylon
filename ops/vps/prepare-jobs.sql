@@ -1,0 +1,10 @@
+BEGIN;
+CREATE TABLE IF NOT EXISTS streamcore_job_state (name text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE UNIQUE INDEX IF NOT EXISTS observations_identity ON creator_twitch_observations(creator_id,observed_bucket);
+CREATE INDEX IF NOT EXISTS observations_creator_time ON creator_twitch_observations(creator_id,observed_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS metrics_id_unique ON creator_metric_snapshots(id);
+CREATE UNIQUE INDEX IF NOT EXISTS metrics_batch_creator_unique ON creator_metric_snapshots(batch_id,creator_id);
+CREATE INDEX IF NOT EXISTS metrics_latest ON creator_metric_snapshots(captured_at DESC,batch_id,rank);
+GRANT SELECT,INSERT,UPDATE,DELETE ON streamcore_job_state,creator_twitch_observations,creator_metric_snapshots TO streamcore_app;
+GRANT DELETE ON streamcore_post_events TO streamcore_app;
+COMMIT;

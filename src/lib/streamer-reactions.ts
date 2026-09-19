@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { vpsEnabled } from './vps-client';
 import { type Post, type Member } from "@/lib/community";
 
 /**
@@ -96,6 +97,8 @@ export async function triggerStreamerReactionsToPost(
   currentReactions: Record<string, number> = {},
   currentLikes: string[] = []
 ): Promise<{ reactions: Record<string, number>; likes: string[] }> {
+  // Never fabricate other creators' engagement on the migrated backend.
+  if(vpsEnabled) return {reactions:currentReactions,likes:currentLikes};
   const { primaryEmoji, secondaryEmoji } = analyzeContextualReactions(postText);
   
   // Pick 1 to 3 distinct verified streamers who are NOT the author

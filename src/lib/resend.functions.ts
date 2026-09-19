@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { usingVpsJobs, readVpsPost } from './vps-server';
 
 export type ServerResendConfig = {
   fromEmail: string;
@@ -160,8 +161,8 @@ export const dispatchReplyNotification = createServerFn({ method: "POST" })
     }
 
     const [{ data: parent }, { data: post }, { data: profiles }] = await Promise.all([
-      data.parentPostId ? db.from("community_posts").select("id, data").eq("id", data.parentPostId).maybeSingle() : Promise.resolve({ data: null }),
-      db.from("community_posts").select("id, data").eq("id", data.postId).maybeSingle(),
+      data.parentPostId ? (usingVpsJobs() ? readVpsPost(data.parentPostId) : db.from("community_posts").select("id, data").eq("id", data.parentPostId).maybeSingle()) : Promise.resolve({ data: null }),
+      usingVpsJobs() ? readVpsPost(data.postId) : db.from("community_posts").select("id, data").eq("id", data.postId).maybeSingle(),
       db.from("profiles").select("id, handle"),
     ]);
     if (!post || post.data?.authorId !== data.replyAuthorId) return { sent: 0, status: "not_applicable" };

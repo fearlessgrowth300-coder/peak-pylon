@@ -1,0 +1,5 @@
+streamcore-api.legacynerxux.online {
+  header X-Content-Type-Options nosniff
+  header Cache-Control "no-store"
+  reverse_proxy 127.0.0.1:4100
+}

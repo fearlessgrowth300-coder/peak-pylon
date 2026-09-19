@@ -1,0 +1,7 @@
+streamcore-api.legacynerxux.online {
+    header X-Content-Type-Options nosniff
+    header Cache-Control "no-store"
+    @health path /health
+    respond @health "StreamCore backend infrastructure ready; production migration pending." 200
+    respond "StreamCore backend migration pending." 503
+}

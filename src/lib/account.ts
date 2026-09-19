@@ -285,11 +285,13 @@ export async function setBanned(userId: string, banned: boolean) {
 // community content. Their Supabase Auth identity is intentionally retained so
 // the owner never deletes somebody's external login by mistake.
 export async function removeFromCommunity(userId: string) {
+  const {vpsEnabled,vpsRequest}=await import('./vps-client');
+  if(vpsEnabled)await vpsRequest(`/v1/posts?${new URLSearchParams({authorId:userId})}`,{method:'DELETE'});
   const [roles, profile, listed, posts] = await Promise.all([
     supabase.from("user_roles").delete().eq("user_id", userId),
     supabase.from("profiles").delete().eq("id", userId),
     (supabase as any).from("community_listed_members").delete().eq("id", userId),
-    (supabase as any).from("community_posts").delete().eq("data->>authorId", userId),
+    vpsEnabled?Promise.resolve({error:null}):(supabase as any).from("community_posts").delete().eq("data->>authorId", userId),
   ]);
   const failure = [roles.error, profile.error, listed.error, posts.error].find(Boolean);
   if (failure) throw failure;

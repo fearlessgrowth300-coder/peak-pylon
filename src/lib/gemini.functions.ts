@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import {usingVpsJobs,invokeVpsJob} from './vps-server';
 
 export const GEMINI_MODEL_OPTIONS = [
   { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite (Fastest & Recommended)" },
@@ -9,9 +10,6 @@ export const GEMINI_MODEL_OPTIONS = [
 ] as const;
 
 export const AI_AUTOPILOT_INTERVAL_OPTIONS = [
-  { value: 1, label: "Every 1 minute (Fast testing)" },
-  { value: 2, label: "Every 2 minutes" },
-  { value: 5, label: "Every 5 minutes" },
   { value: 10, label: "Every 10 minutes (recommended)" },
   { value: 15, label: "Every 15 minutes" },
   { value: 30, label: "Every 30 minutes" },
@@ -471,7 +469,8 @@ export const setAiAutopilotConfig = createServerFn({ method: "POST" })
     let latestConfig = next;
     if (data.active) {
       try {
-        await generateCommunityAiMessageDirectly(db, next, user.id);
+        if(usingVpsJobs()) await invokeVpsJob(data.accessToken,true);
+        else await generateCommunityAiMessageDirectly(db, next, user.id);
         latestConfig = await loadAutopilotConfig(db);
       } catch (postErr) {
         console.warn("Autopilot immediate post failed:", postErr);
@@ -481,7 +480,7 @@ export const setAiAutopilotConfig = createServerFn({ method: "POST" })
     try {
       await db.rpc("configure_streamcore_ai_autopilot_schedule", {
         interval_minutes: data.intervalMinutes,
-        is_active: data.active,
+        is_active: usingVpsJobs()?false:data.active,
       });
     } catch (scheduleError) {
       console.warn("pg_cron schedule configuration skipped or unsupported:", scheduleError);
@@ -493,6 +492,7 @@ export const setAiAutopilotConfig = createServerFn({ method: "POST" })
 export const generateCommunityAiMessage = createServerFn({ method: "POST" })
   .validator(adminTokenInput)
   .handler(async ({ data }) => {
+    if(usingVpsJobs()) return invokeVpsJob(data.accessToken,true);
     const { requireAdmin } = await import("@/lib/integrations.server");
     const { db, user } = await requireAdmin(data.accessToken);
 
@@ -510,6 +510,7 @@ export const tickCommunityAiAutopilot = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    if(usingVpsJobs()) return {ran:false,reason:'VPS worker owns scheduling'};
     const db = supabaseAdmin as any;
     const config = await loadAutopilotConfig(db);
     if (!config.active) return { ran: false, reason: "inactive" };
@@ -532,6 +533,7 @@ export const tickCommunityAiAutopilot = createServerFn({ method: "POST" })
 
 export const checkCommunityAiAutopilotDue = createServerFn({ method: "POST" })
   .handler(async () => {
+    if(usingVpsJobs()) return {due:false,reason:'VPS worker owns scheduling'};
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const db = supabaseAdmin as any;
     const config = await loadAutopilotConfig(db);

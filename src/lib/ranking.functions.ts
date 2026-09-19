@@ -9,6 +9,7 @@ import {
   type TwitchMetricRollup,
 } from "@/lib/rankings";
 import type { Member, Post } from "@/lib/community";
+import { usingVpsJobs, readVpsPosts, vpsServerRequest } from './vps-server';
 
 export type StoredCreatorRanking = {
   creatorId: string;
@@ -46,6 +47,7 @@ function rowToStored(row: any): StoredCreatorRanking {
 }
 
 async function loadEveryPost(db: any) {
+  if(usingVpsJobs()) return (await readVpsPosts()).map(row=>({...row.data,id:row.id}) as Post);
   const posts: Post[] = [];
   for (let from = 0; from < 10_000; from += 500) {
     const { data, error } = await db
@@ -62,6 +64,7 @@ async function loadEveryPost(db: any) {
 }
 
 async function loadLatestBatch(db: any) {
+  if(usingVpsJobs())return vpsServerRequest('/v1/rankings');
   const { data: latest, error } = await db
     .from("creator_metric_snapshots")
     .select("batch_id, captured_at")
@@ -140,6 +143,7 @@ async function calculateAndStore(db: any, force = false) {
 }
 
 export const getCreatorRankings = createServerFn({ method: "GET" }).handler(async () => {
+  if(usingVpsJobs())return (await vpsServerRequest('/v1/rankings')).rows.map(rowToStored);
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return calculateAndStore(supabaseAdmin as any, false);
 });
@@ -147,6 +151,7 @@ export const getCreatorRankings = createServerFn({ method: "GET" }).handler(asyn
 export const refreshCreatorRankings = createServerFn({ method: "POST" })
   .validator(adminInput)
   .handler(async ({ data }) => {
+    if(usingVpsJobs())return (await vpsServerRequest('/v1/rankings',data.accessToken,'POST')).rows.map(rowToStored);
     const { requireAdmin } = await import("@/lib/integrations.server");
     const { db } = await requireAdmin(data.accessToken);
     return calculateAndStore(db, true);
@@ -174,8 +179,8 @@ export const generateCreatorRankingInsight = createServerFn({ method: "POST" })
       ai_strongest_category: String(parsed.strongestCategory || row.ai_strongest_category || "Real-data score").slice(0, 120),
       ai_model: generated.model,
     };
+    if(usingVpsJobs())return rowToStored(await vpsServerRequest('/v1/ranking-insight',data.accessToken,'PATCH',{id:row.id,patch}));
     const { error } = await db.from("creator_metric_snapshots").update(patch).eq("id", row.id);
     if (error) throw error;
     return rowToStored({ ...row, ...patch });
   });
-

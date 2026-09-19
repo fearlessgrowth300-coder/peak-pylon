@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { vpsEnabled, vpsPosts, vpsRequest } from './vps-client';
 
 export type Status = "online" | "live" | "offline";
 
@@ -197,6 +198,18 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
     let active = true;
     const loadInitial = async () => {
       const versionAtStart = mutationVersion.current;
+      if (vpsEnabled) {
+        const [members,feed] = await Promise.all([
+          db.from('community_listed_members').select('id,data').limit(500),
+          vpsRequest<{rows:Array<{id:string;data:Post}>;cursor:string|null;hasMore:boolean;totalPosts:number}>('/v1/feed'),
+        ]);
+        if (!active || versionAtStart !== mutationVersion.current) return;
+        if (members.error) throw members.error;
+        oldestPostCreatedAt.current = feed.cursor;
+        setHasOlderPosts(feed.hasMore);
+        setState(current=>({...current,members:(members.data || []).map((row:any)=>({...row.data,id:row.id})),posts:feed.rows.map(row=>({...row.data,id:row.id})),totalPosts:feed.totalPosts}));
+        return;
+      }
       const [
         { data: memberRows, error: memberError },
         { data: channelRows, error: channelError },
@@ -336,6 +349,17 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
 
   useEffect(() => {
     if (!hydrated || !enablePostRealtime) return;
+    if (vpsEnabled) {
+      return vpsPosts.subscribe((raw) => {
+        const payload = raw as {eventType:string;new?:{id:string;data:Post};old?:{id:string}};
+        if(payload.eventType==='DELETE' && payload.old?.id) {
+          setState(current=>({...current,posts:current.posts.filter(post=>post.id!==payload.old!.id),totalPosts:Math.max(0,current.totalPosts-1)}));
+        } else if(payload.new?.id && payload.new?.data) {
+          const post={...payload.new.data,id:payload.new.id};
+          setState(current=>({...current,posts:[post,...current.posts.filter(item=>item.id!==post.id)].sort((a,b)=>b.time-a.time),totalPosts:current.totalPosts+(payload.eventType==='INSERT' && !current.posts.some(item=>item.id===post.id)?1:0)}));
+        }
+      },()=>{ void vpsRequest<{rows:Array<{id:string;data:Post}>;totalPosts:number}>('/v1/feed').then(feed=>setState(current=>({...current,posts:feed.rows.map(row=>({...row.data,id:row.id})),totalPosts:feed.totalPosts}))).catch(console.error); });
+    }
     const db = supabase as any;
     let active = true;
     const subscription = db
@@ -378,6 +402,14 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
     if (loadingOlderPosts || !hasOlderPosts || !oldestPostCreatedAt.current) return;
     setLoadingOlderPosts(true);
     try {
+      if (vpsEnabled) {
+        const page = await vpsPosts.list('general',oldestPostCreatedAt.current || undefined);
+        oldestPostCreatedAt.current = page.cursor;
+        setHasOlderPosts(page.hasMore);
+        const older=page.rows.map(row=>({...row.data,id:row.id} as Post));
+        setState(current=>({...current,posts:[...current.posts,...older.filter(post=>!current.posts.some(item=>item.id===post.id))].sort((a,b)=>b.time-a.time)}));
+        return;
+      }
       let collectedRows: any[] = [];
       let cursor = oldestPostCreatedAt.current;
       let hasMore = true;
@@ -531,6 +563,7 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
   }, [state.members]);
 
   const removeMember = useCallback(async (id: string) => {
+    if(vpsEnabled) await vpsRequest(`/v1/posts?${new URLSearchParams({authorId:id})}`,{method:'DELETE'});
     mutationVersion.current += 1;
     const db = supabase as any;
     const { error } = await db.from("community_listed_members").delete().eq("id", id);
@@ -548,7 +581,7 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
       members: s.members.filter((m) => m.id !== id),
       posts: s.posts.filter((p) => p.authorId !== id),
     }));
-    void db.from("community_posts").delete().eq("data->>authorId", id);
+    if(!vpsEnabled) void db.from("community_posts").delete().eq("data->>authorId", id);
   }, []);
 
   const addPost = useCallback(async (input: PostInput) => {
@@ -568,6 +601,13 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
     );
     if (isDuplicate) {
       return null;
+    }
+
+    if (vpsEnabled) {
+      const post = await vpsPosts.create({...input,channel}) as Post;
+      mutationVersion.current += 1;
+      setState(current=>({...current,posts:[post,...current.posts.filter(item=>item.id!==post.id)],totalPosts:current.totalPosts+(current.posts.some(item=>item.id===post.id)?0:1)}));
+      return post;
     }
 
     const id = uid();
@@ -598,6 +638,11 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
   }, []);
 
   const updatePost = useCallback(async (id: string, patch: Partial<Post>) => {
+    if (vpsEnabled) {
+      const post=await vpsPosts.mutate(id,{action:'edit',...patch}) as Post;
+      setState(current=>({...current,posts:current.posts.map(item=>item.id===id?post:item)}));
+      return;
+    }
     mutationVersion.current += 1;
     const db = supabase as any;
     const { data, error: readError } = await db.from("community_posts").select("data").eq("id", id).maybeSingle();
@@ -615,6 +660,11 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
   }, [state.posts]);
 
   const removePost = useCallback(async (id: string) => {
+    if (vpsEnabled) {
+      await vpsPosts.remove(id);
+      setState(current=>({...current,posts:current.posts.filter(post=>post.id!==id),totalPosts:Math.max(0,current.totalPosts-(current.posts.some(post=>post.id===id)?1:0))}));
+      return;
+    }
     mutationVersion.current += 1;
     const db = supabase as any;
     try {
@@ -646,6 +696,10 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
   }, []);
 
   const toggleReaction = useCallback((id: string, emoji: string, userId?: string) => {
+    if (vpsEnabled) {
+      void vpsPosts.mutate(id,{action:'reaction',emoji}).then(raw=>{const post=raw as Post;setState(current=>({...current,posts:current.posts.map(item=>item.id===id?post:item)}));}).catch(console.error);
+      return;
+    }
     const post = state.posts.find((item) => item.id === id);
     if (!post) return;
     const currentCount = (post.reactions ?? {})[emoji] ?? 0;
@@ -681,6 +735,11 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
   );
 
   const refreshPosts = useCallback(async () => {
+    if (vpsEnabled) {
+      const feed=await vpsRequest<{rows:Array<{id:string;data:Post}>;totalPosts:number}>('/v1/feed');
+      setState(current=>({...current,posts:[...feed.rows.map(row=>({...row.data,id:row.id})),...current.posts.filter(post=>!feed.rows.some(row=>row.id===post.id))].sort((a,b)=>b.time-a.time),totalPosts:feed.totalPosts}));
+      return;
+    }
     const db = supabase as any;
     const { data: latestRows, error } = await db
       .from("community_posts")
@@ -758,6 +817,7 @@ export function readFileAsDataUrl(file: File | undefined | null): Promise<string
 }
 
 export async function uploadCommunityMedia(file: File): Promise<string> {
+  if (vpsEnabled) return (await vpsPosts.upload(file)).url;
   const { data: auth, error: authError } = await supabase.auth.getUser();
   if (authError || !auth.user) throw new Error("Sign in before uploading media");
 

@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {vpsEnabled} from '@/lib/vps-client';
 import { timeAgo, uploadCommunityMedia, useCommunity, type Member, type Post, type PostInput } from "@/lib/community";
 import { Composer } from "@/components/community/Composer";
 import { Avatar, ghostButtonClass, statusColor, ErrorBoundary } from "@/components/community/Bits";
@@ -315,6 +316,7 @@ function Index() {
 
   // Keep 24/7 AI Community Activity Engine ticking with realistic typing indicator
   useEffect(() => {
+    if(vpsEnabled) return;
     let isMounted = true;
     let isTicking = false;
     const tick = async () => {

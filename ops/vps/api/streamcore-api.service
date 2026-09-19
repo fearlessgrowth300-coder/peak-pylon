@@ -1,0 +1,22 @@
+[Unit]
+Description=StreamCore staging data API
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=streamcore
+Group=streamcore
+WorkingDirectory=/opt/streamcore/api
+EnvironmentFile=/opt/streamcore/private/api-stage.env
+ExecStart=/usr/bin/node /opt/streamcore/api/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/streamcore/media/uploads
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

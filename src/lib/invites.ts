@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { dispatchResendNotification } from "@/lib/resend.functions";
+import { vpsEnabled, vpsRequest } from './vps-client';
 
 export interface CommunityInvite {
   id: string;
@@ -180,6 +181,7 @@ export async function postCreatorWelcomeAnnouncement(creator: {
   avatarUrl?: string | null;
 }) {
   try {
+    if(vpsEnabled) return await vpsRequest('/v1/welcome',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({creatorId:creator.id})});
     const displayName = creator.name || "Creator";
     const rawHandle = creator.handle || `@${displayName.toLowerCase().replace(/\s+/g, "")}`;
     const handle = rawHandle.startsWith("@") ? rawHandle : `@${rawHandle}`;
