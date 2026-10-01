@@ -209,7 +209,7 @@ export const getMyTwitchAnalytics = createServerFn({ method: "POST" })
       try { return twitchLogin(row.data?.link ?? "").toLowerCase() === login.toLowerCase(); } catch { return false; }
     }).map((row: any) => String(row.id))];
     const { data: history, error: historyError } = await db.from("creator_twitch_observations")
-      .select("stream_id,observed_at,viewer_count,is_live,followers").in("creator_id", ids)
+      .select("creator_id,stream_id,observed_at,viewer_count,is_live,followers").in("creator_id", ids)
       .gte("observed_at", cutoff).order("observed_at", { ascending: false }).limit(1000);
     if (historyError) throw new Error("Stored Twitch observations could not be loaded.");
     let followers: number | null = null;
@@ -266,7 +266,8 @@ export const getMyTwitchAnalytics = createServerFn({ method: "POST" })
     }, { onConflict: "creator_id,observed_bucket", ignoreDuplicates: true });
     const chartRows = [...(history ?? []), observation];
     return {
-      followerHistory: observationSeries(chartRows, "followers"),
+      // Older sync rows carry member-cache follower totals, not verified Helix measurements.
+      followerHistory: observationSeries([...(history ?? []).filter((row: any) => row.creator_id === `twitch:${userId}`), observation], "followers"),
       viewerHistory: observationSeries(chartRows, "viewers"),
       captureWarning: captureError ? "The current measurement could not be saved for future growth comparisons." : null,
       login, fetchedAt, followers, chatters, reconnect, permissionMessage,

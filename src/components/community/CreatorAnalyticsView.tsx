@@ -134,7 +134,7 @@ export function CreatorAnalyticsView({
             <ChannelHistoryChart title="Follower growth" points={twitch.data.followerHistory} metric="followers" />
             <ChannelHistoryChart title="Live viewer history" points={twitch.data.viewerHistory} metric="concurrent viewers" />
           </div>
-          <p className="text-xs text-muted-foreground">Points are actual observations of @{twitch.data.login}. Missing dates are not zero. Measurements are saved when analytics refreshes and by the existing live-sync process; this is not continuous stream coverage.</p>
+          <p className="text-xs text-muted-foreground">Points belong to @{twitch.data.login}. Missing dates are not zero. Follower growth uses verified Twitch measurements captured when analytics refreshes; older cached follower totals are excluded. Live viewer samples also include the existing live-sync history. This is not continuous stream coverage.</p>
           {twitch.data.captureWarning && <p role="alert" className="text-sm text-amber-300">{twitch.data.captureWarning}</p>}
           <section className="rounded-md border border-border p-4">
             <h3 className="font-semibold">Video views by broadcast</h3>
