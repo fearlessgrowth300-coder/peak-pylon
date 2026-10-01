@@ -193,6 +193,17 @@ export function useCommunity({ enablePostRealtime = false }: { enablePostRealtim
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/community-settings", { signal: controller.signal, cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) throw new Error("Community settings unavailable");
+        const { community } = await response.json();
+        if (community && !controller.signal.aborted) setState(current => ({ ...current, community }));
+      }).catch(error => { if (!controller.signal.aborted) console.error(error); });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     if (!hydrated) return;
     const db = supabase as any;
     let active = true;

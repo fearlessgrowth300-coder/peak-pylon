@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type FormEvent } from "react";
+import { useEffect, useState, type ReactNode, type FormEvent } from "react";
 import {
   readFileAsDataUrl,
   uploadCommunityMedia,
@@ -73,6 +73,10 @@ export function AdminView({
   const [connectionLabel, setConnectionLabel] = useState("");
   const [connectionUrl, setConnectionUrl] = useState("");
   const [community, setLocalCommunity] = useState<Community>(() => state?.community ?? { name: "StreamCore", logo: "", banner: "", tagline: "The home of streamers", rules: "" });
+  const [savingCommunity, setSavingCommunity] = useState(false);
+  const [communityDirty, setCommunityDirty] = useState(false);
+  const [communitySaveMessage, setCommunitySaveMessage] = useState("");
+  useEffect(() => { if (!communityDirty) setLocalCommunity(state.community); }, [state.community, communityDirty]);
   const [communityLogoFile, setCommunityLogoFile] = useState<File | null>(null);
   const [communityBannerFile, setCommunityBannerFile] = useState<File | null>(null);
   const [autoFilling, setAutoFilling] = useState(false);
@@ -173,18 +177,37 @@ export function AdminView({
 
   async function submitCommunity(e: FormEvent) {
     e.preventDefault();
+    if (savingCommunity) return;
+    setSavingCommunity(true);
+    setCommunitySaveMessage("");
+    try {
     const [logo, banner] = await Promise.all([
       readFileAsDataUrl(communityLogoFile),
       readFileAsDataUrl(communityBannerFile),
     ]);
-    setCommunity({
+    const updated = {
       ...community,
       logo: logo || state.community.logo,
       banner: banner || state.community.banner,
+    };
+    const response = await fetch("/api/community-settings", {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(updated), signal: AbortSignal.timeout(20000),
     });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Community settings could not be saved.");
+    setCommunity(result.community);
+    setLocalCommunity(result.community);
+    setCommunityDirty(false);
     setCommunityLogoFile(null);
     setCommunityBannerFile(null);
-    notify("Community appearance updated");
+    setCommunitySaveMessage("Community details and rules saved to the database.");
+    notify("Community details and rules saved");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Save failed. Your edits have been kept.";
+      setCommunitySaveMessage(message);
+      notify(message);
+    } finally { setSavingCommunity(false); }
   }
 
   function beginEdit(member: Member) {
@@ -336,7 +359,7 @@ export function AdminView({
         </span>
       </header>
 
-      <form onSubmit={submitCommunity} className="space-y-3 rounded-xl bg-popover p-4">
+      <form onSubmit={submitCommunity} onChange={() => setCommunityDirty(true)} className="space-y-3 rounded-xl bg-popover p-4">
         <h2 className="font-bold">01 · Community identity</h2>
         <Field label="Community name">
           <input required className={inputClass} value={community.name} onChange={(e) => setLocalCommunity({ ...community, name: e.target.value })} />
@@ -355,7 +378,8 @@ export function AdminView({
             <input type="file" accept="image/*" className={`${inputClass} file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 file:text-xs file:text-foreground`} onChange={(e) => setCommunityBannerFile(e.target.files?.[0] ?? null)} />
           </Field>
         </div>
-        <button type="submit" className={`${buttonClass} w-full`}>Save community details</button>
+        <button type="submit" disabled={savingCommunity} className={`${buttonClass} w-full`}>{savingCommunity ? "Saving…" : "Save community details"}</button>
+        {communitySaveMessage && <p role="status" className="text-sm">{communitySaveMessage}</p>}
       </form>
 
       <form onSubmit={submitMember} className="space-y-3 rounded-xl bg-popover p-4">

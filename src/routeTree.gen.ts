@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as ApiCommunitySettingsRouteImport } from './routes/api/community-settings'
 import { Route as JoinCodeRouteImport } from './routes/join.$code'
 import { Route as KickCallbackRouteImport } from './routes/kick/callback'
 import { Route as TwitchAuthorizeRouteImport } from './routes/twitch/authorize'
@@ -36,6 +37,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCommunitySettingsRoute = ApiCommunitySettingsRouteImport.update({
+  id: '/api/community-settings',
+  path: '/api/community-settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JoinCodeRoute = JoinCodeRouteImport.update({
@@ -64,6 +70,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/api/community-settings': typeof ApiCommunitySettingsRoute
   '/join/$code': typeof JoinCodeRoute
   '/kick/callback': typeof KickCallbackRoute
   '/twitch/authorize': typeof TwitchAuthorizeRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/api/community-settings': typeof ApiCommunitySettingsRoute
   '/join/$code': typeof JoinCodeRoute
   '/kick/callback': typeof KickCallbackRoute
   '/twitch/authorize': typeof TwitchAuthorizeRoute
@@ -85,6 +93,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/api/community-settings': typeof ApiCommunitySettingsRoute
   '/join/$code': typeof JoinCodeRoute
   '/kick/callback': typeof KickCallbackRoute
   '/twitch/authorize': typeof TwitchAuthorizeRoute
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/privacy'
     | '/terms'
+    | '/api/community-settings'
     | '/join/$code'
     | '/kick/callback'
     | '/twitch/authorize'
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/privacy'
     | '/terms'
+    | '/api/community-settings'
     | '/join/$code'
     | '/kick/callback'
     | '/twitch/authorize'
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/privacy'
     | '/terms'
+    | '/api/community-settings'
     | '/join/$code'
     | '/kick/callback'
     | '/twitch/authorize'
@@ -128,6 +140,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
+  ApiCommunitySettingsRoute: typeof ApiCommunitySettingsRoute
   JoinCodeRoute: typeof JoinCodeRoute
   KickCallbackRoute: typeof KickCallbackRoute
   TwitchAuthorizeRoute: typeof TwitchAuthorizeRoute
@@ -162,6 +175,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/community-settings': {
+      id: '/api/community-settings'
+      path: '/api/community-settings'
+      fullPath: '/api/community-settings'
+      preLoaderRoute: typeof ApiCommunitySettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/join/$code': {
@@ -200,6 +220,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
+  ApiCommunitySettingsRoute: ApiCommunitySettingsRoute,
   JoinCodeRoute: JoinCodeRoute,
   KickCallbackRoute: KickCallbackRoute,
   TwitchAuthorizeRoute: TwitchAuthorizeRoute,

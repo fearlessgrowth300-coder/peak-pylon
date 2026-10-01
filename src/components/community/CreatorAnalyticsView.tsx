@@ -27,6 +27,9 @@ export function CreatorAnalyticsView({
   const cutoff = Date.now() - days * 86_400_000;
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [connectError, setConnectError] = useState("");
+  const [playerHost, setPlayerHost] = useState("");
+  const [playingBroadcast, setPlayingBroadcast] = useState<string | null>(null);
+  useEffect(() => { setPlayerHost(window.location.hostname); }, []);
   useEffect(() => {
     let active = true;
     void supabase.auth.getSession().then(({ data }) => { if (active) setSessionToken(data.session?.access_token ?? null); });
@@ -133,6 +136,14 @@ export function CreatorAnalyticsView({
             const recorded = twitch.data.streams.find((stream) => stream.id === broadcast.streamId);
             return <article key={broadcast.id} className="rounded-md border border-border p-4">
               <a href={broadcast.url} target="_blank" rel="noopener noreferrer" className="font-semibold underline">{broadcast.title}</a>
+              {playerHost && <div className="mt-3">
+                {(playingBroadcast ?? twitch.data.broadcasts[0]?.id) === broadcast.id ? <iframe
+                  title={`Watch ${broadcast.title}`}
+                  src={`https://player.twitch.tv/?video=v${encodeURIComponent(broadcast.id)}&parent=${encodeURIComponent(playerHost)}&autoplay=false`}
+                  className="aspect-video min-h-[300px] w-full rounded-md border-0"
+                  allow="autoplay; fullscreen; picture-in-picture" allowFullScreen
+                /> : <button type="button" onClick={() => setPlayingBroadcast(broadcast.id)} className="rounded-md border border-border px-4 py-2 font-semibold">Watch broadcast here</button>}
+              </div>}
               <p className="mt-2 text-sm text-muted-foreground">{new Date(broadcast.createdAt).toLocaleString()} · Duration {broadcast.duration} · {broadcast.videoViews.toLocaleString()} video views</p>
               <p className="mt-2 text-sm">{recorded ? `Sampled average: ${recorded.average.toLocaleString()} viewers · Sampled peak: ${recorded.peak.toLocaleString()} · ${recorded.samples} observations` : "Live viewer history was not recorded for this broadcast."}</p>
             </article>;
