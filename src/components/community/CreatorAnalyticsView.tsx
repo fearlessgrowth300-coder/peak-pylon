@@ -115,6 +115,11 @@ export function CreatorAnalyticsView({
         </div>
         {twitch.error && <p role="alert" className="text-sm text-red-400">{twitch.error.message}</p>}
         {twitch.isPending && <p className="text-sm text-muted-foreground">{sessionToken ? "Loading authorized channel data…" : "Sign in to load private Twitch analytics."}</p>}
+        {sessionToken && <div className="space-y-2">
+          <button onClick={() => void reconnectTwitch()} className="rounded-md border border-border px-4 py-2 font-semibold">Reconnect Twitch for analytics</button>
+          <p className="text-xs text-muted-foreground">Already connected? Renew the Twitch permissions needed for analytics. Your community profile stays connected.</p>
+        </div>}
+        {connectError && <p role="alert" className="text-red-400">{connectError}</p>}
         {twitch.data && <>
           <p className="text-sm text-muted-foreground">@{twitch.data.login} · Updated {new Date(twitch.data.fetchedAt).toLocaleString()}</p>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -123,8 +128,6 @@ export function CreatorAnalyticsView({
             <Metric icon={<MessageSquare className="h-4 w-4" />} label="Connected chatters now" value={twitch.data.chatters?.toLocaleString() ?? "Permission required"} />
           </div>
           <p className="text-sm text-muted-foreground">{twitch.data.permissionMessage}</p>
-          {twitch.data.reconnect && <button onClick={() => void reconnectTwitch()} className="rounded-md border border-border px-4 py-2 font-semibold">Reconnect Twitch for analytics</button>}
-          {connectError && <p role="alert" className="text-red-400">{connectError}</p>}
           <h3 className="font-semibold">Recent broadcasts</h3>
           {!twitch.data.broadcasts.length && <p className="text-sm text-muted-foreground">No saved Twitch broadcasts available in this period. Twitch may not retain older broadcasts.</p>}
           {twitch.data.broadcasts.map((broadcast) => {

@@ -184,8 +184,9 @@ export const getMyTwitchAnalytics = createServerFn({ method: "POST" })
     if (error || !auth.user) throw new Error("Sign in again to view your private analytics.");
     const { data: profile, error: profileError } = await db.from("profiles").select("twitch_user_id,twitch_verified,channel_url,social_links").eq("id", auth.user.id).maybeSingle();
     if (profileError) throw new Error("Your connected profile could not be loaded.");
-    if (!profile?.twitch_verified || !profile.twitch_user_id) throw new Error("Connect and authorize Twitch in My Profile first.");
-    const userId = String(profile.twitch_user_id);
+    const { analyticsTwitchId } = await import("@/lib/twitch-identity");
+    const userId = analyticsTwitchId(profile, auth.user.identities);
+    if (!userId) throw new Error("Your older Twitch connection has no verified channel ID for analytics. Use Reconnect Twitch for analytics below to update it. You do not need to disconnect your profile.");
     const app = await getAppToken();
     const appHeaders = { "Client-Id": app.clientId, Authorization: `Bearer ${app.token}` };
     const helix = async (path: string, headers = appHeaders) => {

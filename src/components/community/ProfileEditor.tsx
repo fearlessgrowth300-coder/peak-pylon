@@ -142,6 +142,7 @@ export function ProfileEditor({
       const { url } = await beginTwitchAuthorization();
       const state = crypto.randomUUID();
       localStorage.setItem("streamcore:twitch-oauth-state", state);
+      localStorage.removeItem("streamcore:twitch-return-view");
       if (expectedLogin) localStorage.setItem("streamcore:twitch-expected-login", expectedLogin);
       else localStorage.removeItem("streamcore:twitch-expected-login");
       window.location.assign(`${url}&state=${encodeURIComponent(state)}`);
@@ -502,9 +503,12 @@ export function ProfileEditor({
               </div>
             </div>
             {isTwitchAuthorized ? (
+              <div className="flex items-center gap-2">
               <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
                 Authorized
               </span>
+              <button type="button" disabled={authorizingTwitch} onClick={() => void connectTwitchOAuth(account.platform === "Twitch")} className="rounded-md border border-border px-2.5 py-1 text-xs font-bold">{authorizingTwitch ? "Connecting…" : "Reconnect Twitch"}</button>
+              </div>
             ) : (
               <button
                 type="button"
