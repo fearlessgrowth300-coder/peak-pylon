@@ -145,7 +145,7 @@ export function CreatorAnalyticsView({
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis dataKey="createdAt" tickFormatter={value => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })} stroke="#94a3b8" />
                   <YAxis allowDecimals={false} stroke="#94a3b8" />
-                  <Tooltip labelFormatter={value => new Date(String(value)).toLocaleString()} contentStyle={{ background: "#0b1522", borderColor: "#334155", color: "#fff" }} />
+                  <Tooltip labelFormatter={value => new Date(String(value)).toLocaleString()} contentStyle={{ background: "#0b1522", borderColor: "#64748b", color: "#f8fafc", fontSize: 14 }} itemStyle={{ color: "#f8fafc" }} labelStyle={{ color: "#e2e8f0", fontWeight: 600 }} />
                   <Bar dataKey="videoViews" name="Video views" fill="#0891b2" isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
@@ -265,7 +265,7 @@ function ChannelHistoryChart({ title, points, metric }: { title: string; points:
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
           <XAxis dataKey="time" type="number" name="Recorded" domain={["dataMin", "dataMax"]} tickFormatter={value => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })} stroke="#94a3b8" />
           <YAxis dataKey="value" type="number" name={metric} allowDecimals={false} stroke="#94a3b8" />
-          <Tooltip formatter={(value, name) => name === "Recorded" ? [new Date(Number(value)).toLocaleString(), name] : [Number(value).toLocaleString(), name]} contentStyle={{ background: "#0b1522", borderColor: "#334155", color: "#fff" }} />
+          <Tooltip formatter={(value, name) => name === "Recorded" ? [new Date(Number(value)).toLocaleString(), name] : [Number(value).toLocaleString(), name]} contentStyle={{ background: "#0b1522", borderColor: "#64748b", color: "#f8fafc", fontSize: 14 }} itemStyle={{ color: "#f8fafc" }} labelStyle={{ color: "#e2e8f0", fontWeight: 600 }} />
           <Scatter data={points} fill="#0891b2" isAnimationActive={false} />
         </ScatterChart>
       </ResponsiveContainer>
