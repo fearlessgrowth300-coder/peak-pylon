@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { ROLE_META, isRestricted, topRole, type Account, type SocialLink } from "@/lib/account";
 import { formatDate } from "@/lib/community";
 import { Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
-import { beginTwitchAuthorization } from "@/lib/twitch.functions";
 import { beginKickAuthorization, extractKickSlug } from "@/lib/kick.functions";
 import { getCreatorMilestoneStatus, saveCreatorProfile, type CreatorMilestoneStatus } from "@/lib/onboarding.functions";
 import { BrandIcon } from "./BrandIcon";
@@ -139,13 +138,12 @@ export function ProfileEditor({
     }
     setAuthorizingTwitch(true);
     try {
-      const { url } = await beginTwitchAuthorization();
       const state = crypto.randomUUID();
       localStorage.setItem("streamcore:twitch-oauth-state", state);
       localStorage.removeItem("streamcore:twitch-return-view");
       if (expectedLogin) localStorage.setItem("streamcore:twitch-expected-login", expectedLogin);
       else localStorage.removeItem("streamcore:twitch-expected-login");
-      window.location.assign(`${url}&state=${encodeURIComponent(state)}`);
+      window.location.assign(`/twitch/authorize?state=${encodeURIComponent(state)}`);
     } catch (error) {
       setAuthorizingTwitch(false);
       notify(error instanceof Error ? error.message : "Twitch authorization could not start.");

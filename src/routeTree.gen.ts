@@ -15,6 +15,7 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as JoinCodeRouteImport } from './routes/join.$code'
 import { Route as KickCallbackRouteImport } from './routes/kick/callback'
+import { Route as TwitchAuthorizeRouteImport } from './routes/twitch/authorize'
 import { Route as TwitchCallbackRouteImport } from './routes/twitch/callback'
 
 const IndexRoute = IndexRouteImport.update({
@@ -47,6 +48,11 @@ const KickCallbackRoute = KickCallbackRouteImport.update({
   path: '/kick/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TwitchAuthorizeRoute = TwitchAuthorizeRouteImport.update({
+  id: '/twitch/authorize',
+  path: '/twitch/authorize',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TwitchCallbackRoute = TwitchCallbackRouteImport.update({
   id: '/twitch/callback',
   path: '/twitch/callback',
@@ -60,6 +66,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/join/$code': typeof JoinCodeRoute
   '/kick/callback': typeof KickCallbackRoute
+  '/twitch/authorize': typeof TwitchAuthorizeRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -69,6 +76,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/join/$code': typeof JoinCodeRoute
   '/kick/callback': typeof KickCallbackRoute
+  '/twitch/authorize': typeof TwitchAuthorizeRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRoutesById {
@@ -79,6 +87,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/join/$code': typeof JoinCodeRoute
   '/kick/callback': typeof KickCallbackRoute
+  '/twitch/authorize': typeof TwitchAuthorizeRoute
   '/twitch/callback': typeof TwitchCallbackRoute
 }
 export interface FileRouteTypes {
@@ -90,6 +99,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/join/$code'
     | '/kick/callback'
+    | '/twitch/authorize'
     | '/twitch/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -99,6 +109,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/join/$code'
     | '/kick/callback'
+    | '/twitch/authorize'
     | '/twitch/callback'
   id:
     | '__root__'
@@ -108,6 +119,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/join/$code'
     | '/kick/callback'
+    | '/twitch/authorize'
     | '/twitch/callback'
   fileRoutesById: FileRoutesById
 }
@@ -118,6 +130,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   JoinCodeRoute: typeof JoinCodeRoute
   KickCallbackRoute: typeof KickCallbackRoute
+  TwitchAuthorizeRoute: typeof TwitchAuthorizeRoute
   TwitchCallbackRoute: typeof TwitchCallbackRoute
 }
 
@@ -165,6 +178,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KickCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/twitch/authorize': {
+      id: '/twitch/authorize'
+      path: '/twitch/authorize'
+      fullPath: '/twitch/authorize'
+      preLoaderRoute: typeof TwitchAuthorizeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/twitch/callback': {
       id: '/twitch/callback'
       path: '/twitch/callback'
@@ -182,6 +202,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   JoinCodeRoute: JoinCodeRoute,
   KickCallbackRoute: KickCallbackRoute,
+  TwitchAuthorizeRoute: TwitchAuthorizeRoute,
   TwitchCallbackRoute: TwitchCallbackRoute,
 }
 export const routeTree = rootRouteImport

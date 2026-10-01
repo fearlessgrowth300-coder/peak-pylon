@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { beginTwitchAuthorization, getMyTwitchAnalytics } from "@/lib/twitch.functions";
+import { getMyTwitchAnalytics } from "@/lib/twitch.functions";
 import { Activity, BarChart3, Eye, Film, MessageSquare, Radio, Share2, Users } from "lucide-react";
 import { timeAgo, type Member, type Post } from "@/lib/community";
 
@@ -42,12 +42,11 @@ export function CreatorAnalyticsView({
   const reconnectTwitch = async () => {
     setConnectError("");
     try {
-      const { url } = await beginTwitchAuthorization();
       const state = crypto.randomUUID();
       localStorage.setItem("streamcore:twitch-oauth-state", state);
       localStorage.setItem("streamcore:twitch-expected-login", twitch.data?.login ?? "");
       localStorage.setItem("streamcore:twitch-return-view", "analytics");
-      window.location.assign(`${url}&state=${encodeURIComponent(state)}`);
+      window.location.assign(`/twitch/authorize?state=${encodeURIComponent(state)}`);
     } catch (error) { setConnectError(error instanceof Error ? error.message : "Twitch connection failed."); }
   };
 
@@ -115,10 +114,10 @@ export function CreatorAnalyticsView({
         </div>
         {twitch.error && <p role="alert" className="text-sm text-red-400">{twitch.error.message}</p>}
         {twitch.isPending && <p className="text-sm text-muted-foreground">{sessionToken ? "Loading authorized channel data…" : "Sign in to load private Twitch analytics."}</p>}
-        {sessionToken && <div className="space-y-2">
+        <div className="space-y-2">
           <button onClick={() => void reconnectTwitch()} className="rounded-md border border-border px-4 py-2 font-semibold">Reconnect Twitch for analytics</button>
           <p className="text-xs text-muted-foreground">Already connected? Renew the Twitch permissions needed for analytics. Your community profile stays connected.</p>
-        </div>}
+        </div>
         {connectError && <p role="alert" className="text-red-400">{connectError}</p>}
         {twitch.data && <>
           <p className="text-sm text-muted-foreground">@{twitch.data.login} · Updated {new Date(twitch.data.fetchedAt).toLocaleString()}</p>
