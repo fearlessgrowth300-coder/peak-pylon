@@ -22,11 +22,13 @@ function TwitchCallback() {
         } });
         localStorage.removeItem("streamcore:twitch-oauth-state");
         localStorage.removeItem("streamcore:twitch-expected-login");
-        localStorage.setItem("streamcore:last-view", "me");
-        setMessage(result.emailStatus === "error"
+        const returnView = localStorage.getItem("streamcore:twitch-return-view") === "analytics" ? "analytics" : "me";
+        localStorage.removeItem("streamcore:twitch-return-view");
+        localStorage.setItem("streamcore:last-view", returnView);
+        setMessage(returnView === "analytics" ? "Twitch verified! Opening your analytics…" : result.emailStatus === "error"
           ? "Twitch verified! Opening your profile (the celebration email could not be delivered)."
           : "Twitch verified! Opening your profile…");
-        setTimeout(() => void navigate({ to: "/", search: { invite: undefined, code: undefined } }), 800);
+        setTimeout(() => void navigate({ to: "/", search: { invite: undefined, code: undefined, view: returnView, post: undefined } }), 800);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Twitch verification could not be completed. Please try again.");
       }

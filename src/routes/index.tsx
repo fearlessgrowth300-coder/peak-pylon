@@ -1634,7 +1634,7 @@ function Index() {
 
             {view === "analytics" && (
               <CreatorAnalyticsView
-                myMember={myAccount ? accountToMember(myAccount) : allMembers[0]}
+                myMember={myAccount ? accountToMember(myAccount) : null}
                 posts={state.posts}
                 setToast={setToast}
               />
