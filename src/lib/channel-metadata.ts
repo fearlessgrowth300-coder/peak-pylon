@@ -31,7 +31,6 @@ export async function getChannelMetadata(channelUrl: string): Promise<ChannelMet
   };
 
   if (platform === "Kick") {
-    try {
       const { getKickChannel } = await import("./kick.functions");
       const kickData = await getKickChannel({ data: { channelUrl: url.href } });
       return {
@@ -42,9 +41,6 @@ export async function getChannelMetadata(channelUrl: string): Promise<ChannelMet
         avatar: kickData.avatar || "",
         banner: kickData.banner || "",
       };
-    } catch {
-      return fallback;
-    }
   }
 
   try {

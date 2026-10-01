@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { parseKickSlug } from './channel-platform';
 
 const input = z.object({ channelUrl: z.string().trim().min(1).max(300) });
 const refreshKickInput = z.object({
@@ -196,26 +197,7 @@ export const completeKickAuthorization = createServerFn({ method: "POST" })
   });
 
 export function extractKickSlug(channelUrl: string): string {
-  try {
-    const url = new URL(channelUrl.trim());
-    if (!/(^|\.)kick\.com$/i.test(url.hostname)) {
-      throw new Error("Use a kick.com channel URL");
-    }
-    const slug = url.pathname.split("/").filter(Boolean)[0]?.replace(/^@/, "");
-    if (!slug) throw new Error("Add a Kick channel name to the URL");
-    return slug.toLowerCase();
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("Kick channel")) throw err;
-    const clean = channelUrl
-      .trim()
-      .replace(/^https?:\/\//i, "")
-      .replace(/^www\./i, "")
-      .replace(/^kick\.com\/?/i, "")
-      .split("/")[0]
-      ?.replace(/^@/, "");
-    if (clean) return clean.toLowerCase();
-    throw new Error("Enter a valid Kick channel URL or username");
-  }
+  return parseKickSlug(channelUrl);
 }
 
 export async function fetchKickOfficialChannel(slug: string, token: string): Promise<KickChannelData | null> {
@@ -267,7 +249,8 @@ export async function fetchKickOfficialChannel(slug: string, token: string): Pro
       avatar: avatarUrl,
       banner: bannerUrl,
       status: isLive ? "live" : "offline",
-      followers: typeof item.active_subscribers_count === "number" ? item.active_subscribers_count : undefined,
+      // Kick's subscriber count is not a follower count.
+      followers: undefined,
       viewerCount: isLive ? (stream?.viewer_count ?? 0) : 0,
       gameName: item.category?.name || "",
       streamTitle: item.stream_title || "",
@@ -350,7 +333,9 @@ export const getKickChannel = createServerFn({ method: "POST" })
       // ignore v2 fallback error
     }
 
-    return fallback;
+    throw new Error(token
+      ? "Kick could not find this channel. Check the channel URL and try again."
+      : "Kick connection is unavailable. Check the server's Kick API credentials and try again.");
   });
 
 export const refreshKickStatuses = createServerFn({ method: "POST" })

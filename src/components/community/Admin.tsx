@@ -15,6 +15,7 @@ import {
 import { Avatar, Field, buttonClass, ghostButtonClass, inputClass } from "./Bits";
 import { getTwitchChannel, refreshTwitchStatuses, testTwitchConnection } from "@/lib/twitch.functions";
 import { getKickChannel } from "@/lib/kick.functions";
+import { resolveChannelPlatform } from "@/lib/channel-platform";
 import { getChannelMetadata } from "@/lib/channel-metadata";
 import { IntegrationControlCenter } from "./IntegrationControlCenter";
 import { AdminInvitesAndApprovals } from "./AdminInvitesAndApprovals";
@@ -207,14 +208,9 @@ export function AdminView({
     if (!form.link.trim()) return notify("Paste a channel link first");
     setAutoFilling(true);
     try {
-      let hostname = "";
-      try {
-        hostname = new URL(form.link).hostname;
-      } catch {
-        hostname = form.link.toLowerCase();
-      }
-      const isTwitch = form.platform === "Twitch" || /(^|\.)twitch\.tv/i.test(hostname);
-      const isKick = form.platform === "Kick" || /(^|\.)kick\.com/i.test(hostname);
+      const detectedPlatform = resolveChannelPlatform(form.link, form.platform);
+      const isTwitch = detectedPlatform === "Twitch";
+      const isKick = detectedPlatform === "Kick";
       const metadata = isTwitch
         ? await getTwitchChannel({ data: { channelUrl: form.link } })
         : isKick
@@ -256,9 +252,9 @@ export function AdminView({
       if (metadata.avatar && !avatarFile) setAutoAvatar(metadata.avatar);
       if (metadata.banner && !bannerFile) setAutoBanner(metadata.banner);
       if ("followers" in metadata && metadata.followers) setAutoFollowers(metadata.followers as number);
-      if ("viewerCount" in metadata && metadata.viewerCount) setAutoViewerCount(metadata.viewerCount as number);
-      if ("gameName" in metadata && metadata.gameName) setAutoGameName(metadata.gameName as string);
-      if ("streamTitle" in metadata && metadata.streamTitle) setAutoStreamTitle(metadata.streamTitle as string);
+      if ("viewerCount" in metadata) setAutoViewerCount(Number(metadata.viewerCount) || 0);
+      if ("gameName" in metadata) setAutoGameName(String(metadata.gameName || ""));
+      if ("streamTitle" in metadata) setAutoStreamTitle(String(metadata.streamTitle || ""));
 
       if ("socials" in metadata && Array.isArray(metadata.socials) && metadata.socials.length > 0) {
         setConnections((existing) => {
@@ -277,8 +273,8 @@ export function AdminView({
           return [...existing, ...added];
         });
       }
-    } catch {
-      notify("Could not read that channel. Fill in the details manually.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not read that channel. Try again.");
     } finally {
       setAutoFilling(false);
     }
