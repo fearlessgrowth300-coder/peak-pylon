@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { getMyTwitchAnalytics } from "@/lib/twitch.functions";
 import { Activity, BarChart3, Eye, Film, MessageSquare, Radio, Share2, Users } from "lucide-react";
@@ -28,7 +29,6 @@ export function CreatorAnalyticsView({
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [connectError, setConnectError] = useState("");
   const [playerHost, setPlayerHost] = useState("");
-  const [playingBroadcast, setPlayingBroadcast] = useState<string | null>(null);
   useEffect(() => { setPlayerHost(window.location.hostname); }, []);
   useEffect(() => {
     let active = true;
@@ -130,6 +130,27 @@ export function CreatorAnalyticsView({
             <Metric icon={<MessageSquare className="h-4 w-4" />} label="Connected chatters now" value={twitch.data.chatters?.toLocaleString() ?? "Permission required"} />
           </div>
           <p className="text-sm text-muted-foreground">{twitch.data.permissionMessage}</p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChannelHistoryChart title="Follower growth" points={twitch.data.followerHistory} metric="followers" />
+            <ChannelHistoryChart title="Live viewer history" points={twitch.data.viewerHistory} metric="concurrent viewers" />
+          </div>
+          <p className="text-xs text-muted-foreground">Points are actual observations of @{twitch.data.login}. Missing dates are not zero. Measurements are saved when analytics refreshes and by the existing live-sync process; this is not continuous stream coverage.</p>
+          {twitch.data.captureWarning && <p role="alert" className="text-sm text-amber-300">{twitch.data.captureWarning}</p>}
+          <section className="rounded-md border border-border p-4">
+            <h3 className="font-semibold">Video views by broadcast</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Current Twitch video-view totals, grouped by broadcast date. These are not live concurrent viewers or historical daily view counts.</p>
+            {twitch.data.broadcasts.length ? <div className="mt-4 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={[...twitch.data.broadcasts].reverse()} margin={{ top: 10, right: 15, bottom: 15, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="createdAt" tickFormatter={value => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })} stroke="#94a3b8" />
+                  <YAxis allowDecimals={false} stroke="#94a3b8" />
+                  <Tooltip labelFormatter={value => new Date(String(value)).toLocaleString()} contentStyle={{ background: "#0b1522", borderColor: "#334155", color: "#fff" }} />
+                  <Bar dataKey="videoViews" name="Video views" fill="#0891b2" isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div> : <p className="mt-4 text-sm text-muted-foreground">No saved broadcasts are available for this date range.</p>}
+          </section>
           <h3 className="font-semibold">Recent broadcasts</h3>
           {!twitch.data.broadcasts.length && <p className="text-sm text-muted-foreground">No saved Twitch broadcasts available in this period. Twitch may not retain older broadcasts.</p>}
           {twitch.data.broadcasts.map((broadcast) => {
@@ -137,12 +158,13 @@ export function CreatorAnalyticsView({
             return <article key={broadcast.id} className="rounded-md border border-border p-4">
               <a href={broadcast.url} target="_blank" rel="noopener noreferrer" className="font-semibold underline">{broadcast.title}</a>
               {playerHost && <div className="mt-3">
-                {(playingBroadcast ?? twitch.data.broadcasts[0]?.id) === broadcast.id ? <iframe
+                <iframe
                   title={`Watch ${broadcast.title}`}
                   src={`https://player.twitch.tv/?video=v${encodeURIComponent(broadcast.id)}&parent=${encodeURIComponent(playerHost)}&autoplay=false`}
                   className="aspect-video min-h-[300px] w-full rounded-md border-0"
                   allow="autoplay; fullscreen; picture-in-picture" allowFullScreen
-                /> : <button type="button" onClick={() => setPlayingBroadcast(broadcast.id)} className="rounded-md border border-border px-4 py-2 font-semibold">Watch broadcast here</button>}
+                  loading="lazy"
+                />
               </div>}
               <p className="mt-2 text-sm text-muted-foreground">{new Date(broadcast.createdAt).toLocaleString()} · Duration {broadcast.duration} · {broadcast.videoViews.toLocaleString()} video views</p>
               <p className="mt-2 text-sm">{recorded ? `Sampled average: ${recorded.average.toLocaleString()} viewers · Sampled peak: ${recorded.peak.toLocaleString()} · ${recorded.samples} observations` : "Live viewer history was not recorded for this broadcast."}</p>
@@ -230,6 +252,26 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
       <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
   );
+}
+
+function ChannelHistoryChart({ title, points, metric }: { title: string; points: Array<{ time: number; value: number }>; metric: string }) {
+  const change = points.length > 1 ? points[points.length - 1]!.value - points[0]!.value : null;
+  return <section className="rounded-md border border-border p-4">
+    <h3 className="font-semibold">{title}</h3>
+    <p className="mt-1 text-xs text-muted-foreground">{points.length} recorded measurements{metric === "followers" && change !== null ? ` · Net change ${change > 0 ? "+" : ""}${change.toLocaleString()} followers` : ""}</p>
+    {points.length ? <div className="mt-4 h-64">
+      <ResponsiveContainer width="100%" height="100%">
+        <ScatterChart margin={{ top: 10, right: 15, bottom: 15, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis dataKey="time" type="number" name="Recorded" domain={["dataMin", "dataMax"]} tickFormatter={value => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })} stroke="#94a3b8" />
+          <YAxis dataKey="value" type="number" name={metric} allowDecimals={false} stroke="#94a3b8" />
+          <Tooltip formatter={(value, name) => name === "Recorded" ? [new Date(Number(value)).toLocaleString(), name] : [Number(value).toLocaleString(), name]} contentStyle={{ background: "#0b1522", borderColor: "#334155", color: "#fff" }} />
+          <Scatter data={points} fill="#0891b2" isAnimationActive={false} />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div> : <p className="mt-4 text-sm text-muted-foreground">No {metric} measurements were recorded in this period.</p>}
+    {points.length === 1 && <p className="mt-2 text-xs text-muted-foreground">One measurement is available. A growth comparison needs at least two observations at different times.</p>}
+  </section>;
 }
 
 function EmptyState({ message, compact = false }: { message: string; compact?: boolean }) {

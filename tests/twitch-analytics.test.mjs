@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeStreams } from '../src/lib/twitch-analytics.ts';
+import { summarizeStreams, observationSeries } from '../src/lib/twitch-analytics.ts';
+
+test('chart data preserves measured zero but never substitutes missing or offline data', () => {
+  const rows = [
+    {stream_id:'a',observed_at:'2026-10-01T12:00:00Z',viewer_count:5,is_live:true,followers:100},
+    {stream_id:null,observed_at:'2026-10-02T12:00:00Z',viewer_count:0,is_live:false,followers:null},
+    {stream_id:'b',observed_at:'2026-10-03T12:00:00Z',viewer_count:0,is_live:true,followers:105},
+  ];
+  assert.deepEqual(observationSeries(rows,'followers').map(p=>p.value),[100,105]);
+  assert.deepEqual(observationSeries(rows,'viewers').map(p=>p.value),[5,0]);
+});
+test('charts sort actual timestamps and reject invalid observations', () => {
+  const row={stream_id:'a',observed_at:'2026-10-01T12:00:00Z',viewer_count:4,is_live:true,followers:12};
+  assert.equal(observationSeries([row,row,{...row,observed_at:'invalid'}],'followers').length,1);
+  assert.deepEqual(observationSeries([],'followers'),[]);
+});
 
 test('aggregates actual samples, preserves zero viewers, and excludes offline observations', () => {
   const row = { stream_id: 'one', observed_at: '2026-10-01T10:00:00Z', viewer_count: 0, is_live: true };

@@ -1,5 +1,16 @@
 export type Observation = { stream_id: string | null; observed_at: string; viewer_count: number; is_live: boolean };
 
+export function observationSeries(rows: Array<Observation & { followers?: number | null }>, metric: "followers" | "viewers") {
+  const points = new Map<number, { time: number; value: number }>();
+  for (const row of rows) {
+    const time = Date.parse(row.observed_at);
+    const raw = metric === "followers" ? row.followers : row.is_live ? row.viewer_count : null;
+    if (raw == null || !Number.isFinite(time) || !Number.isFinite(Number(raw)) || Number(raw) < 0) continue;
+    points.set(time, { time, value: Number(raw) });
+  }
+  return [...points.values()].sort((a, b) => a.time - b.time);
+}
+
 // These are sampled concurrent viewers, not Twitch's official full-session averages.
 export function summarizeStreams(rows: Observation[]) {
   const groups = new Map<string, { id: string; firstSeen: string; lastSeen: string; samples: number; total: number; peak: number }>();

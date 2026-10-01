@@ -178,7 +178,7 @@ export const getMyTwitchAnalytics = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { readIntegrationSecret, writeIntegrationSecret } = await import("@/lib/integrations.server");
-    const { summarizeStreams } = await import("@/lib/twitch-analytics");
+    const { summarizeStreams, observationSeries } = await import("@/lib/twitch-analytics");
     const db = supabaseAdmin as any;
     const { data: auth, error } = await supabaseAdmin.auth.getUser(data.accessToken);
     if (error || !auth.user) throw new Error("Sign in again to view your private analytics.");
@@ -205,11 +205,11 @@ export const getMyTwitchAnalytics = createServerFn({ method: "POST" })
     // Resolve admin-imported history by the actual Twitch channel, not the user's display name.
     const { data: listed, error: listedError } = await db.from("community_listed_members").select("id,data").limit(1000);
     if (listedError) throw new Error("Stored creator history could not be resolved.");
-    const ids = [auth.user.id, ...(listed ?? []).filter((row: any) => {
+    const ids = [`twitch:${userId}`, auth.user.id, ...(listed ?? []).filter((row: any) => {
       try { return twitchLogin(row.data?.link ?? "").toLowerCase() === login.toLowerCase(); } catch { return false; }
     }).map((row: any) => String(row.id))];
     const { data: history, error: historyError } = await db.from("creator_twitch_observations")
-      .select("stream_id,observed_at,viewer_count,is_live").in("creator_id", ids)
+      .select("stream_id,observed_at,viewer_count,is_live,followers").in("creator_id", ids)
       .gte("observed_at", cutoff).order("observed_at", { ascending: false }).limit(1000);
     if (historyError) throw new Error("Stored Twitch observations could not be loaded.");
     let followers: number | null = null;
@@ -252,8 +252,24 @@ export const getMyTwitchAnalytics = createServerFn({ method: "POST" })
         permissionMessage = "Twitch analytics permissions expired or could not be read. Reconnect Twitch and approve analytics access.";
       }
     }
+    const fetchedAt = new Date().toISOString();
+    const currentStream = live.data?.[0];
+    const observation = {
+      observed_at: fetchedAt, is_live: Boolean(currentStream),
+      stream_id: currentStream?.id ?? null, viewer_count: currentStream?.viewer_count ?? 0, followers,
+    };
+    // Keep channel-scoped measurements for future comparisons, at most one per 30-minute bucket.
+    const { error: captureError } = await db.from("creator_twitch_observations").upsert({
+      ...observation, creator_id: `twitch:${userId}`,
+      observed_bucket: new Date(Math.floor(Date.now() / 1800000) * 1800000).toISOString(),
+      game_name: currentStream?.game_name ?? "",
+    }, { onConflict: "creator_id,observed_bucket", ignoreDuplicates: true });
+    const chartRows = [...(history ?? []), observation];
     return {
-      login, fetchedAt: new Date().toISOString(), followers, chatters, reconnect, permissionMessage,
+      followerHistory: observationSeries(chartRows, "followers"),
+      viewerHistory: observationSeries(chartRows, "viewers"),
+      captureWarning: captureError ? "The current measurement could not be saved for future growth comparisons." : null,
+      login, fetchedAt, followers, chatters, reconnect, permissionMessage,
       currentViewers: live.data?.[0]?.viewer_count ?? null,
       streams: summarizeStreams(history ?? []), historyTruncated: (history?.length ?? 0) >= 1000,
       broadcasts: (videos.data ?? []).filter((v: any) => v.created_at >= cutoff).map((v: any) => ({
